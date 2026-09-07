@@ -50,7 +50,7 @@ BIN     := $(BUILD)/$(LANGUP)-$(NAME)
 IMAGE   ?= $(BUILD)/APPLESIDE-$(LANGUP).po
 endif
 
-.PHONY: all disk run screen clean tools eject help card test
+.PHONY: all disk run screen clean tools eject help card test dist
 
 all: $(BIN)
 
@@ -76,6 +76,22 @@ disk: $(IMAGE)
 
 $(IMAGE): $(BIN)
 	@VOL=APPLESIDE SYS=$(NAME) $(TOOLS)/mkdisk.sh $(IMAGE) $(BIN)
+
+# A disk to give somebody. Unlike the build image it keeps BASIC.SYSTEM, so
+# that quitting the editor lands somewhere a program can actually be run --
+# ApplesIDE saves plain text, and EXEC from BASIC is how that becomes a
+# running program until tokenised files are read directly. disk/README.TXT
+# rides along saying so.
+#
+# BASIC.SYSTEM is added AFTER ours, because ProDOS launches the first .SYSTEM
+# file in DIRECTORY ORDER and the disk has to come up in the editor.
+DISTIMG := $(BUILD)/APPLESIDE-DIST.po
+
+dist: $(BIN) disk/README.TXT
+	@RELEASE=1 VOL=APPLESIDE SYS=$(NAME) $(TOOLS)/mkdisk.sh $(DISTIMG) $(BIN) >/dev/null
+	@$(AC) -p $(DISTIMG) README.TXT TXT < disk/README.TXT
+	@echo "distribution image: $(DISTIMG)"
+	@$(AC) -l $(DISTIMG)
 
 # SECTION runs one section on its own: make test SECTION="renumber"
 test: $(IMAGE)
@@ -122,3 +138,4 @@ help:
 	@echo "make LANG=xx  build in another language"
 	@echo "make card VOL=NAME   copy the image to an SD card"
 	@echo "make test      run the regression suite"
+	@echo "make dist      an image to give away: adds BASIC.SYSTEM + README"

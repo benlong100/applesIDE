@@ -232,6 +232,17 @@ Reading that format is worth the work for three reasons:
 
 Plain-text import and export comes afterwards, for moving code to the Mac.
 
+**Until then there is a step.** The editor saves ProDOS TXT, which Applesoft
+cannot `RUN`. The way through is `EXEC`, which types a text file's lines in at
+the `]` prompt as though they had been typed by hand:
+
+    OA-S to save  ->  OA-Q  ->  BASIC.SYSTEM  ->  EXEC name  ->  RUN
+
+Verified end to end on the emulator. `make dist` builds a disk carrying
+`BASIC.SYSTEM` and a `README.TXT` describing it, because a disk that can write
+a program but not run one is a poor thing to hand somebody. The step goes away
+when tokenized files land.
+
 ## 7. Inverse reserved words
 
 Applesoft's keywords are drawn inverse. `tools/gentokens.py` holds the token

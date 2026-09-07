@@ -11,6 +11,7 @@ a text editor are built yet.
     make disk     bootable ProDOS 8 image at build/APPLESIDE.po
     make run      build and boot it in Virtual ][
     make test     run the regression suite (57 assertions)
+    make dist     an image to give away: adds BASIC.SYSTEM and a README
     make card VOL=NAME   copy the image to an SD card
     make tools    fetch the toolchain on a fresh clone
 
@@ -54,7 +55,10 @@ the project and the one component deliberately deferred.
 
 ## What does not yet
 
-- no Applesoft file support — nothing reads or writes tokenized `$FC` files
+- **no tokenized file support.** It saves plain ProDOS TXT, so Applesoft
+  cannot RUN a program directly: quit to BASIC and `EXEC` it, which
+  types the lines in. `make dist` builds a disk with BASIC.SYSTEM on it
+  for exactly that. Reading `$FC` files is the next large piece of work
 - find, clipboard and go-to-line are stubs in `src/unbuilt.S`, and say
   `NOT BUILT YET` if you press them rather than doing nothing
 
