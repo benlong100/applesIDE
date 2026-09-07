@@ -50,7 +50,7 @@ BIN     := $(BUILD)/$(LANGUP)-$(NAME)
 IMAGE   ?= $(BUILD)/APPLESIDE-$(LANGUP).po
 endif
 
-.PHONY: all disk run screen clean tools eject help card
+.PHONY: all disk run screen clean tools eject help card test
 
 all: $(BIN)
 
@@ -76,6 +76,10 @@ disk: $(IMAGE)
 
 $(IMAGE): $(BIN)
 	@VOL=APPLESIDE SYS=$(NAME) $(TOOLS)/mkdisk.sh $(IMAGE) $(BIN)
+
+# SECTION runs one section on its own: make test SECTION="renumber"
+test: $(IMAGE)
+	@tests/run.sh "$(SECTION)"
 
 run: $(IMAGE)
 	@$(VII) boot $(IMAGE)
@@ -117,3 +121,4 @@ help:
 	@echo "make run      build and boot it in Virtual ]["
 	@echo "make LANG=xx  build in another language"
 	@echo "make card VOL=NAME   copy the image to an SD card"
+	@echo "make test      run the regression suite"

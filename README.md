@@ -10,6 +10,8 @@ a text editor are built yet.
     make          assemble src/aside.S
     make disk     bootable ProDOS 8 image at build/APPLESIDE.po
     make run      build and boot it in Virtual ][
+    make test     run the regression suite (57 assertions)
+    make card VOL=NAME   copy the image to an SD card
     make tools    fetch the toolchain on a fresh clone
 
 ## What it is
@@ -55,7 +57,6 @@ the project and the one component deliberately deferred.
 - no Applesoft file support — nothing reads or writes tokenized `$FC` files
 - find, clipboard and go-to-line are stubs in `src/unbuilt.S`, and say
   `NOT BUILT YET` if you press them rather than doing nothing
-- no automated tests
 
 ## Requirements
 

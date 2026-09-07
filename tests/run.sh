@@ -1,0 +1,432 @@
+#!/bin/bash
+# tests/run.sh -- ApplesIDE's regression suite, driven through Virtual ][.
+#
+# Built after a first run on real hardware turned up three bugs in one sitting,
+# two of which the emulator would have shown instantly had anyone asked it. The
+# cases below are, deliberately, the ones that have actually gone wrong:
+# scrolled strings, REM, ATN against AT, renumbering with references, and the
+# refusal to renumber a broken program. A suite of cases nobody has ever seen
+# fail tests mostly that the code compiles.
+#
+# INVERSE VIDEO CANNOT BE READ FROM THE SCREEN TEXT. Virtual ][ reports an
+# inverse character and a normal one identically, so every keyword-highlighting
+# assertion here reads the text page out of emulated RAM instead: bytes below
+# $80 are inverse. See `hlrow`.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VII="$ROOT/tools/vii.sh"
+IMAGE="${IMAGE:-$ROOT/build/APPLESIDE.po}"
+BIN="${BIN:-$ROOT/build/ASIDE.SYSTEM}"
+
+# One suite at a time. Virtual ][ has exactly one front machine, so a second
+# run -- or a stray boot from another window -- steers the machine out from
+# under the first, and what comes back is a scatter of failures in sections
+# nothing touched. ZipEdit lost three runs to this in a day.
+LOCK="${TMPDIR:-/tmp}/applesIDE-suite.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+    other="$(cat "$LOCK/pid" 2>/dev/null)"
+    if [ -n "$other" ] && kill -0 "$other" 2>/dev/null; then
+        echo "another test run (pid $other) holds the emulator" >&2
+        exit 2
+    fi
+    echo "clearing a stale lock from pid ${other:-unknown}" >&2
+    rm -rf "$LOCK"
+    mkdir "$LOCK" || { echo "cannot take $LOCK" >&2; exit 2; }
+fi
+echo "$$" > "$LOCK/pid"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$LOCK" "$TMP"' EXIT INT TERM
+
+SCRW=80
+HSTEP=16          # must match src/equates.S
+
+pass=0; fail=0
+ok()  { printf '  \033[32mPASS\033[0m %s\n' "$1"; pass=$((pass+1)); }
+bad() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; shift; [ $# -gt 0 ] && printf '       %s\n' "$@"; fail=$((fail+1)); }
+
+ONLY="${1:-}"
+section() {
+    case "$1" in
+        *"$ONLY"*) echo; echo "$1"; return 0 ;;
+        *)         return 1 ;;
+    esac
+}
+
+#--------------------------------------
+# Driving the machine
+#--------------------------------------
+SCREEN="$TMP/screen.txt"
+snapshot() { "$VII" screen-raw > "$SCREEN"; }
+
+# reboot -- a fresh machine with an empty program, caps off, hint row as the
+# editor starts it. Every section sets up its own text: there is no fixture
+# document on the disk, because a program that renumbers and rewrites itself
+# would poison one for every later section.
+reboot() {
+    local tries
+    for tries in 1 2 3; do
+        "$VII" boot "$IMAGE" >/dev/null || { echo "boot failed"; exit 1; }
+        "$VII" await "ApplesIDE" 120 >/dev/null || continue
+        "$VII" text " " >/dev/null
+        "$VII" await "UNTITLED.BAS" 60 >/dev/null || continue
+        "$VII" caps false >/dev/null
+        "$VII" settle 3 >/dev/null
+        return 0
+    done
+    echo "the editor never reached an empty document after 3 boots"; exit 1
+}
+
+# type <text> -- and wait for the machine to stop moving
+t() { "$VII" text "$1" >/dev/null; "$VII" settle 4 >/dev/null; }
+# a line, then Return. Return auto-numbers, so callers that want their own
+# number delete what it supplied first -- see `numbered`.
+tl() { "$VII" line "$1" >/dev/null; "$VII" settle 3 >/dev/null; }
+
+# numbered <digits-to-drop> <text> -- Return supplies a number, we take it out
+# and type our own. The count is how many characters it inserted, digits plus
+# the space after them.
+numbered() {
+    "$VII" line "" >/dev/null; "$VII" settle 2 >/dev/null
+    local i; for i in $(seq 1 "$1"); do "$VII" del >/dev/null; done
+    "$VII" text "$2" >/dev/null; "$VII" settle 3 >/dev/null
+}
+
+oa() { "$VII" caps true >/dev/null; "$VII" oa "$1" >/dev/null; "$VII" settle 5 >/dev/null; "$VII" caps false >/dev/null; }
+
+#--------------------------------------
+# Assertions
+#--------------------------------------
+# row <0-based> -- one line of the screen, trailing blanks trimmed
+row() { sed -n "$(($1+1))p" "$SCREEN" | sed 's/ *$//'; }
+
+assert_row() {
+    local name="$1" r="$2" want="$3" got; got="$(row "$r")"
+    if [[ "$got" == *"$want"* ]]; then ok "$name"
+    else bad "$name" "row $r wanted: $want" "row $r got:    $got"; fi
+}
+
+assert_notrow() {
+    local name="$1" r="$2" nope="$3" got; got="$(row "$r")"
+    if [[ "$got" != *"$nope"* ]]; then ok "$name"
+    else bad "$name" "row $r should NOT contain: $nope" "row $r got: $got"; fi
+}
+
+status() { sed -n '24p' "$SCREEN"; }
+assert_col() {
+    local name="$1" want="$2" got
+    got="$(status | sed 's/.*C:\([0-9]*\).*/\1/')"
+    if [ "$got" = "$want" ]; then ok "$name"; else bad "$name" "column $got, wanted $want"; fi
+}
+
+# hlrow <0-based row> -- the text page for that row, and which cells are
+# INVERSE, as two parallel strings. 80-column text is interleaved: even cells
+# in the aux bank, odd in main, both at $400 with the usual row scramble.
+# Inverse screen codes are below $80; normal high-ASCII text is $A0 and up.
+hlrow() {
+    local r="$1"
+    "$VII" dump 0x0400 0x400 1 "$TMP/aux.bin" >/dev/null
+    "$VII" dump 0x0400 0x400 0 "$TMP/main.bin" >/dev/null
+    python3 - "$TMP/aux.bin" "$TMP/main.bin" "$r" <<'PY'
+import sys
+aux = open(sys.argv[1],'rb').read(); main = open(sys.argv[2],'rb').read()
+r = int(sys.argv[3]); off = (r % 8) * 0x80 + (r // 8) * 0x28
+cells = []
+for c in range(40):
+    cells.append(aux[off+c]); cells.append(main[off+c])
+print(''.join(chr((b & 0x7f) | 0x40) if b < 0x40 else chr(b & 0x7f) for b in cells).rstrip())
+print(''.join('^' if b < 0x80 else ' ' for b in cells).rstrip())
+PY
+}
+
+# assert_inverse <name> <row> <word> -- is that word drawn inverse?
+# Finds the word in the row's text and checks every one of its cells.
+assert_inverse() {
+    local name="$1" r="$2" word="$3" want="${4:-yes}" out txt inv i n
+    out="$(hlrow "$r")"; txt="$(echo "$out" | sed -n '1p')"; inv="$(echo "$out" | sed -n '2p')"
+    local before="${txt%%$word*}"
+    if [ "$before" = "$txt" ]; then
+        bad "$name" "'$word' is not on row $r at all" "row: $txt"; return
+    fi
+    i=${#before}; n=${#word}
+    local slice="${inv:$i:$n}" expect
+    if [ "$want" = "yes" ]; then expect="$(printf '^%.0s' $(seq 1 $n))"
+    else expect="$(printf ' %.0s' $(seq 1 $n))"; fi
+    if [ "$slice" = "$expect" ]; then ok "$name"
+    else bad "$name" "'$word' at cell $i wanted [$expect] got [$slice]" "row: $txt" "inv: $inv"; fi
+}
+
+echo "ApplesIDE suite -- $(basename "$IMAGE")"
+[ -f "$IMAGE" ] || { echo "no image at $IMAGE -- run: make disk" >&2; exit 1; }
+
+#--------------------------------------
+if section "it boots"; then
+reboot
+snapshot
+assert_row "the status row names the untitled program" 23 "UNTITLED.BAS"
+assert_row "and reports free memory"                   23 "FREE"
+t '10 HOME'
+snapshot
+assert_row "typing reaches the buffer"                  0 "10 HOME"
+assert_col "and the column follows it"                  8
+fi
+
+#--------------------------------------
+# Return supplies the next number. Every case here has been wrong at some
+# point: the emit loop hung the editor, the value came out as 0, and an
+# insert between two lines produced a duplicate.
+#--------------------------------------
+if section "automatic line numbers"; then
+reboot
+t '10 HOME'
+tl ''
+t 'PRINT 1'
+tl ''
+t 'END'
+snapshot
+assert_row "the first line keeps its number"            0 "10 HOME"
+assert_row "Return supplies the next"                   1 "20 PRINT 1"
+assert_row "and the next"                               2 "30 END"
+
+# between two lines, the midpoint rather than a duplicate
+"$VII" caps true >/dev/null; "$VII" oa "<" >/dev/null; "$VII" settle 5 >/dev/null
+"$VII" ctrl E >/dev/null; "$VII" settle 3 >/dev/null; "$VII" caps false >/dev/null
+tl ''
+snapshot
+assert_row "inserting between 10 and 20 gives 15"       1 "15"
+assert_row "and 20 is still there"                      2 "20 PRINT 1"
+
+# and where no whole number is free, it says so rather than guessing
+reboot
+t '10 A'
+numbered 3 '11 B'
+"$VII" caps true >/dev/null; "$VII" oa "<" >/dev/null; "$VII" settle 5 >/dev/null
+"$VII" ctrl E >/dev/null; "$VII" settle 3 >/dev/null; "$VII" caps false >/dev/null
+tl ''
+snapshot
+assert_row "between 10 and 11 there is no room, and it says so" 23 "NO FREE LINE NUMBER"
+fi
+
+#--------------------------------------
+# Long lines scroll sideways rather than wrapping, and the line number stays
+# pinned. Both the cursor cell and the pinned region have been wrong.
+#--------------------------------------
+if section "long lines scroll"; then
+reboot
+t '10 FOR I=1 TO 9: PRINT I;: NEXT I: REM PADDING TO PUSH THIS WELL PAST COLUMN EIGHTY'
+snapshot
+assert_row "the number stays pinned when the view scrolls"  0 "10>"
+assert_notrow "and the start of the line has scrolled away" 0 "10 FOR"
+
+"$VII" ctrl A >/dev/null; "$VII" settle 5 >/dev/null
+snapshot
+assert_row "Ctrl-A brings the view home"                    0 "10 FOR I=1 TO 9"
+assert_notrow "and the scroll marker goes with it"          0 "10>"
+
+# an edit while scrolled must land where the cursor appears to be
+"$VII" ctrl E >/dev/null; "$VII" settle 5 >/dev/null
+for _i in 1 2 3 4 5 6; do "$VII" key "left arrow" >/dev/null; done
+"$VII" settle 3 >/dev/null
+t '#'
+snapshot
+assert_row "an insert while scrolled lands at the cursor"   0 "#EIGHTY"
+fi
+
+#--------------------------------------
+# Keywords drawn inverse. Read from the text page, since the screen text
+# cannot tell inverse from normal.
+#--------------------------------------
+if section "keywords are inverse"; then
+reboot
+t '10 HOME'
+tl ''
+t 'FOR I=1 TO 9'
+tl ''
+t 'X = AT 5 + ATN(1)'
+"$VII" settle 5 >/dev/null
+assert_inverse "HOME is a keyword"          0 "HOME"
+assert_inverse "FOR is a keyword"           1 "FOR"
+assert_inverse "so is TO"                   1 "TO"
+assert_inverse "but I is a variable"        1 "I=1" no
+# ATN before AT: longest match, which Applesoft needs a special case for.
+# The bare AT comes FIRST on the line on purpose -- assert_inverse finds the
+# first occurrence of what it is given, so searching for AT with ATN earlier
+# would land inside ATN, and searching for "AT " would demand the trailing
+# space be inverse too, which it correctly is not.
+assert_inverse "a bare AT is a keyword"     2 "AT"
+assert_inverse "and ATN matches as one word" 2 "ATN"
+fi
+
+#--------------------------------------
+# Strings and REM. THE SCROLLED CASE IS THE BUG REAL HARDWARE FOUND: the
+# string state was recorded only where a cell is drawn, so an opening quote
+# scrolled off the left edge stopped protecting anything.
+#--------------------------------------
+if section "strings and REM are not code"; then
+reboot
+t '10 PRINT "GOTO": HOME'
+"$VII" settle 5 >/dev/null
+assert_inverse "PRINT outside the quotes is a keyword"  0 "PRINT"
+assert_inverse "GOTO inside them is not"                0 "GOTO" no
+assert_inverse "and HOME after the close is again"      0 "HOME"
+
+reboot
+t '20 REM HOME AND PRINT'
+"$VII" settle 5 >/dev/null
+assert_inverse "REM itself is a keyword"                0 "REM"
+assert_inverse "but nothing after it is"                0 "HOME" no
+
+# the hardware bug, exactly as reported
+reboot
+t '10 PRINT "AAAAAAAAAA BBBBBBBBBB CCCCCCCCCC DDDDDDDDDD EEEEEEEEEE FFFFFFFFFF GGGGGGG'
+"$VII" settle 5 >/dev/null
+t ' HOME GOTO PRINT'
+"$VII" settle 6 >/dev/null
+assert_inverse "an open string still protects HOME once scrolled"  0 "HOME" no
+assert_inverse "...and GOTO"                                       0 "GOTO" no
+assert_inverse "...and PRINT"                                      0 "PRINT" no
+fi
+
+#--------------------------------------
+if section "syntax hints"; then
+reboot
+t '10 PRINT '
+snapshot
+assert_row "the hint row is on from the start"      22 "PRINT"
+t 'X: FOR I'
+snapshot
+assert_row "and follows to the newest keyword"      22 "FOR v=a TO b"
+t '=1 TO 9'
+snapshot
+assert_row "and holds while the arguments are typed" 22 "TO"
+fi
+
+#--------------------------------------
+if section "? types PRINT"; then
+reboot
+t '10 ?"HI"'
+snapshot
+assert_row "a bare ? becomes PRINT"                 0 "10 PRINT"
+reboot
+t '10 REM ? STAYS'
+snapshot
+assert_row "after REM it does not"                  0 "REM ? STAYS"
+reboot
+t '10 ? "A ? INSIDE"'
+snapshot
+assert_row "nor inside a string"                    0 "PRINT \"A ? INSIDE\""
+fi
+
+#--------------------------------------
+if section "delete to end of line"; then
+reboot
+t '10 PRINT "HELLO"'
+"$VII" ctrl A >/dev/null; "$VII" settle 3 >/dev/null
+for _i in $(seq 1 8); do "$VII" key "right arrow" >/dev/null; done
+"$VII" settle 3 >/dev/null
+"$VII" ctrl Y >/dev/null; "$VII" settle 4 >/dev/null
+snapshot
+assert_row "Ctrl-Y clears from the cursor"          0 "10 PRINT"
+assert_notrow "and takes the rest with it"          0 "HELLO"
+fi
+
+#--------------------------------------
+# OA-K. It once reported ALL REFERENCES OK while checking nothing at all,
+# which is why the first case here is a program known to be broken.
+#--------------------------------------
+if section "reference check"; then
+reboot
+t '10 GOTO 999'
+numbered 3 '20 END'
+oa "K"
+snapshot
+assert_row "a GOTO to nowhere is reported"          23 "NO SUCH LINE: 10 -> 999"
+
+reboot
+t '10 PRINT "GOTO 999"'
+numbered 3 '20 REM GOTO 888'
+numbered 3 '30 GOSUB 10'
+numbered 3 '40 ON X GOTO 10,20,30'
+oa "K"
+snapshot
+assert_row "quotes, REM, GOSUB and a list all pass" 23 "ALL LINE REFERENCES OK"
+
+reboot
+t '10 REM'
+numbered 3 '20 ON X GOTO 10,20,777'
+oa "K"
+snapshot
+assert_row "every element of a list is checked"     23 "NO SUCH LINE: 20 -> 777"
+fi
+
+#--------------------------------------
+if section "renumber"; then
+reboot
+t '100 HOME'
+numbered 4 '200 GOSUB 500'
+numbered 4 '300 IF X THEN 100'
+numbered 4 '500 RETURN'
+oa "R"
+snapshot
+assert_row "lines become 10, 20, 30, 40"            0 "10 HOME"
+assert_row "a GOSUB follows its line"               1 "20 GOSUB 40"
+assert_row "and so does a THEN"                     2 "30 IF X THEN 10"
+assert_row "the last line lands on 40"              3 "40 RETURN"
+
+# numbers that GROW, plus a comment and a string that must not move
+reboot
+t '1 REM GOTO 999'
+numbered 3 '2 PRINT "GOTO 3"'
+numbered 3 '3 ON X GOTO 1,2,3'
+numbered 3 '4 END'
+oa "R"
+snapshot
+assert_row "one digit grows to two"                 0 "10 REM"
+assert_row "a comment keeps its number"             0 "GOTO 999"
+assert_row "so does a string"                       1 "20 PRINT \"GOTO 3\""
+assert_row "and a whole list is remapped"           2 "30 ON X GOTO 10,20,30"
+
+# and it refuses a program it would silently corrupt
+reboot
+t '100 GOTO 999'
+numbered 4 '200 END'
+oa "R"
+snapshot
+assert_row "a broken program is refused"            23 "NO SUCH LINE: 100 -> 999"
+assert_row "and nothing is renumbered"              0 "100 GOTO 999"
+fi
+
+#--------------------------------------
+if section "help and chrome"; then
+reboot
+oa "?"
+snapshot
+assert_row "the help screen names the program"       1 "APPLESIDE"
+assert_row "and lists renumbering"                   5 "renumber by ten"
+assert_row "and the reference check"                 6 "check GOTO targets"
+"$VII" text " " >/dev/null; "$VII" settle 3 >/dev/null
+snapshot
+assert_row "page two lists the file keys"            5 "open"
+assert_row "and admits what is not built"            4 "NOT BUILT YET"
+fi
+
+#--------------------------------------
+if section "the toolchain"; then
+if [ -f "$BIN" ]; then
+    size=$(stat -f%z "$BIN")
+    if [ "$size" -lt 16384 ]; then
+        ok "the binary fits the \$2000-\$5FFF budget ($size bytes)"
+    else
+        bad "the binary fits the \$2000-\$5FFF budget" "$size bytes, over 16384"
+    fi
+    onimage=$("$ROOT/tools/ac" -g "$IMAGE" ASIDE.SYSTEM 2>/dev/null | wc -c | tr -d ' ')
+    if [ "$onimage" = "$size" ]; then ok "and the image carries that same binary"
+    else bad "and the image carries that same binary" "image $onimage, build $size -- run make disk"; fi
+else
+    bad "the binary exists" "no $BIN"
+fi
+fi
+
+echo
+echo "$pass passed, $fail failed"
+[ "$fail" -eq 0 ]

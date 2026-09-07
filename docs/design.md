@@ -405,7 +405,25 @@ sixteen — it would land as `APPLESIDE.SYSTE`, stop looking like a `.SYSTEM`
 file, and never auto-launch. Hence **`ASIDE.SYSTEM`**, which also reads as a
 word. The volume is `/APPLESIDE/`, where fifteen characters is plenty.
 
-## 12. What is deliberately absent
+## 12. Known limits
+
+**A line number above 65535 wraps.** The suite found this by accident: a
+mis-counted test merged two lines into `10 GOTO 99920 END`, and `OA-K`
+reported the target as `34384` — which is 99920 less 65536. `LNMUL10`
+accumulates in sixteen bits and nothing checks the range.
+
+It takes an invalid program to reach: Applesoft's ceiling is 63999 and it
+would reject the line itself. But `OA-K` would report a number nobody typed,
+and `RENUM` would map it wrongly, so it is a real gap rather than a
+theoretical one. Fixing it means range-checking in `LNMUL10` and giving its
+callers somewhere to put the failure; it is not done, and the binary has about
+1.5K of the 16K budget left to do it in.
+
+Worth noting how it turned up. The test was wrong, not the code — but a wrong
+test still ran a program no deliberate test would have written, which is most
+of the value of running one at all.
+
+## 13. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be
