@@ -115,8 +115,10 @@ KEYTBL
              da    KQUIT            ; OA-Q
              dfb   $ce,$80
              da    KNEW             ; OA-N
-             dfb   $d7,$80
-             da    KWORDS           ; OA-W
+             dfb   $cb,$80
+             da    KCHECK           ; OA-K -- check line-number references.
+                                    ; This slot was OA-W, a word count, which
+                                    ; means nothing in a program.
              dfb   $c1,$80
              da    KSAVEAS          ; OA-A
              dfb   $a7,$80

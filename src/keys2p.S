@@ -103,7 +103,7 @@ KEYTBL
              dfb   $96,$00
              da    KPASTE           ; Ctrl-V
              dfb   $97,$00
-             da    KWORDS           ; Ctrl-W
+             da    KCHECK           ; Ctrl-W
              dfb   $98,$00
              da    KCUT             ; Ctrl-X
 

@@ -38,12 +38,13 @@ the project and the one component deliberately deferred.
   `>` marking where text has been scrolled past
 - **automatic line numbers**: press Return and the next number is supplied,
   taking the midpoint when you insert between two existing lines
+- **OA-K checks line references**: every GOTO, GOSUB, THEN and RUN target,
+  ignoring keywords inside strings and after REM
 - English and any other language you write a `lang/<code>.txt` for
 
 ## What does not yet
 
-- no renumbering, and no reference tracking, so a GOTO does not follow its
-  line
+- no renumbering, so a GOTO does not yet follow its line when things move
 - no keyword display, no syntax hints
 - no Applesoft file support — nothing reads or writes tokenized `$FC` files
 - find, clipboard and go-to-line are stubs in `src/unbuilt.S`

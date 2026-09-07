@@ -54,6 +54,13 @@ MSGERR = " PRODOS ERROR $"
 # Return supplies the next line number, but there is not always one to supply:
 # between 20 and 21 there is no whole number free. Shown instead of guessing.
 MSGNOROOM = " NO FREE LINE NUMBER HERE"
+
+# OA-K checks that every GOTO, GOSUB, THEN and RUN points at a line that
+# exists. MSGNOLINE is a PREFIX: the line the reference sits on, an arrow, and
+# the number it asked for are appended to it, so it must leave room for about
+# fifteen more characters.
+MSGREFOK = " ALL LINE REFERENCES OK"
+MSGNOLINE = " NO SUCH LINE: "
 HINTESC = "ESC CANCELS"
 
 # ---------------------------------------------------------- the unsaved guard

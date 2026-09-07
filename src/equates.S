@@ -109,6 +109,13 @@ HOFF         equ   $6f              ; horizontal scroll: the logical column
                                     ; of HSTEP, and zero almost all the time.
 HOLD         equ   $70              ; HOFF before the keystroke, so the main
                                     ; loop can tell whether the view moved
+RFTP         equ   $71              ; 2 bytes, refs.S: into the line-number
+                                    ; table. On zero page because (RFTP),y is
+                                    ; indirect indexed, which reaches nowhere
+                                    ; else -- a pointer in a dum block at
+                                    ; $1200 assembles as far as the addressing
+                                    ; mode and no further.
+RFSP         equ   $73              ; 2 bytes, refs.S: into a keyword's text
 CLIPMAX      equ   1024             ; clipboard capacity
 
 

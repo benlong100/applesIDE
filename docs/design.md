@@ -86,7 +86,7 @@ That was not the obvious choice, so here is why.
 inside the line body, typed by the user. An editor that owned every line's
 number as metadata would still need the same scanner over `GOTO`, `GOSUB`,
 `THEN`, `ON…GOTO`, `RUN` and `LIST` — and would now hold *two* representations
-of a line number that have to agree. Since §7 already chose `RENUM` over
+of a line number that have to agree. Since §8 already chose `RENUM` over
 symbolic identity, and `RENUM` rewrites numbers and references together as
 text, owning the numbers separately buys very little and costs the thing this
 editor is built on: a gap buffer holding plain text, where save and load are
@@ -133,7 +133,7 @@ numbered by tens: the gaps are where inserted lines go. If a numbered line
 *follows*, ten more may already be taken, so it takes the midpoint instead —
 Return between 20 and 30 gives 25. Between 20 and 21 there is no whole number
 free, so it says `NO FREE LINE NUMBER HERE` and types nothing. The honest
-answer there is that the program wants renumbering, and `RENUM` is §7 and not
+answer there is that the program wants renumbering, and `RENUM` is §8 and not
 built.
 
 **Splitting a line** mid-way gets a number on the tail, deliberately: the tail
@@ -164,7 +164,58 @@ caught by reading the code again.
    ordinary text, nothing is skipped, and "no following number" is then the
    right answer.
 
-## 5. Tokenized files
+## 5. The reference scanner
+
+`OA-K` walks the program and reports the first `GOTO`, `GOSUB`, `THEN` or
+`RUN` pointing at a line that is not there — a bug you would otherwise meet at
+run time, half way through doing something.
+
+It exists mainly because **it is the scan `RENUM` needs**. Finding a reference
+and rewriting one differ only in what you do once you have found it, and the
+finding is all of the difficulty. Building it with a consumer that is useful on
+its own means it gets exercised properly before anything depends on it.
+
+Two passes, because a `GOTO` may point forwards: pass one collects every
+line's own number into a table at `$6000`, pass two walks again and looks each
+reference up. The lookup is a linear scan — a few hundred lines against a few
+dozen references is well under a second at 1MHz, and a binary search is an
+optimisation to make when something is actually slow.
+
+**The rules that make it worth writing**, all verified on the machine:
+
+- a keyword inside a string is not a keyword — `PRINT "GOTO 999"` is text
+- everything after `REM` is literal
+- the number after `GOTO` may be a list — `ON X GOTO 10,20,30` is three
+  references, and the third is checked
+- a keyword need not be followed by a number at all: `THEN PRINT` and a bare
+  `RUN` are both legal
+
+### Not handled yet
+
+- **`LIST`**, which takes a range with a hyphen rather than a plain number.
+- **lowercase keywords.** Applesoft tokenizes uppercase only, so `goto 10` is
+  not a `GOTO` to the machine either — but the editor ought to say so rather
+  than silently agreeing.
+- **`DATA`**, whose contents are literal in ways this does not model.
+
+### Three bugs, and where they came from
+
+1. **`(RFTP),y` needs a zero-page pointer.** The scratch block was at `$1200`,
+   and indirect indexed addressing reaches nowhere but page zero. Merlin says
+   so plainly — *"located outside of the Direct Page"* — but only after the
+   whole listing has been written, and `make` reported nothing but a failure.
+2. **The character `RFNUMBER` stopped on was saved three lines too late**, by
+   which point `A` held `RFEOL`. `RFCH2` came out as 0, which is below
+   `TEXTLO`, so every line's body looked like an immediate end of line: the
+   scanner ran, found nothing, and reported all references OK. **A checker
+   that never checks anything passes every test you give it**, which is why
+   the first thing tried after it worked was a program known to be broken.
+3. **`REM` ended the line logically but not in the buffer.** The walk
+   restarted at the character after `REM` and read the comment as a fresh
+   line, so `20 REM GOTO 888` reported a missing line 888. `RFEOL2` grew a
+   third value meaning "run on to the real break first".
+
+## 6. Tokenized files
 
 An Applesoft program on disk is normally ProDOS file type `$FC`: a dump of
 memory from `$801`, structured as a linked list of lines, each one two bytes of
@@ -181,7 +232,7 @@ Reading that format is worth the work for three reasons:
 
 Plain-text import and export comes afterwards, for moving code to the Mac.
 
-## 6. The tokenizer will be the sharp edge
+## 7. The tokenizer will be the sharp edge
 
 Applesoft matches keywords **greedily against a table, in table order**, and the
 table is not sorted helpfully. `AT` is `$C5`; `ATN` is `$E1`. A naive matcher
@@ -196,7 +247,7 @@ that are easy to miss:
 - everything after `REM` is literal
 - `DATA` has its own quoting rules
 
-## 7. Renumbering
+## 8. Renumbering
 
 The request was that `GOTO` targets follow their lines automatically. Two ways:
 
@@ -213,14 +264,14 @@ Either way the essential piece is the same, and it is where the actual work is:
 a scanner that finds every line-number reference — `GOTO`, `GOSUB`, `THEN`,
 `ON…GOTO`, `ON…GOSUB`, `RUN`, `LIST`.
 
-## 8. Where the syntax hints go
+## 9. Where the syntax hints go
 
 ZipEdit spends one screen row on a Markdown cheat sheet, toggled with `OA-/`.
 That row is already wired up, already toggleable, and already excluded from the
 text area's height. It is where the syntax of the keyword under the cursor
 belongs. Nothing new is needed but content.
 
-## 9. The AI window — deferred, deliberately
+## 10. The AI window — deferred, deliberately
 
 The original request ended with an AI panel talking to OpenAI over Uthernet or
 FujiNet. The hardware reading in it is correct: Uthernet II is a W5100 with a
@@ -236,14 +287,14 @@ It is deferred because it is the only component that does nothing when the
 machine is offline, and because letting it shape the editor's design would be
 the wrong trade. It is not ruled out.
 
-## 10. The name
+## 11. The name
 
 ProDOS truncates a filename at fifteen characters. `APPLESIDE.SYSTEM` is
 sixteen — it would land as `APPLESIDE.SYSTE`, stop looking like a `.SYSTEM`
 file, and never auto-launch. Hence **`ASIDE.SYSTEM`**, which also reads as a
 word. The volume is `/APPLESIDE/`, where fifteen characters is plenty.
 
-## 11. What is deliberately absent
+## 12. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be

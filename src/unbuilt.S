@@ -25,8 +25,6 @@
 * KCOPY KCUT KPASTE clipboard, line-oriented. Portable.
 * KDELEOL           delete to end of line. Portable.
 *                   (KDELWORD is NOT here: keyboard.S defines it already.)
-* KWORDS            word count. Meaningless for a program; drop it and give
-*                   the key to something else.
 *
 *   from ZipEdit's edit_ops.S -- Markdown, and NOT wanted
 * KBOLD KITALIC     emphasis. There is no such thing in Applesoft. These
@@ -47,7 +45,6 @@ KCOPY        rts
 KCUT         rts
 KPASTE       rts
 KDELEOL      rts
-KWORDS       rts
 KBOLD        rts
 KITALIC      rts
 

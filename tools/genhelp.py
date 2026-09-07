@@ -138,7 +138,10 @@ P1R = [header(T("EDITING"), "R"),
        header(T("SCREEN"), "R"),
        entry("@-?", T("this help"),          "R")]
 
-P2L = [header(T("NOT YET BUILT"), "L"),
+P2L = [header(T("PROGRAM"), "L"),
+       entry("@-K", T("check GOTO targets"), "L"),
+       None,
+       header(T("NOT YET BUILT"), "L"),
        entry("", T("renumbering"),           "L"),
        entry("", T("keyword display"),       "L"),
        entry("", T("syntax hints"),          "L"),
