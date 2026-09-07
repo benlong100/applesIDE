@@ -93,6 +93,9 @@ KEYTBL
              da    FINDNEXT         ; OA-G
              dfb   $cc,$80
              da    KGOTO            ; OA-L
+             dfb   $bf,$00
+             da    KQUERY           ; ? alone, which Applesoft reads as
+                                    ; PRINT. OA-? is help; this is the bare key.
              dfb   $bf,$80
              da    HELPSHOW         ; OA-?
              dfb   $af,$80

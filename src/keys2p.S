@@ -68,6 +68,9 @@ KEYTBL
              da    KDOWNSEL         ; Ctrl-K
              dfb   $8d,$00
              da    KRETURN          ; Return
+             dfb   $bf,$00
+             da    KQUERY           ; ? alone, which Applesoft reads as PRINT.
+                                    ; Esc ? is help; this is the bare key.
              dfb   $84,$00
              da    KDELFWD          ; Ctrl-D
              dfb   $81,$00

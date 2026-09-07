@@ -36,6 +36,7 @@
              put   renum            ; OA-R, which needs refs
              put   hilite           ; keywords drawn inverse
              put   hint             ; and their syntax on the hint row
+             put   ops              ; ? -> PRINT, and Ctrl-Y
              put   tokens           ; generated: Applesoft's keyword table
              put   scroll
              put   select

@@ -36,6 +36,8 @@ the project and the one component deliberately deferred.
   the cursor, which is how a BASIC line stays one screen row without ever
   being broken. The line number stays pinned at the left when it does, with a
   `>` marking where text has been scrolled past
+- **`?` types PRINT**, the way Applesoft itself reads it — but not inside a
+  string or after REM, where it would change the program
 - **automatic line numbers**: press Return and the next number is supplied,
   taking the midpoint when you insert between two existing lines
 - **the syntax hint row**, on by default, showing the keyword you are
@@ -53,6 +55,7 @@ the project and the one component deliberately deferred.
 - no Applesoft file support — nothing reads or writes tokenized `$FC` files
 - find, clipboard and go-to-line are stubs in `src/unbuilt.S`, and say
   `NOT BUILT YET` if you press them rather than doing nothing
+- no automated tests
 
 ## Requirements
 

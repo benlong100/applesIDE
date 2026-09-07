@@ -23,8 +23,8 @@
 * KGOTO             go to line. Means something different here: a BASIC line
 *                   NUMBER, not an ordinal. Wants rewriting, not copying.
 * KCOPY KCUT KPASTE clipboard, line-oriented. Portable.
-* KDELEOL           delete to end of line. Portable.
-*                   (KDELWORD is NOT here: keyboard.S defines it already.)
+*                   (KDELEOL and KDELWORD are NOT here any more: ops.S and
+*                   keyboard.S define them.)
 *
 *   from ZipEdit's edit_ops.S -- Markdown, and NOT wanted
 * KBOLD KITALIC     emphasis. There is no such thing in Applesoft. These
@@ -46,8 +46,7 @@ FINDNEXT
 KGOTO
 KCOPY
 KCUT
-KPASTE
-KDELEOL      lda   #<MSGNOTYET
+KPASTE       lda   #<MSGNOTYET
              sta   STRPTR
              lda   #>MSGNOTYET
              sta   STRPTR+1
