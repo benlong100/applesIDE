@@ -34,6 +34,8 @@
              put   lineno           ; automatic line numbers
              put   refs             ; line-number references, and OA-K
              put   renum            ; OA-R, which needs refs
+             put   hilite           ; keywords drawn inverse
+             put   tokens           ; generated: Applesoft's keyword table
              put   scroll
              put   select
              put   unbuilt          ; the work queue; see the header

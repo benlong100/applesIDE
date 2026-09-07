@@ -376,6 +376,12 @@ ROWHI        dfb   $04,$04,$05,$05,$06,$06,$07,$07
 * stays byte-identical to the build artifact for as long as the program runs.
              dum   $0200
 LINEBUF      ds    SCRW             ; one screen line of screen codes
+MASKBUF      ds    SCRW             ; and, per cell, whether it is CODE rather
+                                    ; than the inside of a string. RENDER is
+                                    ; the only thing that knows -- a string
+                                    ; may have opened off the left edge -- so
+                                    ; it records what it saw and the keyword
+                                    ; highlighter reads it back.
              dend
 
              dum   $1430

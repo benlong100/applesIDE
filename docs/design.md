@@ -232,22 +232,66 @@ Reading that format is worth the work for three reasons:
 
 Plain-text import and export comes afterwards, for moving code to the Mac.
 
-## 7. The tokenizer will be the sharp edge
+## 7. Inverse reserved words
 
-Applesoft matches keywords **greedily against a table, in table order**, and the
-table is not sorted helpfully. `AT` is `$C5`; `ATN` is `$E1`. A naive matcher
-reads `ATN(1)` as `AT` followed by `N(1)`. Applesoft itself carries a special
-case for exactly this, and for the `A TO` / `AT O` ambiguity.
+Applesoft's keywords are drawn inverse. `tools/gentokens.py` holds the token
+table — `$80`–`$EA`, 107 entries — and emits `src/tokens.S`. Ninety-eight are
+alphabetic and get highlighted; the nine single-character operators (`+ - * /
+^ > = <` and `&`) are tokens too but are not reserved *words*, and inverting
+them would make an expression look like a rash.
 
-A highlighter that does not reproduce the real tokenizer is worse than none,
-because the entire point is showing what the machine will see. Three more rules
-that are easy to miss:
+Generating the table rather than typing it is the point: ninety-eight `asc`
+lines with hand-counted lengths is where a typo hides, and one wrong length
+byte highlights half a word with nothing to say why.
 
-- keywords inside a string literal are not keywords
-- everything after `REM` is literal
-- `DATA` has its own quoting rules
+**Matching at a position, not rolling.** `TKLINE` runs once per row on the
+finished `LINEBUF`, not inside `RENDER`'s character loop. Ninety-eight
+simultaneous candidates would be ninety-eight compares per character drawn and
+a redraw touches seventeen hundred of them; instead the table is grouped by
+first letter, so a cell that begins no keyword costs one lookup. After a match
+the scan skips the whole keyword, so `PRINT` is not re-examined as `RINT`,
+`INT`, `NT`, `T` — which is also what Applesoft does.
 
-## 8. Renumbering
+**Longest first**, which the generator arranges: `ATN` before `AT`, so `ATN(1)`
+highlights as one word. Applesoft's own tokenizer finds `AT` first, because it
+comes earlier in the token table, and carries a special case to recover.
+Sorting differently gets the same answer without one.
+
+**Strings and `REM`.** Whether a cell is inside a string cannot be decided from
+the row alone — the quote may have opened off the left edge — so `RENDER`
+records it per cell in `MASKBUF` as it walks the buffer, and the highlighter
+reads it back. `REM` is handled in the highlighter, since everything after it
+is literal.
+
+**Lowercase is not matched.** Applesoft tokenizes uppercase only, so `print` is
+a variable name to the machine, and drawing it as a keyword would be a lie.
+
+### The known limitation
+
+On a **scrolled** row the leftmost character is mid-line and possibly
+mid-*word*, and the rest of that word is off-screen where nothing can see it.
+`PRINT` scrolled by sixteen columns shows as `INT`, which is itself a keyword
+and was being highlighted as one. The partial word at the left edge is now
+skipped, which loses a keyword that starts exactly at the edge — the right
+trade, because a missing highlight is a smaller lie than a highlight over the
+tail of a longer word.
+
+### Two paths draw a row, and both had to learn
+
+Found by looking at the screen, not the code:
+
+1. **`RENDERROW`, the one-row fast path**, block-copies a line and never walks
+   it, so it filled no `MASKBUF` and called no highlighter — the row being
+   typed was the one row with no highlighting. It now derives the string state
+   from `LINEBUF` itself, which is exact, since the copy starts at the line's
+   first character. It also has **no notion of `HOFF`** and would repaint a
+   scrolled row unscrolled, so a non-zero `HOFF` now forces the full redraw.
+2. **The last line of the buffer has no break after it**, so it never reaches
+   `RENDER`'s end-of-line case and is flushed at the exit instead. That path
+   needed the keyword pass too — otherwise the final line of every program,
+   which is usually the one being written, was the only one left plain.
+
+## 8. Renumbering## 8. Renumbering
 
 `OA-R` renumbers the program to 10, 20, 30 and carries every reference with it.
 This is the thing the project was asked for: *"when lines are added to the

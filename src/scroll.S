@@ -289,7 +289,28 @@ RENDERROW    jsr   CLRBUF
              cpx   GSCRW
              bcc   :bl
 
-:draw        lda   CURLNO
+*--- Highlighting needs to know which cells are inside a string, which RENDER
+*    records as it walks the buffer. This path never walks it -- it block-copies
+*    the line -- so the state is worked out from LINEBUF instead. That is exact
+*    here: LINEBUF starts at the line's first character, because the copy began
+*    CCOL bytes before the cursor.
+:draw        ldx   #$00
+             lda   #$00
+             sta   RSTR
+:mask        lda   RSTR
+             sta   MASKBUF,x
+             lda   LINEBUF,x
+             cmp   #$a2             ; a quote flips the state after its own cell
+             bne   :m2
+             lda   RSTR
+             eor   #$01
+             sta   RSTR
+:m2          inx
+             cpx   GSCRW
+             bcc   :mask
+             jsr   TKLINE
+
+             lda   CURLNO
              sec
              sbc   SCROLLTOP
              sta   CURSROW

@@ -295,6 +295,7 @@ RENDER       lda   #$00
              sta   RPOS+1
              sta   INSEL
              sta   RNUMW            ; the first line begins here too
+             sta   RSTR
              lda   #$01
              sta   RINNUM
              lda   #$00
@@ -406,7 +407,10 @@ RENDER       lda   #$00
              jsr   SELTEST
 :notsel      lda   TMPA
              cmp   #TEXTLO          ; any break ends the line
-             bcc   :eol
+             bcs   :online
+             jmp   :eol             ; the MASKBUF work below pushed :eol out
+                                    ; of branch range
+:online
 
 *--- Which screen cell does this character land in? CURCOL is the LOGICAL
 *    column, counted from the start of the line; the cell is CURCOL-HOFF.
@@ -487,6 +491,21 @@ RENDER       lda   #$00
 :plain       lda   TMPA
 :store       sta   LINEBUF,x
 
+*--- Record whether this cell is CODE or the inside of a string, because the
+*    keyword highlighter cannot work it out for itself: a quote may have opened
+*    to the left of the screen, and LINEBUF holds only what is visible. The
+*    quote characters themselves count as string, so PRINT "GOTO" highlights
+*    neither the GOTO nor anything else inside the quotes.
+             lda   RSTR
+             sta   MASKBUF,x
+             lda   TMPA
+             cmp   #$a2             ; a double quote flips the state AFTER the
+             bne   :nostr           ; cell it occupies has been marked
+             lda   RSTR
+             eor   #$01
+             sta   RSTR
+:nostr
+
 *--- CURCOL is one byte, so it saturates rather than wrapping. An Applesoft
 *    line is 239 characters at most and nothing here enforces that yet, so a
 *    longer one is possible; saturating makes it render wrongly from column
@@ -500,6 +519,7 @@ RENDER       lda   #$00
 *--- end of line
 :eol         lda   VIS
              beq   :skipped
+             jsr   TKLINE           ; draw Applesoft's keywords inverse
              lda   CURROW
              jsr   DRAWLINE
              inc   CURROW
@@ -509,6 +529,7 @@ RENDER       lda   #$00
              jsr   CLRBUF
 :skipped     lda   #$00
              sta   CURCOL
+             sta   RSTR             ; a string cannot span a line
              sta   RNUMW            ; a new line: no digits counted yet
              lda   #$01
              sta   RINNUM           ; and we are at the front of it
@@ -559,6 +580,10 @@ RENDER       lda   #$00
              inc   AUXPTR+1
 :back        jmp   :loop
 
+*--- The LAST line of the buffer has no break after it, so it never reaches
+*    :eol and this is where it gets drawn. It needs the keyword pass exactly
+*    as the others do -- without it the final line of every program was the
+*    one line with no highlighting, which is also the line being typed.
 :done        lda   VIS              ; flush a partial final line
              beq   :fin
              lda   CURCOL
@@ -566,6 +591,7 @@ RENDER       lda   #$00
              lda   CURROW
              cmp   MAXROW
              bcs   :fin
+             jsr   TKLINE
              lda   CURROW
              jsr   DRAWLINE
 

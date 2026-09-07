@@ -107,6 +107,7 @@ DSTPTR       equ   $6d              ; 2 bytes, main-memory destination for AUXBL
 HOFF         equ   $6f              ; horizontal scroll: the logical column
                                     ; drawn in screen cell 0. Always a multiple
                                     ; of HSTEP, and zero almost all the time.
+RSTR         equ   $77              ; RENDER: inside a string literal
 HOLD         equ   $70              ; HOFF before the keystroke, so the main
                                     ; loop can tell whether the view moved
 RFTP         equ   $71              ; 2 bytes, refs.S: into the line-number
@@ -116,6 +117,8 @@ RFTP         equ   $71              ; 2 bytes, refs.S: into the line-number
                                     ; $1200 assembles as far as the addressing
                                     ; mode and no further.
 RFSP         equ   $73              ; 2 bytes, refs.S: into a keyword's text
+TKP          equ   $75              ; 2 bytes, hilite.S: ditto, and also
+                                    ; indirect indexed, so also zero page
 CLIPMAX      equ   1024             ; clipboard capacity
 
 

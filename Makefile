@@ -58,7 +58,8 @@ all: $(BIN)
 # rather than on $(SRC) alone. ZipEdit learned this one the hard way: depending
 # on $(SRC) meant edits to the other modules silently did not rebuild, which
 # produced a stale binary that looked like a runaway bug in new code.
-$(BIN): $(wildcard src/*.S) $(LANGTXT) $(TOOLS)/genlang.py $(TOOLS)/genhelp.py | $(BUILD)
+$(BIN): $(wildcard src/*.S) $(LANGTXT) $(TOOLS)/genlang.py $(TOOLS)/genhelp.py $(TOOLS)/gentokens.py | $(BUILD)
+	@python3 $(TOOLS)/gentokens.py > src/tokens.S
 	@python3 $(TOOLS)/genlang.py $(LANGTXT) > src/lang.S
 	@python3 $(TOOLS)/genhelp.py $(LANGARG) > src/helpdata.S
 	@$(MERLIN) $(ASMINC) $(SRC) > $(BUILD)/merlin32.log 2>&1 || \
@@ -95,7 +96,7 @@ tools:
 	@$(TOOLS)/bootstrap.sh
 
 clean:
-	@rm -rf $(BUILD) src/lang.S src/helpdata.S src/_FileInformation.txt
+	@rm -rf $(BUILD) src/lang.S src/helpdata.S src/tokens.S src/_FileInformation.txt
 	@echo "cleaned"
 
 help:

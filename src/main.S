@@ -158,7 +158,13 @@ MAINLOOP     jsr   SCROLLFIX
              bne   :full
 *--- A horizontal jump shifts every row, so it is a full redraw exactly like
 *    a vertical scroll. HSCROLLFIX left the old value in HOLD.
+*
+*    And the one-row path is not merely unnecessary while scrolled, it is
+*    WRONG: RENDERROW block-copies the line from its first character and has
+*    no notion of HOFF, so it would repaint a scrolled row unscrolled. Any
+*    non-zero HOFF takes the full redraw.
              lda   HOFF
+             bne   :full
              cmp   HOLD
              bne   :full
              lda   SCROLLTOP
