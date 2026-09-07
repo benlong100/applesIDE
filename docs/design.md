@@ -86,7 +86,7 @@ That was not the obvious choice, so here is why.
 inside the line body, typed by the user. An editor that owned every line's
 number as metadata would still need the same scanner over `GOTO`, `GOSUB`,
 `THEN`, `ON…GOTO`, `RUN` and `LIST` — and would now hold *two* representations
-of a line number that have to agree. Since §6 already chose `RENUM` over
+of a line number that have to agree. Since §7 already chose `RENUM` over
 symbolic identity, and `RENUM` rewrites numbers and references together as
 text, owning the numbers separately buys very little and costs the thing this
 editor is built on: a gap buffer holding plain text, where save and load are
@@ -117,7 +117,54 @@ screen rather than by reasoning:
 Unscrolled, none of this is visible: no marker, no pinning, the line drawn
 exactly as it is stored.
 
-## 4. Tokenized files
+## 4. Automatic line numbers
+
+Press Return and the editor supplies the next number. Because numbers are
+ordinary text (§3), this is not a data-structure change: read the number off
+the line just ended, work out the next one, type it.
+
+**It fires only when the line just ended starts with a number.** Follow the
+pattern that is there and nothing else — open a text file that is not a BASIC
+program, press Return, and having `10 ` appear would be vandalism. Number the
+first line yourself and every line after it is automatic.
+
+**Which number.** Ten more than the line just ended, which is why everyone
+numbered by tens: the gaps are where inserted lines go. If a numbered line
+*follows*, ten more may already be taken, so it takes the midpoint instead —
+Return between 20 and 30 gives 25. Between 20 and 21 there is no whole number
+free, so it says `NO FREE LINE NUMBER HERE` and types nothing. The honest
+answer there is that the program wants renumbering, and `RENUM` is §7 and not
+built.
+
+**Splitting a line** mid-way gets a number on the tail, deliberately: the tail
+is about to be a line of its own and a BASIC line without a number is not a
+line. It may be the wrong number, because the text after the cursor is the
+rest of the split line rather than a following line, so nothing can be read
+from it.
+
+### Three bugs worth keeping written down
+
+All three were found by looking at the machine, and none would have been
+caught by reading the code again.
+
+1. **`INSCHR` clobbers X.** It sets `MODFLAG` through `ldx #$01`, so a loop
+   counter in X does not survive writing a digit — the emit loop restarted at
+   index 1 and hung the editor outright. This is in ZipEdit's `CLAUDE.md`
+   under "X cannot hold a loop counter across `INSCHR`", read earlier the same
+   afternoon and walked into anyway. `LNPI` lives in memory.
+2. **`LNFOLL` accumulates into `LNUM`** so it can share `LNMUL10`, and so
+   destroys it. `AUTONUM` computed the candidate first and found zero
+   afterwards, emitting line `0`. It asks about the following line *before*
+   doing any arithmetic now.
+3. **The first byte past the gap is a break, not the next line's digits.**
+   The cursor sits on a new empty line and the break that ends it is what
+   `GAPEND` points at, so `LNFOLL` read `$8D`, found no digits, and reported
+   no following line — which turned an insert between 10 and 20 into a second
+   line 20. It steps over exactly one break now; mid-line the first byte is
+   ordinary text, nothing is skipped, and "no following number" is then the
+   right answer.
+
+## 5. Tokenized files
 
 An Applesoft program on disk is normally ProDOS file type `$FC`: a dump of
 memory from `$801`, structured as a linked list of lines, each one two bytes of
@@ -134,7 +181,7 @@ Reading that format is worth the work for three reasons:
 
 Plain-text import and export comes afterwards, for moving code to the Mac.
 
-## 5. The tokenizer will be the sharp edge
+## 6. The tokenizer will be the sharp edge
 
 Applesoft matches keywords **greedily against a table, in table order**, and the
 table is not sorted helpfully. `AT` is `$C5`; `ATN` is `$E1`. A naive matcher
@@ -149,7 +196,7 @@ that are easy to miss:
 - everything after `REM` is literal
 - `DATA` has its own quoting rules
 
-## 6. Renumbering
+## 7. Renumbering
 
 The request was that `GOTO` targets follow their lines automatically. Two ways:
 
@@ -166,14 +213,14 @@ Either way the essential piece is the same, and it is where the actual work is:
 a scanner that finds every line-number reference — `GOTO`, `GOSUB`, `THEN`,
 `ON…GOTO`, `ON…GOSUB`, `RUN`, `LIST`.
 
-## 7. Where the syntax hints go
+## 8. Where the syntax hints go
 
 ZipEdit spends one screen row on a Markdown cheat sheet, toggled with `OA-/`.
 That row is already wired up, already toggleable, and already excluded from the
 text area's height. It is where the syntax of the keyword under the cursor
 belongs. Nothing new is needed but content.
 
-## 8. The AI window — deferred, deliberately
+## 9. The AI window — deferred, deliberately
 
 The original request ended with an AI panel talking to OpenAI over Uthernet or
 FujiNet. The hardware reading in it is correct: Uthernet II is a W5100 with a
@@ -189,14 +236,14 @@ It is deferred because it is the only component that does nothing when the
 machine is offline, and because letting it shape the editor's design would be
 the wrong trade. It is not ruled out.
 
-## 9. The name
+## 10. The name
 
 ProDOS truncates a filename at fifteen characters. `APPLESIDE.SYSTEM` is
 sixteen — it would land as `APPLESIDE.SYSTE`, stop looking like a `.SYSTEM`
 file, and never auto-launch. Hence **`ASIDE.SYSTEM`**, which also reads as a
 word. The volume is `/APPLESIDE/`, where fifteen characters is plenty.
 
-## 10. What is deliberately absent
+## 11. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be

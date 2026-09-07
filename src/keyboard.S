@@ -227,7 +227,10 @@ KDELWORD     lda   SELACT           ; a selection wins, as it does for Delete
 :done        rts
 
 KRETURN      lda   #HARDCR          ; the writer asked for this one
-             jmp   INSCHR
+             jsr   INSCHR
+             bcs   :full            ; buffer full: the break did not go in
+             jmp   AUTONUM          ; and supply the next line number
+:full        rts
 
 *--------------------------------------
 * ASKUNSAVED -- guard anything that would throw the document away

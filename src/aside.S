@@ -31,6 +31,7 @@
              put   keyboard
              put   file
              put   column           ; where wrap.S sits in ZipEdit, and does not here
+             put   lineno           ; automatic line numbers
              put   scroll
              put   select
              put   unbuilt          ; the work queue; see the header

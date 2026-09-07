@@ -36,11 +36,14 @@ the project and the one component deliberately deferred.
   the cursor, which is how a BASIC line stays one screen row without ever
   being broken. The line number stays pinned at the left when it does, with a
   `>` marking where text has been scrolled past
+- **automatic line numbers**: press Return and the next number is supplied,
+  taking the midpoint when you insert between two existing lines
 - English and any other language you write a `lang/<code>.txt` for
 
 ## What does not yet
 
-- no line-number handling, renumbering or reference tracking
+- no renumbering, and no reference tracking, so a GOTO does not follow its
+  line
 - no keyword display, no syntax hints
 - no Applesoft file support — nothing reads or writes tokenized `$FC` files
 - find, clipboard and go-to-line are stubs in `src/unbuilt.S`

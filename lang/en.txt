@@ -50,6 +50,10 @@ MSGLOADING = "-- LOADING --"
 MSGSAVE = "SAVE AS: "
 MSGOPEN = "OPEN: "
 MSGERR = " PRODOS ERROR $"
+
+# Return supplies the next line number, but there is not always one to supply:
+# between 20 and 21 there is no whole number free. Shown instead of guessing.
+MSGNOROOM = " NO FREE LINE NUMBER HERE"
 HINTESC = "ESC CANCELS"
 
 # ---------------------------------------------------------- the unsaved guard
