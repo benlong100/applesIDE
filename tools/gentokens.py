@@ -215,6 +215,23 @@ def main():
         out.append("             dfb   " + ",".join(f">TKW{j}" for j in range(i, min(i + 8, len(order)))))
 
     out.append("")
+    out.append("*--- the token byte each one is stored as. $80-$EA, and the reason")
+    out.append("*    this file exists twice over: the highlighter wants the text, the")
+    out.append("*    tokeniser wants the byte, and they must not disagree.")
+    out.append("TKTOK        dfb   " + ",".join(f"${0x80+TOKENS.index(w):02x}" for w in order[:8]))
+    for i in range(8, len(order), 8):
+        out.append("             dfb   " + ",".join(f"${0x80+TOKENS.index(w):02x}" for w in order[i:i+8]))
+
+    out.append("")
+    out.append("*--- The nine that are not words: tokens to Applesoft, but never drawn")
+    out.append("*    inverse because an expression full of inverse operators is a rash.")
+    out.append("*    The tokeniser needs them all the same -- Applesoft stores = as $D0")
+    out.append("*    and + as $C8, so a line saved without them is not the same program.")
+    out.append(f"TKOPN        equ   {len(dropped)}")
+    out.append("TKOPC        dfb   " + ",".join(f"${ord(c):02x}" for c in dropped))
+    out.append("TKOPT        dfb   " + ",".join(f"${0x80+TOKENS.index(c):02x}" for c in dropped))
+
+    out.append("")
     out.append("*--- what each looks like in use, for the hint row")
     out.append("TKSLO        dfb   " + ",".join(f"<TKS{i}" for i in range(min(8, len(order)))))
     for i in range(8, len(order), 8):

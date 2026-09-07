@@ -24,8 +24,13 @@
 *   - DATA, whose contents are literal in ways this does not model.
 *--------------------------------------
 
-RFTAB        equ   $6000            ; line numbers, two bytes each. design.md
-RFMAX        equ   2000             ; gives $6000-$7FFF to the line index
+*--- MOVED UP FROM $6000 so that the code can have that page range instead.
+*    Tokenised files took the binary to within 350 bytes of the old $2000-$5FFF
+*    ceiling, and the ceiling was where it was only because $6000 held this
+*    table. A thousand lines is a real limit rather than a generous one: an
+*    Applesoft program lives in 48K, so a thousand lines is 48 bytes apiece.
+RFTAB        equ   $7000            ; line numbers, two bytes each
+RFMAX        equ   1000
 
 *--------------------------------------
 * KCHECK -- the command behind OA-K

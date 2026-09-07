@@ -159,6 +159,34 @@ assert_inverse() {
 echo "ApplesIDE suite -- $(basename "$IMAGE")"
 [ -f "$IMAGE" ] || { echo "no image at $IMAGE -- run: make disk" >&2; exit 1; }
 
+# IS THE IMAGE THE BINARY WE JUST BUILT? Checked FIRST, and fatally.
+#
+# Virtual ][ buffers writes to a mounted image and flushes them when the disk
+# is ejected, so an image the emulator is holding can be quietly overwritten
+# with an older copy of itself after being rebuilt. Everything then runs
+# against code that is not the code on disk -- and the failures look like
+# ordinary bugs, so you fix things that are already fixed. That cost two wrong
+# diagnoses in a row before anyone thought to compare the two files.
+#
+# It was checked before, in the last section of the suite. The end of a
+# twenty-minute run is no use: by then every result above it is worthless.
+if [ -f "$BIN" ]; then
+    "$ROOT/tools/ac" -g "$IMAGE" ASIDE.SYSTEM > "$TMP/onimage.bin" 2>/dev/null
+    if cmp -s "$TMP/onimage.bin" "$BIN"; then
+        ok "the image carries the binary that was just built"
+    else
+        bad "the image carries the binary that was just built" \
+            "image: $(stat -f%z "$TMP/onimage.bin" 2>/dev/null || echo 0) bytes" \
+            "build: $(stat -f%z "$BIN") bytes" \
+            "the emulator has probably flushed a stale copy over it." \
+            "eject in Virtual ][, then: rm -f $IMAGE && make disk"
+        echo
+        echo "stopping: every result below this would be about the wrong code." >&2
+        echo "$pass passed, $fail failed"
+        exit 1
+    fi
+fi
+
 #--------------------------------------
 if section "it boots"; then
 reboot
@@ -397,6 +425,84 @@ assert_row "and nothing is renumbered"              0 "100 GOTO 999"
 fi
 
 #--------------------------------------
+# Tokenised files. The whole point of the editor: a saved program must be one
+# Applesoft will RUN. Asserted against the FILE, not the screen -- the bytes
+# are what BASIC.SYSTEM reads, and a screen that looks right proves nothing
+# about them.
+#--------------------------------------
+if section "tokenised files"; then
+reboot
+t '10 HOME'
+tl ''
+t 'PRINT "HI":REM X'
+tl ''
+t 'A = ATN(1) + 2'
+tl ''
+t 'GOTO 10'
+oa "S"
+"$VII" await "SAVE AS" 30 >/dev/null || bad "the save prompt never appeared"
+"$VII" text "TOKTEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
+
+# flush the emulator's buffered writes before reading the image on the Mac
+osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1
+sleep 2
+
+info="$("$ROOT/tools/ac" -l "$IMAGE" 2>/dev/null | grep -i '^  TOKTEST')"
+case "$info" in
+    *BAS*) ok "the file is type BAS, not TXT" ;;
+    "")    bad "the file is type BAS, not TXT" "TOKTEST is not on the image at all" ;;
+    *)     bad "the file is type BAS, not TXT" "$info" ;;
+esac
+case "$info" in
+    *'A=$0801'*) ok "and loads at \$801, where Applesoft lives" ;;
+    *)           bad "and loads at \$801, where Applesoft lives" "$info" ;;
+esac
+
+"$ROOT/tools/ac" -g "$IMAGE" TOKTEST > "$TMP/tok.bin" 2>/dev/null
+python3 - "$TMP/tok.bin" > "$TMP/tok.txt" <<'PYEOF'
+import sys
+d = open(sys.argv[1], 'rb').read()
+i, addr, out = 0, 0x801, []
+while i < len(d) - 1:
+    nxt = d[i] | (d[i+1] << 8)
+    if nxt == 0: break
+    ln = d[i+2] | (d[i+3] << 8); j = i + 4; body = []
+    while j < len(d) and d[j] != 0: body.append(d[j]); j += 1
+    out.append(f"{ln}:" + ' '.join(f'{b:02X}' for b in body))
+    addr = nxt; i = j + 1
+print('\n'.join(out))
+PYEOF
+
+# Applesoft's own bytes for the same program, taken off the machine and
+# written down in src/tok.S. HOME is one token; the operators are tokens too.
+tokline() { grep "^$1:" "$TMP/tok.txt" | cut -d: -f2- | sed 's/^ //'; }
+[ "$(tokline 10)" = "97" ]     && ok "HOME is the single token \$97"     || bad "HOME is the single token \$97" "got: $(tokline 10)"
+[ "$(tokline 20)" = "BA 22 48 49 22 3A B2 20 58" ]     && ok "a string and a REM keep their text, spaces and all"     || bad "a string and a REM keep their text, spaces and all" "got: $(tokline 20)"
+[ "$(tokline 30)" = "41 D0 E1 28 31 29 C8 32" ]     && ok "spaces are dropped and = and + are tokens"     || bad "spaces are dropped and = and + are tokens" "got: $(tokline 30)"
+[ -n "$(tokline 40)" ]     && ok "the LAST line is written, having no break after it"     || bad "the LAST line is written, having no break after it" "line 40 is missing"
+
+# and back again
+reboot
+oa "O"
+"$VII" await "OPEN" 30 >/dev/null || bad "the open prompt never appeared"
+"$VII" text "TOKTEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
+snapshot
+assert_row "it reads back its own file"          0 "10 HOME"
+assert_row "a string and comment survive"        1 "20 PRINT\"HI\":REM X"
+assert_row "and the spacing Applesoft stores"    2 "30 A=ATN(1)+2"
+assert_row "a keyword gets a space before a digit" 3 "40 GOTO 10"
+
+# a line with no number cannot become an Applesoft line
+reboot
+t 'HOME'
+oa "S"
+"$VII" await "SAVE AS" 30 >/dev/null
+"$VII" text "NONUM" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 8 >/dev/null
+snapshot
+assert_row "an unnumbered line is refused"      23 "EVERY LINE NEEDS A NUMBER"
+fi
+
+#--------------------------------------
 if section "help and chrome"; then
 reboot
 oa "?"
@@ -414,14 +520,11 @@ fi
 if section "the toolchain"; then
 if [ -f "$BIN" ]; then
     size=$(stat -f%z "$BIN")
-    if [ "$size" -lt 16384 ]; then
-        ok "the binary fits the \$2000-\$5FFF budget ($size bytes)"
+    if [ "$size" -lt 20480 ]; then
+        ok "the binary fits the \$2000-\$6FFF budget ($size bytes)"
     else
-        bad "the binary fits the \$2000-\$5FFF budget" "$size bytes, over 16384"
+        bad "the binary fits the \$2000-\$6FFF budget" "$size bytes, over 20480"
     fi
-    onimage=$("$ROOT/tools/ac" -g "$IMAGE" ASIDE.SYSTEM 2>/dev/null | wc -c | tr -d ' ')
-    if [ "$onimage" = "$size" ]; then ok "and the image carries that same binary"
-    else bad "and the image carries that same binary" "image $onimage, build $size -- run make disk"; fi
 else
     bad "the binary exists" "no $BIN"
 fi

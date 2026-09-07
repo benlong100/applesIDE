@@ -1,0 +1,645 @@
+*--------------------------------------
+* TOK.S -- read and write real Applesoft files
+*
+* Until now the editor saved plain ProDOS TXT, and Applesoft answers RUN on a
+* TXT file with FILE TYPE MISMATCH. An Applesoft editor that cannot produce a
+* file Applesoft will run is doing the main job badly, so this writes type $FC:
+* a memory image from $801, which is what SAVE writes and RUN expects.
+*
+* THE FORMAT, taken off the machine rather than remembered. Applesoft was made
+* to save a four-line program and the bytes read back:
+*
+*   0801: next=0807 line=10  | 97                          HOME
+*   0807: next=0815 line=20  | BA 22 48 49 22 3A B2 20 58  PRINT"HI":REM X
+*   0815: next=0822 line=30  | 41 D0 E1 28 31 29 C8 32     A=ATN(1)+2
+*   0822: next=082A line=40  | AB 31 30                    GOTO10
+*   082A: 00 00                                            end of program
+*
+* Each line is: the address of the NEXT line, the line number, the tokens, and
+* a zero. A next-address of zero ends the program. Three things in there are
+* not what one would guess:
+*
+*   - SPACES OUTSIDE STRINGS ARE DROPPED. "A = ATN (1) + 2" stores as
+*     41 D0 E1 28 31 29 C8 32 with not one space in it. Keeping them would
+*     make a file that runs but does not match what Applesoft would have
+*     written, and would grow every program.
+*   - THE OPERATORS ARE TOKENS. = is $D0 and + is $C8. They are not reserved
+*     WORDS and the highlighter rightly ignores them, but a tokeniser that
+*     ignored them would write a different program.
+*   - TEXT IS STORED HIGH BIT CLEAR. Tokens are $80-$EA, so the high bit is
+*     what tells them apart. The editor's buffer is high ASCII throughout, so
+*     every literal character is masked on the way out and set on the way in.
+*
+* After REM, and inside a string, everything is literal -- spaces included.
+*--------------------------------------
+
+LNBUF        equ   $7800            ; one line of source, as typed
+TOKBUF       equ   $7900            ; and the same line as Applesoft stores it
+BASADDR      equ   $0801            ; where an Applesoft program lives
+
+*--------------------------------------
+* TOKSAVE -- write the program as type $FC
+*
+* Carry set on failure, with a message already shown.
+*--------------------------------------
+*--- Check EVERY line has a number BEFORE going near the file. The refusal
+*    used to happen half way through writing -- after DESTROY had already
+*    removed the previous version -- so a program the editor would not save
+*    also took the last good copy of itself with it.
+TOKSAVE      lda   #$00
+             sta   TKQUIET
+             jsr   TKCHECK
+             bcc   :numok
+             lda   #<MSGNEEDNUM
+             sta   STRPTR
+             lda   #>MSGNEEDNUM
+             sta   STRPTR+1
+             jsr   SHOWMSG
+             lda   #$01             ; SAVENOW must not draw over this
+             sta   TKQUIET
+             sec
+             rts
+
+*--- NOT called :ok. There was already a :ok further down, Merlin resolved the
+*    branch above to whichever it liked, and TKCHECK's verdict was silently
+*    discarded: TKADDR read back as $0801, so the write had begun on a program
+*    that had just been declared unsavable.
+:numok       lda   #$fc             ; BAS, not TXT
+             sta   CREATEPARM+4
+             lda   #<BASADDR        ; aux type is the load address
+             sta   CREATEPARM+5
+             lda   #>BASADDR
+             sta   CREATEPARM+6
+
+             jsr   DESTROYF         ; a missing file is not an error here
+             jsr   CREATEF
+             bcc   :made
+             jmp   :fail            ; :fail is out of branch range from here
+:made        jsr   OPENF
+             bcc   :open
+             jmp   :fail
+:open        lda   OPENPARM+5
+             sta   WRITEPARM+1
+             sta   CLOSEPARM+1
+
+             lda   #<BASADDR
+             sta   TKADDR
+             lda   #>BASADDR
+             sta   TKADDR+1
+             jsr   RFRESET
+
+*--- The LAST line of the buffer has no break after it, so TKREAD hands it
+*    back WITH the end-of-buffer flag. Testing that flag first threw the line
+*    away, and a program saved from the editor was short by its last line --
+*    which is also, always, the line just written. The same shape of mistake
+*    as RENDER's, and made twice in one project.
+:line        jsr   TKREAD           ; one line of source into LNBUF
+             lda   TKLL             ; a blank line carries nothing
+             beq   :nextq
+
+             jsr   TKONE            ; LNBUF -> TOKBUF+4, length in TKBL
+             bcc   :ok
+             jmp   :nonum
+:ok
+
+*--- the next line begins four bytes of header, the body, and a zero further on
+             lda   TKADDR
+             clc
+             adc   #$05
+             adc   TKBL
+             sta   TOKBUF
+             lda   TKADDR+1
+             adc   #$00
+             sta   TOKBUF+1
+             lda   TOKBUF           ; and that is where we will be
+             sta   TKADDR
+             lda   TOKBUF+1
+             sta   TKADDR+1
+
+             lda   LNUM
+             sta   TOKBUF+2
+             lda   LNUM+1
+             sta   TOKBUF+3
+             ldx   TKBL
+             lda   #$00
+             sta   TOKBUF+4,x
+
+             lda   TKBL             ; header + body + terminator
+             clc
+             adc   #$05
+             jsr   TKWRITE
+             bcc   :nextq
+             jmp   :failed
+
+*--- and only now ask whether there is any more
+:nextq       lda   TKEOF
+             cmp   #$02
+             beq   :end
+             jmp   :line
+
+*--- the end of the program is a next-address of zero
+:end         lda   #$00
+             sta   TOKBUF
+             sta   TOKBUF+1
+             lda   #$02
+             jsr   TKWRITE
+             bcc   :shut
+             jmp   :failed
+:shut        jsr   CLOSEF
+             lda   #$00
+             sta   MODFLAG
+             clc
+             rts
+
+*--- TKCHECK has already ruled this out, so reaching it means the two
+*    disagree. Close the file and report rather than write half a program.
+:nonum       jsr   CLOSEF
+             lda   #<MSGNEEDNUM
+             sta   STRPTR
+             lda   #>MSGNEEDNUM
+             sta   STRPTR+1
+             jsr   SHOWMSG
+             lda   #$01
+             sta   TKQUIET
+             sec
+             rts
+
+:failed      jsr   CLOSEF
+:fail        jsr   SHOWERR
+             sec
+             rts
+
+*--------------------------------------
+* TKCHECK -- carry set if any line with text on it has no leading number
+*
+* A tokenised file has a number on every line and nowhere to put one that has
+* not; inventing one would put statements somewhere the writer never asked for.
+*--------------------------------------
+TKCHECK      jsr   RFRESET
+:loop        jsr   TKREAD
+             lda   TKLL
+             beq   :next            ; a blank line is nothing to save
+             lda   LNBUF
+             jsr   LNDIGIT
+             bcs   :bad
+:next        lda   TKEOF
+             cmp   #$02
+             beq   :ok
+             jmp   :loop
+:ok          clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* TKWRITE -- write A bytes of TOKBUF
+*--------------------------------------
+TKWRITE      sta   WRITEPARM+4
+             lda   #$00
+             sta   WRITEPARM+5
+             lda   #<TOKBUF
+             sta   WRITEPARM+2
+             lda   #>TOKBUF
+             sta   WRITEPARM+3
+             jmp   WRITEF
+
+*--------------------------------------
+* TKREAD -- the next line of source into LNBUF, length in TKLL
+*
+* TKEOF says why it stopped: 1 a line break, 2 the end of the buffer. Reading
+* the line out whole first is what makes the tokeniser simple -- matching a
+* keyword needs to look forward, and looking forward through the gap does not.
+*--------------------------------------
+TKREAD       lda   #$00
+             sta   TKLL
+             sta   TKEOF
+:loop        jsr   RFGET
+             bcc   :got
+             lda   #$02
+             sta   TKEOF
+             rts
+:got         cmp   #TEXTLO
+             bcs   :keep
+             lda   #$01             ; a break ends the line
+             sta   TKEOF
+             rts
+:keep        ldx   TKLL
+             cpx   #$f0             ; an Applesoft line is 239 at the most;
+             bcs   :loop            ; drop the rest rather than overrun
+             sta   LNBUF,x
+             inc   TKLL
+             jmp   :loop
+
+*--------------------------------------
+* TKONE -- tokenise LNBUF into TOKBUF+4
+*
+* Carry set if the line has no leading number. LNUM gets the number, TKBL the
+* length of what was written.
+*--------------------------------------
+TKONE        lda   #$00
+             sta   TKI2
+             sta   TKBL
+             sta   TKSTR
+             sta   TKREM2
+             sta   LNUM
+             sta   LNUM+1
+             sta   TKANY2
+
+*--- the line number
+:num         ldx   TKI2
+             cpx   TKLL
+             bcs   :numdone
+             lda   LNBUF,x
+             jsr   LNDIGIT
+             bcs   :numdone
+             jsr   LNMUL10
+             inc   TKANY2
+             inc   TKI2
+             jmp   :num
+:numdone     lda   TKANY2
+             bne   :skipsp
+             sec                    ; no number: the caller reports it
+             rts
+
+*--- Applesoft drops the space between the number and the first token, so the
+*    editor's own "10 HOME" and a machine's "10HOME" store identically.
+:skipsp      ldx   TKI2
+             cpx   TKLL
+             bcc   :sp2
+             jmp   :done            ; :done is out of branch range from here
+:sp2         lda   LNBUF,x
+             cmp   #' '+$80
+             bne   :body
+             inc   TKI2
+             jmp   :skipsp
+
+*--- the statements
+:body        ldx   TKI2
+             cpx   TKLL
+             bcc   :b2
+             jmp   :done
+:b2          lda   LNBUF,x
+
+             ldy   TKREM2           ; after REM everything is literal
+             bne   :litj
+             ldy   TKSTR            ; and so is the inside of a string
+             beq   :code
+             cmp   #$a2             ; ...up to the closing quote
+             bne   :litj
+             lda   #$00
+             sta   TKSTR
+:litj        jmp   :lit             ; a trampoline: :lit is past every test
+                                    ; below it
+
+:code        cmp   #$a2             ; an opening quote
+             bne   :nq
+             lda   #$01
+             sta   TKSTR
+             lda   LNBUF,x
+             jmp   :lit
+:nq          cmp   #' '+$80         ; spaces outside strings are not stored
+             bne   :kw
+             inc   TKI2
+             jmp   :body
+
+*--- a keyword?
+:kw          jsr   TKMATCH
+             bcs   :op
+             ldx   TZKW             ; its token byte
+             lda   TKTOK,x
+             jsr   TKEMIT
+             lda   TZKW
+             cmp   #TKREMI
+             bne   :adv
+             lda   #$01             ; REM: the rest of the line is a comment
+             sta   TKREM2
+:adv         lda   TKI2
+             clc
+             adc   TKL2
+             sta   TKI2
+             jmp   :body
+
+*--- one of the nine operators?
+:op          ldx   #$00
+             lda   LNBUF,x
+:opl         lda   TKOPC,x
+             clc
+             adc   #$80             ; the table is low ASCII; the buffer is high
+             sta   TKCMP
+             ldy   TKI2
+             lda   LNBUF,y
+             cmp   TKCMP
+             beq   :ophit
+             inx
+             cpx   #TKOPN
+             bcc   :opl
+             ldy   TKI2             ; an ordinary character
+             lda   LNBUF,y
+             jmp   :lit2
+:ophit       lda   TKOPT,x
+             jsr   TKEMIT
+             inc   TKI2
+             jmp   :body
+
+*--- literal: the buffer is high ASCII and a token file is not
+:lit         ldx   TKI2
+             lda   LNBUF,x
+:lit2        and   #$7f
+             jsr   TKEMIT
+             inc   TKI2
+             jmp   :body
+
+:done        clc
+             rts
+
+*--------------------------------------
+* TKEMIT -- append A to TOKBUF+4
+*--------------------------------------
+TKEMIT       ldx   TKBL
+             cpx   #$f8
+             bcs   :full
+             sta   TOKBUF+4,x
+             inc   TKBL
+:full        rts
+
+*--------------------------------------
+* TKMATCH -- does a keyword start at LNBUF+TKI2?
+*
+* Carry clear, TZKW its index and TKL2 its length. The same first-letter
+* dispatch the highlighter uses, over the same table, longest first -- so ATN
+* is found before AT here too.
+*--------------------------------------
+TKMATCH      ldx   TKI2
+             lda   LNBUF,x
+             cmp   #$c1
+             bcc   :no
+             cmp   #$db
+             bcs   :no
+             sec
+             sbc   #$c1
+             tay
+             lda   TKCOUNT,y
+             beq   :no
+             sta   TKC2
+             lda   TKFIRST,y
+             sta   TZKW
+
+:try         ldx   TZKW
+             lda   TKLEN,x
+             sta   TKL2
+             lda   TKLO,x
+             sta   TKP
+             lda   TKHI,x
+             sta   TKP+1
+             ldy   #$00
+:cmp         cpy   TKL2
+             beq   :yes
+             tya
+             clc
+             adc   TKI2
+             cmp   TKLL             ; must fit inside the line
+             bcs   :fail
+             tax
+             lda   LNBUF,x
+             cmp   (TKP),y
+             bne   :fail
+             iny
+             bne   :cmp
+:fail        inc   TZKW
+             dec   TKC2
+             bne   :try
+:no          sec
+             rts
+:yes         clc
+             rts
+
+*--------------------------------------
+* TOKLOAD -- read a type $FC file back into the buffer
+*
+* The reverse: each token becomes its keyword, each other byte becomes itself
+* with the high bit set, and a line becomes its number, a space, and the lot.
+*
+* A space goes after an alphabetic keyword only when a letter or digit follows
+* it, so GOTO 10 reads as GOTO 10 and PRINT"HI" is not padded out. Applesoft's
+* own LIST puts a space on both sides of every token and prints " 30 A =  ATN
+* (1) + 2", which is not what anybody typed either.
+*--------------------------------------
+TOKLOAD      jsr   TKRINIT
+:line        jsr   TKRB             ; the next-line address
+             bcs   :done
+             sta   TKT1
+             jsr   TKRB
+             bcs   :done
+             ora   TKT1
+             beq   :done            ; a zero address ends the program
+
+             jsr   TKRB             ; the line number
+             bcs   :done
+             sta   LNUM
+             jsr   TKRB
+             bcs   :done
+             sta   LNUM+1
+             jsr   LNDIGITS         ; straight into the text buffer
+             lda   #' '+$80
+             jsr   TKPUT
+
+:byte        jsr   TKRB
+             bcs   :done
+             cmp   #$00
+             beq   :eol
+             cmp   #$80
+             bcs   :token
+             ora   #$80             ; a literal, back to the editor's high ASCII
+             jsr   TKPUT
+             jmp   :byte
+
+:token       jsr   TKTEXT           ; write the keyword out
+             jmp   :byte
+
+:eol         lda   #HARDCR
+             jsr   INSCHR
+             jmp   :line
+
+:done        jmp   CLOSEF
+
+*--------------------------------------
+* TKTEXT -- write the keyword whose token byte is in A
+*
+* A linear search of the two tables rather than an index by token value. 107
+* compares against a saving of three hundred bytes, once per token in a file
+* that is loaded once: the wrong way round to optimise.
+*--------------------------------------
+TKPUT        sta   TKPREV
+             jmp   INSCHR
+
+*--- carry clear if A is a letter or a digit, high ASCII
+TKALNUM      cmp   #$b0
+             bcc   :no
+             cmp   #$ba
+             bcc   :yes
+             cmp   #$c1
+             bcc   :no
+             cmp   #$db
+             bcs   :no
+:yes         clc
+             rts
+:no          sec
+             rts
+
+TKTEXT       sta   TKT2
+             ldx   #$00
+:find        lda   TKTOK,x
+             cmp   TKT2
+             beq   :got
+             inx
+             cpx   #TKN
+             bcc   :find
+
+*--- not a word: one of the operators, which are their own single character
+             ldx   #$00
+:oper        lda   TKOPT,x
+             cmp   TKT2
+             beq   :opgot
+             inx
+             cpx   #TKOPN
+             bcc   :oper
+             rts                    ; unknown token: drop it rather than guess
+:opgot       lda   TKOPC,x
+             ora   #$80
+             jmp   TKPUT
+
+:got         stx   TZKW
+             lda   TKPREV           ; 2THENGOSUB is valid and unreadable
+             jsr   TKALNUM
+             bcs   :nolead
+             lda   #' '+$80
+             jsr   TKPUT
+:nolead      ldx   TZKW
+             lda   TKLEN,x
+             sta   TKL2
+             lda   TKLO,x
+             sta   TKP
+             lda   TKHI,x
+             sta   TKP+1
+             ldy   #$00
+:emit        cpy   TKL2
+             beq   :spc
+             lda   (TKP),y
+             sty   TKY2
+             jsr   TKPUT
+             ldy   TKY2
+             iny
+             bne   :emit
+
+*--- REM swallows the rest of the line, so the reader must too or the comment
+*    comes back tokenised
+:spc         lda   TZKW
+             cmp   #TKREMI
+             bne   :peek
+             lda   #$01
+             sta   TKREM3
+             rts
+
+*--- a space only where the next byte would otherwise run into the keyword
+:peek        jsr   TKPEEK
+             bcs   :nospc
+             cmp   #$30             ; a digit
+             bcc   :nospc
+             cmp   #$3a
+             bcc   :yes
+             cmp   #$41             ; or a letter
+             bcc   :nospc
+             cmp   #$5b
+             bcs   :nospc
+:yes         lda   #' '+$80
+             jmp   TKPUT
+:nospc       rts
+
+*--------------------------------------
+* The file reader: MLI hands over a block at a time and this doles it out.
+*--------------------------------------
+TKRINIT      lda   #$00
+             sta   TKRN
+             sta   TKRI
+             sta   TKREM3
+             rts
+
+TKRB         lda   TKREM3           ; inside a REM, tokens are just characters
+             beq   :go
+             lda   #$00
+             sta   TKREM3
+:go          lda   TKRI
+             cmp   TKRN
+             bcc   :have
+             jsr   TKFILL
+             bcs   :eof
+:have        ldx   TKRI
+             lda   DATBUF,x
+             inc   TKRI
+             clc
+             rts
+:eof         sec
+             rts
+
+*--- one byte ahead, without taking it
+TKPEEK       lda   TKRI
+             cmp   TKRN
+             bcc   :have
+             jsr   TKFILL
+             bcs   :eof
+:have        ldx   TKRI
+             lda   DATBUF,x
+             clc
+             rts
+:eof         sec
+             rts
+
+TKFILL       lda   #<DATBUF
+             sta   READPARM+2
+             lda   #>DATBUF
+             sta   READPARM+3
+*--- 255, not 256. A full block comes back with a transfer count of $0100,
+*    and TKRN is one byte: it would take the low half, read zero, and report
+*    an empty file. The template in file.S says the same thing for the same
+*    reason and I asked for 256 anyway.
+             lda   #$ff
+             sta   READPARM+4
+             lda   #$00
+             sta   READPARM+5
+             jsr   READF
+             bcs   :none
+             lda   READPARM+7       ; transfer count, high byte
+             bne   :some
+             lda   READPARM+6
+             beq   :none
+:some        lda   READPARM+6
+             sta   TKRN
+             lda   #$00
+             sta   TKRI
+             clc
+             rts
+:none        sec
+             rts
+
+             dum   $1290
+TKADDR       ds    2                ; where the line being written will live
+TKBL         ds    1                ; bytes of tokenised body so far
+TKLL         ds    1                ; length of the source line in LNBUF
+TKEOF        ds    1                ; why TKREAD stopped
+TKI2         ds    1                ; index into LNBUF
+TKSTR        ds    1                ; inside a string
+TKREM2       ds    1                ; after a REM, writing
+TKREM3       ds    1                ; after a REM, reading
+TKANY2       ds    1                ; digits in the line number
+TZKW         ds    1                ; keyword index
+TKL2         ds    1                ; and its length
+TKC2         ds    1                ; candidates left
+TKCMP        ds    1
+TKT1         ds    1
+TKT2         ds    1
+TKY2         ds    1
+TKRN         ds    1                ; bytes in DATBUF
+TKRI         ds    1                ; and how many have been handed out
+TKPREV       ds    1                ; the last character written out
+TKQUIET      ds    1                ; the failure has already been reported
+             dend

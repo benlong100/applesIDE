@@ -65,6 +65,10 @@ PARMTPL
 
              dfb   $01              ; DESTROY
              da    FNAME
+
+             dfb   $0a              ; GET_FILE_INFO
+             da    FNAME
+             ds    15               ; access, type, aux, storage, blocks, dates
 PARMEND
 
 *--------------------------------------
@@ -112,7 +116,12 @@ DESTROYF     jsr   MLI
 * The gap is not written out: the text is two runs, before it and after it,
 * so no compaction pass is needed.
 *--------------------------------------
-SAVEFILE     lda   #$00
+*--- An Applesoft editor should write a file Applesoft will run, so this is
+*    the tokenised path now. The old text writer is below, unreached, and is
+*    what a text-export command will call when there is one.
+SAVEFILE     jmp   TOKSAVE
+
+SAVETEXT     lda   #$00
              sta   PENDSP           ; no soft wrap held over from last time
              jsr   DESTROYF         ; a missing file is not an error here
              jsr   CREATEF
@@ -244,10 +253,40 @@ WRITERUN     lda   RUNLEN
 :fail        sec
              rts
 
+GINFOF       jsr   MLI
+             dfb   $c4
+             da    GINFOPARM
+             sta   MLIERR
+             rts
+
 *--------------------------------------
 * LOADFILE -- replace the buffer with the contents of FNAME
+*
+* A tokenised Applesoft file and a text file are both just bytes, so the type
+* is asked for rather than guessed at: $FC goes through the detokeniser, and
+* anything else is read as text exactly as before. Guessing from the content
+* is tempting and wrong -- the first two bytes of a BAS file are an address,
+* and there is no value they cannot take.
 *--------------------------------------
-LOADFILE     jsr   OPENF
+LOADFILE     jsr   GINFOF
+             bcs   :astext          ; cannot tell: treat it as text
+             lda   GINFOPARM+4
+             cmp   #$fc
+             bne   :astext
+
+             jsr   OPENF
+             bcs   :fail
+             lda   OPENPARM+5
+             sta   READPARM+1
+             sta   CLOSEPARM+1
+             jsr   BUFINIT
+             jsr   TOKLOAD
+             lda   #$00
+             sta   MODFLAG
+             clc
+             rts
+
+:astext      jsr   OPENF
              bcs   :fail
              lda   OPENPARM+5
              sta   READPARM+1
@@ -582,7 +621,10 @@ SAVENOW      lda   #<MSGSAVING
              jsr   SAVEFILE
              bcs   :err
              jmp   RESTORESTAT      ; the busy notice was the feedback
-:err         jmp   SHOWERR
+:err         lda   TKQUIET          ; the writer said what was wrong already,
+             bne   :said            ; and PRODOS ERROR $00 over the top of it
+             jmp   SHOWERR          ; helps nobody
+:said        rts
 
 KLOAD        jsr   ASKUNSAVED       ; opening replaces the document wholesale
              bcc   :quit            ; and used not to ask, which lost work
@@ -634,5 +676,6 @@ WRITEPARM    ds    8
 CLOSEPARM    ds    2
 CREATEPARM   ds    12
 DESTPARM     ds    3
+GINFOPARM    ds    18               ; GET_FILE_INFO; +4 is the file type
 MLIERR       ds    1
              dend

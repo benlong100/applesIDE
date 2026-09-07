@@ -37,6 +37,7 @@
              put   hilite           ; keywords drawn inverse
              put   hint             ; and their syntax on the hint row
              put   ops              ; ? -> PRINT, and Ctrl-Y
+             put   tok              ; tokenised Applesoft files
              put   tokens           ; generated: Applesoft's keyword table
              put   scroll
              put   select
