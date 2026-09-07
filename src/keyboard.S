@@ -1,0 +1,528 @@
+*--------------------------------------
+* KEYBOARD.S -- key input, dispatch, and cursor movement
+*
+* $C000 holds the last key with bit 7 set when one is waiting; writing $C010
+* clears the strobe. The Apple keys are NOT in the key byte -- they are bit 7
+* of $C061 and $C062, and must be sampled at the moment the key is read, not
+* afterwards, or a fast typist outruns them.
+*
+* The Tab / Ctrl-I collision: the //e keyboard encoder maps both to $89 and
+* software cannot tell them apart. So $89 is dispatched positionally -- indent
+* when the cursor sits in a line's leading whitespace, italic anywhere else.
+*--------------------------------------
+
+*--------------------------------------
+* GETKEY -- block until a key is pressed. Returns it in A and KEYCHR, with
+*           MODOA / MODCA holding the modifier state at the instant of the read.
+*--------------------------------------
+
+*--------------------------------------
+* DISPATCH -- run the handler for KEYCHR, or insert it if it is printable
+*
+* Table entries are 4 bytes: key, required MODOA state, handler address.
+* A linear scan is the right call here; the table is far too short for
+* anything cleverer to pay for itself.
+*--------------------------------------
+DISPATCH     ldx   #$00
+:scan        lda   KEYTBL,x
+             beq   :deflt
+             cmp   KEYCHR
+             bne   :next
+             lda   KEYTBL+1,x
+             cmp   MODOA
+             bne   :next
+             lda   KEYTBL+2,x
+             sta   JMPVEC
+             lda   KEYTBL+3,x
+             sta   JMPVEC+1
+             jmp   (JMPVEC)         ; handler's rts returns to our caller
+:next        txa
+             clc
+             adc   #$04
+             tax
+             jmp   :scan
+
+*--- no table entry: insert printable characters, ignore everything else
+:deflt       lda   MODOA
+             bne   :ret
+             lda   KEYCHR
+             cmp   #$a0             ; below space
+             bcc   :ret
+             cmp   #$ff             ; Delete
+             bcs   :ret
+             jsr   DELSEL           ; typing replaces the selection
+             lda   KEYCHR
+             jsr   INSCHR
+             jsr   FASTOK           ; plain typing touches one row...
+             jsr   WRAPCHECK        ; looks ahead down the line, not just at CCOL
+:ret         rts
+
+
+*--------------------------------------
+* The keyboard buffer
+*
+* The Apple II keyboard latches exactly ONE key. Anything struck while the
+* editor is busy is not delayed, it is discarded -- so a long operation does
+* not make the editor feel slow, it makes it lose text. Reflowing a paragraph
+* is the long operation: even scanned rather than walked, a twenty-line one
+* costs ~450ms on the keystroke that breaks a line, which is several
+* characters at writing speed.
+*
+* Making that faster has a floor, because hard wrap means inserting a
+* character genuinely shifts every line below it. So do what the editors that
+* got this right did: Apple Writer II and Cut & Paste never drop a character
+* and both let the redraw fall behind instead. Catch the keystroke first and
+* let the screen catch up afterwards.
+*
+* KBPOLL is called from inside the reflow. The ring is sixteen deep, which is
+* about two seconds of typing ahead of the editor -- past that the key stays
+* in the latch, which is exactly where it would have been lost before, so a
+* full ring is never worse than no ring.
+*--------------------------------------
+KBMASK       equ   15               ; ring is 16 deep, so the wrap is an AND
+
+*--- KBPOLL -- put a waiting keystroke in the ring. The Apple keys are machine
+*    state rather than part of the character, so the modifier has to be caught
+*    at the same instant as the key: KBMODS is the machine-specific half.
+KBPOLL       lda   KBD
+             bpl   :out             ; nothing waiting, which is the usual case
+             lda   KBHEAD
+             clc
+             adc   #$01
+             and   #KBMASK
+             cmp   KBTAIL
+             beq   :out             ; full: leave it in the latch rather than
+                                    ; drop what is already queued
+             ldx   KBHEAD
+             lda   KBD
+             sta   KBRING,x
+             jsr   KBMODS
+             sta   KBMOD,x
+             sta   KBDSTRB          ; value written is irrelevant
+             txa
+             clc
+             adc   #$01
+             and   #KBMASK
+             sta   KBHEAD
+:out         rts
+
+*--- KBNEXT -- the key GETKEY will return next, WITHOUT consuming it. Carry
+*    clear and A = that key; carry set if nothing is waiting anywhere.
+*
+*    Anything asking "is the writer still typing?" has to come through here
+*    rather than reading $C000 itself. KBPOLL empties the latch into the ring,
+*    so once polling exists a bare `lda KBD` finds nothing waiting even in the
+*    middle of a burst -- which would quietly switch the deferral off.
+KBNEXT       lda   KBHEAD
+             cmp   KBTAIL
+             beq   :latch
+             ldx   KBTAIL
+             lda   KBRING,x
+             clc
+             rts
+:latch       lda   KBD
+             bpl   :none
+             clc
+             rts
+:none        sec
+             rts
+
+*--- KBDEQ -- take the oldest queued key into KEYCHR and MODOA. Carry clear if
+*    there was one, set if the ring is empty.
+KBDEQ        lda   KBHEAD
+             cmp   KBTAIL
+             beq   :none
+             ldx   KBTAIL
+             lda   KBRING,x
+             sta   KEYCHR
+             lda   KBMOD,x
+             sta   MODOA
+             lda   #$00
+             sta   MODCA            ; never read, and never captured
+             txa
+             clc
+             adc   #$01
+             and   #KBMASK
+             sta   KBTAIL
+             clc
+             rts
+:none        sec
+             rts
+
+*--------------------------------------
+* Simple handlers
+*--------------------------------------
+FASTOK       lda   #$01
+             sta   FASTDRAW
+             rts
+
+KLEFT        jsr   SELUPD
+             jsr   FASTOK
+             jmp   GAPLEFT
+KRIGHT       jsr   SELUPD
+             jsr   FASTOK
+             jmp   GAPRIGHT
+KUPSEL       jsr   SELUPD
+             jmp   KUP
+KDOWNSEL     jsr   SELUPD
+             jmp   KDOWN
+KWORDLSEL    jsr   SELUPD
+             jmp   KWORDL
+KWORDRSEL    jsr   SELUPD
+             jmp   KWORDR
+
+*--- with a selection up, Delete removes the selection rather than a character
+KDELETE      lda   SELACT
+             beq   :plain
+             jmp   DELSEL
+:plain       jsr   FASTOK
+             jmp   DELBACK
+KDELFWD      lda   SELACT
+             beq   :plain
+             jmp   DELSEL
+:plain       jsr   FASTOK
+             jmp   DELFWD
+
+*--------------------------------------
+* KDELWORD -- delete back to the start of the word (OA-Delete)
+*
+* Mid-word it deletes back to that word's start. Sitting after a word it takes
+* the spaces first and then the word, so "one two   " twice leaves "one ".
+*
+* Ctrl-Delete was the ask, and the //e cannot do it: only the two Apple keys
+* are readable as state, and the keyboard encoder folds Ctrl into the character
+* code -- the same folding that makes Tab and Ctrl-I both $89. Delete arrives
+* as $ff either way. OA-Delete is the sibling of OA-left and OA-right, which
+* already move by word.
+*
+* A newline stops it rather than being eaten, so a word delete never silently
+* joins two lines. The one exception is a newline directly behind the cursor,
+* where there is no word to take and it behaves as a plain Delete.
+*--------------------------------------
+KDELWORD     lda   SELACT           ; a selection wins, as it does for Delete
+             beq   :start
+             jmp   DELSEL
+
+:start       jsr   PEEKBACK
+             bcs   :done            ; nothing behind the cursor at all
+             cmp   #TEXTLO
+             bcs   :spaces
+             jmp   DELBACK          ; sitting at a line start: just join
+
+*--- the run of spaces first, so sitting after "word   " takes both
+:spaces      jsr   PEEKBACK
+             bcs   :done
+             cmp   #$a0
+             bne   :word
+             jsr   DELBACK
+             jmp   :spaces
+
+*--- then the word, stopping at a space, a newline, or the start of the buffer
+:word        jsr   PEEKBACK
+             bcs   :done
+             cmp   #TEXTLO+1        ; a space or a break ends the word
+             bcc   :done
+             jsr   DELBACK
+             jmp   :word
+:done        rts
+
+KRETURN      lda   #HARDCR          ; the writer asked for this one
+             jmp   INSCHR
+
+*--------------------------------------
+* ASKUNSAVED -- guard anything that would throw the document away
+*
+* Carry set to go ahead, clear to stay put. Shared by OA-Q, OA-N and OA-O --
+* all three discard the document completely. OA-O went without it for a while
+* and quietly threw away unsaved work, which is exactly the way a guard that
+* only some callers use gets found out.
+*--------------------------------------
+ASKUNSAVED   lda   MODFLAG
+             beq   :yes             ; nothing to lose
+             lda   GUNSVLO          ; the 40 column screen has its own
+             sta   STRPTR
+             lda   GUNSVHI
+             sta   STRPTR+1
+             jsr   SHOWMSG
+
+:ask         jsr   GETKEY
+             and   #$df             ; fold case; leaves Esc alone
+             cmp   #$d3             ; S -- save first
+             beq   :save
+             cmp   #$c4             ; D -- discard
+             beq   :discard
+             cmp   #$9b             ; Esc -- carry on editing
+             beq   :no
+             jmp   :ask
+
+*--- KSAVE clears MODFLAG only if the save actually succeeded, so this both
+*    handles a cancelled prompt and refuses to go on after a write error
+:save        jsr   KSAVE
+             lda   MODFLAG
+             bne   :no
+:discard     jsr   RESTORESTAT      ; retire the prompt before going ahead
+:yes         sec
+             rts
+:no          jsr   RESTORESTAT
+             clc
+             rts
+
+
+*--- Sixty-three columns of it will not fit on forty. The keys stay the same
+*    letters, so the habit carries over; only the words are shorter.
+
+*--------------------------------------
+* KQUIT -- hand control back to ProDOS, but not over unsaved work
+*
+* OA-Q sits next to OA-S and OA-O on the keyboard, so a slip is easy and the
+* cost is the whole document. If anything has been edited since the last save
+* or load, ask first.
+*--------------------------------------
+KQUIT        jsr   ASKUNSAVED
+             bcc   :stay
+             jsr   MLI
+             dfb   $65
+             da    QUITPARM
+:stay        rts                    ; the MLI quit does not come back
+
+QUITPARM     dfb   $04
+             dfb   $00
+             da    $0000
+             dfb   $00
+             da    $0000
+
+*--------------------------------------
+* KNEW -- start an empty document (OA-N)
+*
+* Guarded exactly as quitting is, since it throws the document away just as
+* thoroughly. This resets everything START sets up, minus the sample text: an
+* empty gap buffer, viewport and cursor at the top, no selection, no goal
+* column, and the filename forgotten so the next save asks for a new one.
+*
+* Nothing clears the screen here. BLANKTAIL already wipes the text rows past
+* the end of the buffer on the next full redraw, and an empty buffer means
+* every one of them.
+*--------------------------------------
+KNEW         jsr   ASKUNSAVED
+             bcc   :stay
+             lda   #$00
+             sta   SCROLLTOP
+             sta   SCROLLTOP+1
+             sta   GOALCOL
+             sta   VERTMOVE
+             sta   WASVERT
+             sta   FNAME            ; length 0, so OA-S asks for a name
+             jsr   SELINIT
+             jsr   BUFINIT          ; empties the buffer; clears MODFLAG too
+             jsr   HOMECURSOR
+             jsr   DRAWSTATUS
+             jmp   STATUPD
+:stay        rts
+
+*--------------------------------------
+* PEEKBACK -- read the byte before the cursor without moving it.
+*             Carry set if the cursor is at the start of the buffer.
+*--------------------------------------
+PEEKBACK     jsr   ATSTART
+             bcs   :none
+             lda   GAPBEG
+             bne   :same
+             lda   GAPBEG+1         ; low byte is zero, borrow from high
+             sec
+             sbc   #$01
+             sta   AUXPTR+1
+             lda   #$ff
+             sta   AUXPTR
+             jmp   :rd
+:same        sec
+             sbc   #$01
+             sta   AUXPTR
+             lda   GAPBEG+1
+             sta   AUXPTR+1
+:rd          ldy   #$00
+             jsr   AUXRD
+             clc
+             rts
+:none        sec
+             rts
+
+*--------------------------------------
+* PEEKFWD -- read the byte at the cursor without moving it.
+*            Carry set if the cursor is at the end of the buffer.
+*--------------------------------------
+PEEKFWD      jsr   ATEND
+             bcs   :none
+             lda   GAPEND
+             sta   AUXPTR
+             lda   GAPEND+1
+             sta   AUXPTR+1
+             ldy   #$00
+             jsr   AUXRD
+             clc
+             rts
+:none        sec
+             rts
+
+*--------------------------------------
+* BOL / EOL -- move the cursor to the start or end of the current line
+*--------------------------------------
+BOL          jsr   PEEKBACK
+             bcs   :done
+             cmp   #TEXTLO
+             bcc   :done
+             jsr   GAPLEFT
+             jmp   BOL
+:done        rts
+
+EOL          jsr   PEEKFWD
+             bcs   :done
+             cmp   #TEXTLO
+             bcc   :done
+             jsr   GAPRIGHT
+             jmp   EOL
+:done        rts
+
+*--------------------------------------
+* VERTSET -- decide what column vertical movement should aim for
+*
+* The goal column is captured the first time a run of vertical moves begins and
+* then left alone, so passing through a short line does not truncate it. Any
+* other command clears VERTMOVE, which ends the run.
+*
+* VERTMOVE covers repeats inside one keystroke -- KPGUP calls KUP many times --
+* while WASVERT carries the run across keystrokes.
+*--------------------------------------
+VERTSET      lda   VERTMOVE
+             ora   WASVERT
+             bne   :mark
+             lda   CCOL+1           ; fresh run: aim for where we are now. A
+             beq   :take            ; goal beyond 255 is meaningless -- the
+             lda   #$ff             ; margin is far below it -- so clamp rather
+             bne   :set             ; than truncate to the low byte (always taken)
+:take        lda   CCOL
+:set         sta   GOALCOL
+:mark        lda   #$01
+             sta   VERTMOVE
+             rts
+
+*--------------------------------------
+* KUP -- previous line, at the goal column
+*
+* No column counting: CCOL is already maintained, so BOL and a step back over
+* the newline is the whole journey.
+*--------------------------------------
+KUP          jsr   VERTSET
+             jsr   BOL
+             jsr   PEEKBACK
+             bcs   :fin             ; already on the first line
+             jsr   GAPLEFT          ; over the newline, to the end of the line above
+             jsr   BOL
+             lda   GOALCOL
+             sta   TMPC
+             jmp   FWDCOL
+:fin         rts
+
+*--------------------------------------
+* KDOWN -- next line, at the goal column
+*--------------------------------------
+KDOWN        jsr   VERTSET
+             jsr   EOL
+             jsr   PEEKFWD
+             bcs   :fin             ; no line below
+             jsr   GAPRIGHT         ; over the newline, to the start of the next
+             lda   GOALCOL
+             sta   TMPC
+             jmp   FWDCOL
+:fin         rts
+
+*--------------------------------------
+* FWDCOL -- advance TMPC columns, stopping at the end of the line
+*--------------------------------------
+FWDCOL       lda   TMPC
+             beq   :done
+             jsr   PEEKFWD
+             bcs   :done
+             cmp   #TEXTLO
+             bcc   :done
+             jsr   GAPRIGHT
+             dec   TMPC
+             jmp   FWDCOL
+:done        rts
+
+*--------------------------------------
+* INLEAD -- carry set if the cursor sits in a line's leading whitespace.
+*           Scans backwards through aux without disturbing the gap.
+*--------------------------------------
+INLEAD       lda   GAPBEG
+             sta   AUXPTR
+             lda   GAPBEG+1
+             sta   AUXPTR+1
+:loop        lda   AUXPTR+1         ; reached the start of the buffer?
+             cmp   #BUFLO
+             bne   :dec
+             lda   AUXPTR
+             bne   :dec
+             sec
+             rts
+:dec         lda   AUXPTR
+             bne   :d1
+             dec   AUXPTR+1
+:d1          dec   AUXPTR
+             ldy   #$00
+             jsr   AUXRD
+             cmp   #TEXTLO          ; start of line, all spaces behind us
+             bcc   :yes
+             cmp   #$a0             ; space
+             beq   :loop
+             clc                    ; real text behind the cursor
+             rts
+:yes         sec
+             rts
+
+*--------------------------------------
+* KTABITAL -- $89 is both Tab and Ctrl-I. Indent in leading whitespace,
+*             italic anywhere else.
+*--------------------------------------
+KTABITAL     jsr   INLEAD
+             bcs   :indent
+             jmp   KITALIC          ; too far for a relative branch
+*--- indent two spaces
+:indent      lda   #$a0
+             jsr   INSCHR
+             lda   #$a0
+             jmp   INSCHR
+
+*--------------------------------------
+* KBACKTICK -- type the one Markdown character no Apple II keyboard has
+*
+* OA-' on the //e, Esc ' on the ][+. The apostrophe is the key that looks most
+* like what it produces and it was unbound on both machines. This inserts the
+* character rather than wrapping the word the way Ctrl-B and Ctrl-I do, so
+* that three presses give a fence and a lone marker stays possible.
+*
+* The body is DISPATCH's own self-insert path. Once it is in the buffer a
+* backtick is an ordinary printable character, so it wants exactly what a
+* typed one gets: the selection replaced, one row repainted, and a wrap check
+* that looks down the line rather than only at the cursor.
+*--------------------------------------
+KBACKTICK    jsr   DELSEL           ; typing replaces the selection
+             lda   #BACKTICK
+             jsr   INSCHR
+             jsr   FASTOK           ; one row, like any other typed character
+             jmp   WRAPCHECK
+
+*--------------------------------------
+* KBOLD / KITALIC -- wrap the cursor in emphasis markers and sit between them
+*
+* Word-aware wrapping comes with the editing-operations work; for now this
+* inserts the markers and leaves the cursor in the middle, which is what you
+* want when reaching for emphasis before typing the word.
+*--------------------------------------
+
+*--- $14b6-$14be is wrap.S's RTFAST scratch
+             dum   $14bf
+KBRING       ds    16               ; the keys caught while the editor was busy
+KBMOD        ds    16               ; and the Open-Apple state of each
+KBHEAD       ds    1                ; where the next caught key goes
+KBTAIL       ds    1                ; where the next key read comes from
+             dend

@@ -1,0 +1,402 @@
+*--------------------------------------
+* DISPLAY.S -- 80 column screen output
+*
+* The //e 80-column screen interleaves banks: even screen columns live in
+* auxiliary memory, odd columns in main, both at the same offset from the row
+* base. With 80STORE on, $C054/$C055 pick which bank a write to $0400-$07FF
+* lands in.
+*
+* Everything draws through LINEBUF, an 80-byte main-memory line of screen
+* codes. Callers fill it, then blit it. That lets DRAWLINE set the bank switch
+* twice per line instead of once per character, which is the difference
+* between a redraw you notice and one you don't.
+*
+* Screen codes, with ALTCHARSET on:
+*   normal  = ascii | $80          ($A0-$FF)
+*   inverse = ascii & $3f          for ascii < $60
+*           = ascii                for ascii >= $60 (inverse lowercase)
+*--------------------------------------
+
+*--------------------------------------
+* SETROW -- A = row (0-23) -> SCRPTR = row base address
+*--------------------------------------
+SETROW       tax
+             lda   ROWLO,x
+             sta   SCRPTR
+             lda   ROWHI,x
+             sta   SCRPTR+1
+             rts
+
+*--------------------------------------
+* CLRBUF -- fill LINEBUF with spaces
+*--------------------------------------
+CLRBUF       lda   #$a0
+             ldx   GSCRWM1
+:loop        sta   LINEBUF,x
+             dex
+             bpl   :loop
+             rts
+
+*--------------------------------------
+* BUFSTR -- copy a null-terminated high-ASCII string into LINEBUF
+*   STRPTR -> string, X = starting column. Clips at the right margin.
+*--------------------------------------
+BUFSTR       ldy   #$00
+:loop        lda   (STRPTR),y
+             beq   :done
+             cpx   GSCRW
+             bcs   :done
+             sta   LINEBUF,x
+             inx
+             iny
+             bne   :loop
+:done        rts
+
+*--------------------------------------
+* SHOWSTR -- draw a string on its own row, space padded
+*   STRPTR -> string, A = row
+*--------------------------------------
+SHOWSTR      sta   TMPA
+             jsr   CLRBUF
+             ldx   #$00
+             jsr   BUFSTR
+             lda   TMPA
+             jsr   DRAWLINE
+             rts
+
+*--------------------------------------
+* SHOWCHROME -- as SHOWSTR, but inverse video
+*--------------------------------------
+SHOWCHROME   sta   TMPA
+             jsr   CLRBUF
+             ldx   #$00
+             jsr   BUFSTR
+             jsr   CHROMEBUF
+             lda   TMPA
+             jsr   DRAWLINE
+             rts
+
+*--------------------------------------
+* DRAWCHEAT -- render the Markdown cheat sheet on CHEATROW
+*--------------------------------------
+DRAWCHEAT    lda   #<CHEATTXT
+             sta   STRPTR
+             lda   #>CHEATTXT
+             sta   STRPTR+1
+             lda   #CHEATROW
+             jsr   SHOWSTR
+             rts
+
+*--------------------------------------
+* CLRCHEAT -- blank CHEATROW (cheat sheet hidden)
+*--------------------------------------
+CLRCHEAT     jsr   CLRBUF
+             lda   #CHEATROW
+             jsr   DRAWLINE
+             rts
+
+*--------------------------------------
+* SETMAXROW -- text area is one row shorter while the cheat sheet shows
+*--------------------------------------
+SETMAXROW    lda   FLAGS
+             and   #FCHEAT
+             bne   :short
+             lda   #TEXTROWSMAX
+             sta   MAXROW
+             rts
+:short       lda   #TEXTROWS
+             sta   MAXROW
+             rts
+
+*--------------------------------------
+* TOGGLECHEAT -- flip the cheat sheet on or off
+*--------------------------------------
+TOGGLECHEAT  lda   FLAGS
+             eor   #FCHEAT
+             sta   FLAGS
+             jsr   SETMAXROW
+             lda   FLAGS
+             and   #FCHEAT
+             bne   :on
+             jmp   CLRCHEAT
+:on          jmp   DRAWCHEAT
+
+*--------------------------------------
+* PUTNUM -- render NUMV right aligned in PWID cells starting at column X,
+*           space padded, in the inverse video the status line uses.
+*
+* Inverse digits are simply their ASCII codes ($30-$39), since inverse is
+* ascii AND $3F for anything below $60. Inverse space is $20.
+*--------------------------------------
+PUTNUM       stx   PCOL
+             txa
+             clc
+             adc   PWID
+             sta   PEND             ; one past the last cell of the field
+             lda   #$04
+             sec
+             sbc   PWID             ; skip the powers we do not need
+             sta   PIDX
+             lda   #$00
+             sta   PLEAD
+
+:digit       ldy   PIDX
+             cpy   #$04
+             bcs   :pad
+             lda   #$00
+             sta   PDIG
+:sub         lda   NUMV             ; count how many times this power fits
+             sec
+             sbc   POWLO,y
+             tax
+             lda   NUMV+1
+             sbc   POWHI,y
+             bcc   :emit
+             stx   NUMV
+             sta   NUMV+1
+             inc   PDIG
+             ldy   PIDX
+             jmp   :sub
+
+:emit        lda   PDIG
+             bne   :show            ; a non-zero digit ends suppression
+             lda   PLEAD
+             bne   :show
+             ldy   PIDX             ; the units digit shows even as a zero
+             cpy   #$03
+             beq   :show
+             jmp   :next            ; a leading zero takes up no room at all
+:show        lda   #$01
+             sta   PLEAD
+             lda   PDIG
+             clc
+             adc   #$b0             ; a plain digit: PUTCELL decides how
+                                    ; chrome looks on this screen
+             ldx   PCOL
+             jsr   PUTCELL
+             inc   PCOL
+:next        inc   PIDX
+             jmp   :digit
+
+*--- left aligned, so blank whatever is left of the field: without this, 10
+*    dropping to 9 would leave the old units digit stranded on screen
+:pad         lda   PCOL
+             cmp   PEND
+             bcs   :done
+             lda   #$a0             ; a plain space
+             ldx   PCOL
+             jsr   PUTCELL
+             inc   PCOL
+             jmp   :pad
+:done        rts
+
+POWLO        dfb   $e8,$64,$0a,$01
+POWHI        dfb   $03,$00,$00,$00
+
+*--------------------------------------
+* STATUPD -- refresh the line and column fields, if they changed
+*
+* Cheap by construction: CURLNO and CCOL are already maintained, and only the
+* digit cells are touched -- never the whole row. Skipped entirely while a
+* message is on the status line.
+*--------------------------------------
+STATUPD      lda   MSGSHOWN
+             beq   :go
+             rts                    ; a message owns the row; leave it alone
+:go          lda   #STATROW
+             jsr   SETROW
+
+             lda   CURLNO
+             cmp   LASTLN
+             bne   :doline
+             lda   CURLNO+1
+             cmp   LASTLN+1
+             beq   :docol
+:doline      lda   CURLNO
+             sta   LASTLN
+             clc
+             adc   #$01
+             sta   NUMV
+             lda   CURLNO+1
+             sta   LASTLN+1
+             adc   #$00
+             sta   NUMV+1
+             lda   #$04
+             sta   PWID
+             ldx   GLNDIG
+             jsr   PUTNUM
+
+:docol       lda   CCOL+1
+             cmp   LASTCOLH
+             bne   :paintcol
+             lda   CCOL
+             cmp   LASTCOL
+             beq   :docol2
+:paintcol    lda   CCOL
+             sta   LASTCOL
+             lda   CCOL+1
+             sta   LASTCOLH
+             lda   CCOL
+             clc
+             adc   #$01
+             sta   NUMV
+             lda   CCOL+1
+             adc   #$00
+             sta   NUMV+1
+             lda   #$03
+             sta   PWID
+             ldx   GCLDIG
+             jsr   PUTNUM
+
+*--- modified indicator. It is a star straight after the name now, so it moves
+*    with the name and SHOWNAME is what draws it.
+:docol2      lda   MODFLAG
+             cmp   LASTMOD
+             beq   :out
+             sta   LASTMOD
+             jmp   SHOWNAME
+:out         rts
+
+*--------------------------------------
+* RESTORESTAT -- retire whatever owns the status row and repaint it
+*--------------------------------------
+RESTORESTAT  lda   #$00
+             sta   MSGSHOWN
+             jsr   DRAWSTATUS
+             jmp   STATUPD
+
+*--------------------------------------
+* SHOWNAME -- paint the current filename into the status row
+*
+* The status template carries UNTITLED.MD as a placeholder; the real name goes
+* over the top of it. FNAME is whatever the last save or load used -- low ASCII
+* with a length byte -- and is empty until the document has been named, which
+* is what the placeholder is for.
+*
+* The row is inverse video, so each character is folded the way CHROMEBUF folds
+* it: below $60 comes down with AND #$3F, $60 and up inverts to itself.
+*
+* PUTCELL clobbers Y, so the index lives in memory rather than in a register.
+*--------------------------------------
+SHOWNAME     lda   #STATROW
+             jsr   SETROW
+             lda   FNAME            ; length; zero means never named
+             beq   :untitled
+             sta   NAMELEN
+             lda   #<FNAME+1
+             sta   STRPTR
+             lda   #>FNAME+1
+             sta   STRPTR+1
+
+*--- Still too long? Show the TAIL rather than the head. The leading directories
+*    are what you can afford to lose; the filename and the star are what you
+*    are actually looking at. Losing the star to a long path is the worst of
+*    both -- the document looks saved when it is not.
+             lda   NAMELEN
+             cmp   GNAMEW           ; NAMEW-1 characters, plus the star
+             bcc   :draw
+             sec
+             sbc   GNAMEWM1         ; how much to drop off the front
+             clc
+             adc   STRPTR
+             sta   STRPTR
+             bcc   :cap
+             inc   STRPTR+1
+:cap         lda   GNAMEWM1
+             sta   NAMELEN
+             jmp   :draw
+:untitled    lda   #UNTLEN
+             sta   NAMELEN
+             lda   #<UNTITLED
+             sta   STRPTR
+             lda   #>UNTITLED
+             sta   STRPTR+1
+
+:draw        lda   #$00
+             sta   NAMEI
+:loop        ldy   NAMEI
+             cpy   NAMELEN
+             bcs   :past            ; past the name
+             lda   (STRPTR),y
+             jmp   :put
+
+*--- the cell straight after the name carries the star, and only that cell:
+*    CPY left Z set if this is exactly the end of the name
+:past        bne   :pad
+             lda   MODFLAG
+             beq   :pad
+             lda   #$aa             ; a plain star: unsaved changes
+             jmp   :put
+:pad         lda   #$a0             ; a plain space
+:put         ldx   NAMEI
+             inx                    ; NAMECOL is 1
+             jsr   PUTCELL
+             inc   NAMEI
+             lda   NAMEI
+             cmp   GNAMEW
+             bne   :loop
+             rts
+
+
+*--------------------------------------
+* DRAWSTATUS -- render the status line, inverse video
+*--------------------------------------
+DRAWSTATUS   lda   GSTATLO          ; whichever width this screen is
+             sta   STRPTR
+             lda   GSTATHI
+             sta   STRPTR+1
+             lda   #STATROW
+             jsr   SHOWCHROME
+             lda   #$ff             ; force the digits to repaint
+             sta   LASTCOL
+             sta   LASTLN
+             sta   LASTLN+1
+             sta   LASTMOD
+             jmp   SHOWNAME
+
+*--------------------------------------
+* Data
+*--------------------------------------
+
+* Placeholder until the buffer and file layers can supply real values.
+
+*--- and at 40 columns: the filename and the position, and nothing else. The
+*    free-memory readout and the help hint do not fit and are not missed.
+
+*--- screen row base addresses (the usual non-linear Apple II layout) ---
+ROWLO        dfb   $00,$80,$00,$80,$00,$80,$00,$80
+             dfb   $28,$a8,$28,$a8,$28,$a8,$28,$a8
+             dfb   $50,$d0,$50,$d0,$50,$d0,$50,$d0
+ROWHI        dfb   $04,$04,$05,$05,$06,$06,$07,$07
+             dfb   $04,$04,$05,$05,$06,$06,$07,$07
+             dfb   $04,$04,$05,$05,$06,$06,$07,$07
+
+*--- mutable storage, declared but not emitted ---
+* Keeping writable data out of the code image means emulated RAM at $2000
+* stays byte-identical to the build artifact for as long as the program runs.
+             dum   $0200
+LINEBUF      ds    SCRW             ; one screen line of screen codes
+             dend
+
+             dum   $1430
+NUMV         ds    2                ; value being rendered by PUTNUM
+PWID         ds    1
+PIDX         ds    1
+PCOL         ds    1
+PDIG         ds    1
+PLEAD        ds    1                ; non-zero once a digit has been emitted
+PEND         ds    1                ; one past the last cell of the field
+LASTLN       ds    2                ; last values painted, to skip redundant work
+LASTCOL      ds    1                ; low byte; LASTCOLH below holds the high
+LASTMOD      ds    1
+MODFLAG      ds    1                ; non-zero when the document has unsaved edits
+MSGSHOWN     ds    1                ; a message owns the status line
+NAMEI        ds    1                ; SHOWNAME: index into the name
+NAMELEN      ds    1                ; SHOWNAME: how many characters it has
+             dend
+
+*--- This block is full to $143f, where splash.S's SPLI begins, so the high
+*    byte of the last column painted goes in the gap at $1428 instead.
+             dum   $1428            ; $1428-$142f is free; $1422 is buffer.S's
+LASTCOLH     ds    1                ; high byte of the last column painted
+             dend

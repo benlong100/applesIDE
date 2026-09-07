@@ -1,0 +1,20 @@
+build/
+vendor/merlin32/
+vendor/*.po
+vendor/*.dsk
+tools/ac
+tools/acx
+tools/ac-mac-*
+tools/acx-mac-*
+tools/merlin32
+.DS_Store
+notes/
+
+# Generated on every build from lang/<code>.txt and tools/genhelp.py.
+# ZipEdit committed these for a while and they fell silently out of date --
+# a help row was added to the generator, the checked-in copy was never
+# regenerated, and every build after that shipped a blank line where the
+# command should have been.
+src/lang.S
+src/lang_*.S
+src/helpdata.S

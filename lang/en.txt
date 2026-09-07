@@ -1,0 +1,69 @@
+# ApplesIDE -- every word the editor puts on the screen, in English.
+#
+# Same machinery as ZipEdit: tools/genlang.py turns this into src/lang.S on
+# every build, so a translator never sees the assembler. Copy this file,
+# translate the strings, and build with `make LANG=<code>`.
+#
+# RULES
+#
+# - Keep the names. They are what the code refers to. A renamed one assembles
+#   perfectly and then never appears.
+# - Trailing spaces are inside the quotes and they matter: a prompt ends in a
+#   space because the typed text follows it immediately.
+# - MSGERR ends in "$" because a hexadecimal error code is appended to it.
+# - {OA} is the Open Apple glyph. It exists only on an Enhanced //e.
+# - The status rows are LAYOUTS. See the note above STATTXT.
+
+# ---------------------------------------------------------------- the program
+# The name a program has before it is saved. It becomes a real ProDOS filename
+# if the writer saves without naming it, so ProDOS's rules apply: up to fifteen
+# characters, a letter first, letters digits and full stops only. genlang.py
+# checks all of that.
+UNTITLED = "UNTITLED.BAS"
+
+# ------------------------------------------------------------------ the hints
+# ZipEdit spent this row on a Markdown cheat sheet. Here it is where the
+# syntax of the keyword under the cursor will go -- the one line of screen
+# that is already wired up and already toggleable. Placeholder until the
+# tokenizer exists.
+CHEATTXT = "applesoft syntax hints appear here"
+
+# --------------------------------------------------------------- the status row
+# Exactly 80 characters, and a layout rather than a sentence: the filename, the
+# line and column numbers and the free-memory figure are written OVER this at
+# fixed columns taken from src/geom.S. A label that runs long does not push the
+# next one along, it overwrites it.
+#
+#   col  1   the filename, and a modified marker
+#   col 38   the line number goes after this label
+#   col 45   the column number
+#   col 52   the free-memory figure
+#   col 64   the help hint
+STATTXT = " UNTITLED.BAS                         L:     C:     46K FREE    {OA}-? HELP        "
+
+# And at 40 columns, where the free-memory figure and the help hint do not fit.
+STATTXT40 = " UNTITLED.BAS    L:    C:               "
+
+# ------------------------------------------------------------------- the files
+MSGSAVING = "-- SAVING --"
+MSGLOADING = "-- LOADING --"
+MSGSAVE = "SAVE AS: "
+MSGOPEN = "OPEN: "
+MSGERR = " PRODOS ERROR $"
+HINTESC = "ESC CANCELS"
+
+# ---------------------------------------------------------- the unsaved guard
+# S and D are read by the program, so a translation that renames them names
+# keys that do nothing. They are changeable -- but in the code, not here.
+MSGUNSAVED = " UNSAVED CHANGES.  S = SAVE FIRST   D = DISCARD   ESC = CANCEL"
+MSGUNSV40 = " Save first?  S save  D discard  Esc"
+
+# ------------------------------------------------------------------ the splash
+# The program's name is not translated.
+SPLNAME = "ApplesIDE"
+SPLVER = "Version 0.1"
+SPLDATE = "an Applesoft editor"
+SPLGO = "press any key to begin"
+
+SPLHELPOA = "{OA}-? for help"
+SPLHELPESC = "Esc ? for help"
