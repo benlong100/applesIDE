@@ -232,16 +232,36 @@ Reading that format is worth the work for three reasons:
 
 Plain-text import and export comes afterwards, for moving code to the Mac.
 
-**Until then there is a step.** The editor saves ProDOS TXT, which Applesoft
-cannot `RUN`. The way through is `EXEC`, which types a text file's lines in at
-the `]` prompt as though they had been typed by hand:
+**Built.** `OA-S` writes type `$FC` with aux type `$0801`, and `OA-O` reads
+either that or plain text — the type is asked for with `GET_FILE_INFO` rather
+than guessed at, because the first two bytes of a BAS file are an address and
+there is no value they cannot take.
 
-    OA-S to save  ->  OA-Q  ->  BASIC.SYSTEM  ->  EXEC name  ->  RUN
+The format was taken off the machine, not remembered. Applesoft was made to
+save a four-line program and the bytes read back. Three things in them are not
+what one would guess, and each would have produced a plausible file that was
+wrong:
 
-Verified end to end on the emulator. `make dist` builds a disk carrying
-`BASIC.SYSTEM` and a `README.TXT` describing it, because a disk that can write
-a program but not run one is a poor thing to hand somebody. The step goes away
-when tokenized files land.
+- **Spaces outside strings are dropped entirely.** `A = ATN (1) + 2` stores as
+  `41 D0 E1 28 31 29 C8 32`, with not one space in it.
+- **The operators are tokens.** `=` is `$D0`, `+` is `$C8`. They are not
+  reserved *words* and the highlighter rightly ignores them, but a tokenizer
+  that ignored them would write a different program.
+- **Text is stored high-bit-clear.** That bit is what separates a token from a
+  character, and the editor's buffer is high ASCII throughout.
+
+What the editor writes is byte-for-byte what Applesoft wrote for the same
+program. Reading back, Applesoft's own `LIST` prints ` 30 A =  ATN (1) + 2`,
+which nobody typed; the reader adds a space only where a keyword would
+otherwise run into its neighbour, so `IF A>2 THEN GOSUB 15` reads properly and
+`PRINT"HI"` is not padded.
+
+A line with text and no number is refused **before the file is touched**. That
+check used to run mid-write, after `DESTROY` had removed the previous version,
+so a program the editor would not save also took the last good copy of itself.
+
+`make dist` still carries `BASIC.SYSTEM`, which is now for running your program
+rather than for rescuing it.
 
 ## 7. Inverse reserved words
 
@@ -319,7 +339,7 @@ Found by looking at the screen, not the code:
    needed the keyword pass too — otherwise the final line of every program,
    which is usually the one being written, was the only one left plain.
 
-## 8. Renumbering## 8. Renumbering
+## 8. Renumbering
 
 `OA-R` renumbers the program to 10, 20, 30 and carries every reference with it.
 This is the thing the project was asked for: *"when lines are added to the
@@ -416,7 +436,30 @@ sixteen — it would land as `APPLESIDE.SYSTE`, stop looking like a `.SYSTEM`
 file, and never auto-launch. Hence **`ASIDE.SYSTEM`**, which also reads as a
 word. The volume is `/APPLESIDE/`, where fifteen characters is plenty.
 
-## 12. Known limits
+## 12. The stale image
+
+Virtual ][ buffers writes to a mounted image and flushes them when the disk is
+ejected, so an image the emulator is holding can be quietly overwritten with an
+older copy of itself *after* being rebuilt. Everything then runs against code
+that is not the code on disk.
+
+This is not a new discovery — `mkdisk.sh` ejects first for exactly this reason,
+and ZipEdit's notes describe it. It got through anyway, and cost two wrong
+diagnoses in a row: a fix that was already correct was made twice more, because
+the binary under test was 72 bytes older than the one on the desk.
+
+`tests/run.sh` compares the image against the build **first** now, and stops
+the run if they differ. It was already checked — in the *last* section, which
+is no use at all: by the time it fires, every result above it is worthless.
+
+    eject in Virtual ][, then:  rm -f build/APPLESIDE.po && make disk
+
+## 13. Known limits
+
+**Relaunching from BASIC breaks OPEN.** Quit to BASIC, start the editor again
+with `-ASIDE.SYSTEM`, and `OA-O` answers `PRODOS ERROR $40` — invalid
+pathname. Booting straight from the disk works. Not diagnosed, and it is a
+realistic thing to do: quit, run the program, come back.
 
 **A line number above 65535 wraps.** The suite found this by accident: a
 mis-counted test merged two lines into `10 GOTO 99920 END`, and `OA-K`
@@ -434,7 +477,7 @@ Worth noting how it turned up. The test was wrong, not the code — but a wrong
 test still ran a program no deliberate test would have written, which is most
 of the value of running one at all.
 
-## 13. What is deliberately absent
+## 14. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be

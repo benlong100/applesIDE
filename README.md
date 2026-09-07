@@ -10,7 +10,7 @@ a text editor are built yet.
     make          assemble src/aside.S
     make disk     bootable ProDOS 8 image at build/APPLESIDE.po
     make run      build and boot it in Virtual ][
-    make test     run the regression suite (57 assertions)
+    make test     run the regression suite (68 assertions)
     make dist     an image to give away: adds BASIC.SYSTEM and a README
     make card VOL=NAME   copy the image to an SD card
     make tools    fetch the toolchain on a fresh clone
@@ -41,6 +41,8 @@ the project and the one component deliberately deferred.
   `>` marking where text has been scrolled past
 - **`?` types PRINT**, the way Applesoft itself reads it — but not inside a
   string or after REM, where it would change the program
+- **real Applesoft files.** Saves tokenized `$FC` at `$0801`, so `RUN` works
+  straight off. Opens either those or plain text
 - **automatic line numbers**: press Return and the next number is supplied,
   taking the midpoint when you insert between two existing lines
 - **the syntax hint row**, on by default, showing the keyword you are
@@ -55,10 +57,6 @@ the project and the one component deliberately deferred.
 
 ## What does not yet
 
-- **no tokenized file support.** It saves plain ProDOS TXT, so Applesoft
-  cannot RUN a program directly: quit to BASIC and `EXEC` it, which
-  types the lines in. `make dist` builds a disk with BASIC.SYSTEM on it
-  for exactly that. Reading `$FC` files is the next large piece of work
 - find, clipboard and go-to-line are stubs in `src/unbuilt.S`, and say
   `NOT BUILT YET` if you press them rather than doing nothing
 
