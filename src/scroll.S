@@ -45,6 +45,71 @@ CALCLINE     lda   #$00
 :done        rts
 
 *--------------------------------------
+* HSCROLLFIX -- slide the view sideways so the cursor is on screen
+*
+* The horizontal twin of SCROLLFIX, and the reason ApplesIDE can do without
+* wrap at all: a line wider than the screen is ordinary here, so the view
+* follows the cursor along it instead of the line being broken to fit.
+*
+* HOFF is the logical column drawn in screen cell 0, and is kept a multiple of
+* HSTEP. Moving in jumps rather than single columns is deliberate -- see the
+* note above HSTEP in equates.S -- and it is why this loops rather than
+* computing: at most a few iterations, once per keystroke, and obviously
+* correct in a way the divide-and-round version would not be.
+*
+* CCOL is sixteen bits and HOFF is eight, so every comparison here has to be
+* sixteen bits with HOFF's high byte taken as zero. A line long enough to make
+* that matter -- past column 255 -- is already beyond what RENDER can draw.
+*--------------------------------------
+HSCROLLFIX   lda   HOFF
+             sta   HOLD             ; so the main loop can see if it moved
+
+*--- cursor left of the view? jump left until it is not. HOFF cannot go below
+*    zero, and the CCOL high byte cannot be non-zero here: if it is, the
+*    cursor is past column 255 and is certainly not to the left of HOFF.
+:left        lda   CCOL+1
+             bne   :right           ; way off to the right; nothing to do here
+             lda   CCOL
+             cmp   HOFF
+             bcs   :right           ; cursor at or right of the left edge
+             lda   HOFF
+             sec
+             sbc   #HSTEP
+             bcs   :setl
+             lda   #$00             ; clamp at the left margin
+:setl        sta   HOFF
+             jmp   :left
+
+*--- cursor at or past the right edge? jump right until it is not.
+*    The edge is HOFF+GSCRW, which is sixteen bits once HOFF is large.
+:right       lda   HOFF
+             clc
+             adc   GSCRW
+             sta   TMPA
+             lda   #$00
+             adc   #$00
+             sta   TMPB             ; TMPA/TMPB = first column off-screen
+
+             lda   CCOL+1
+             cmp   TMPB
+             bcc   :done
+             bne   :jump
+             lda   CCOL
+             cmp   TMPA
+             bcc   :done
+
+:jump        lda   HOFF
+             clc
+             adc   #HSTEP
+             bcc   :setr
+             lda   #$ff             ; saturate rather than wrap; RENDER cannot
+:setr        sta   HOFF             ; draw past column 255 anyway
+             cmp   #$ff
+             beq   :done            ; ...and stop, or this loops for ever
+             jmp   :right
+:done        rts
+
+*--------------------------------------
 * SCROLLFIX -- move the viewport the minimum needed to keep the cursor on
 *              screen. Called before every redraw.
 *--------------------------------------

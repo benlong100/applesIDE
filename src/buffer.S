@@ -376,7 +376,9 @@ RENDER       lda   #$00
 *--- the gap is the cursor, so this is where it lands on screen
              lda   CURROW
              sta   CURSROW
-             lda   CURCOL
+             lda   CURCOL           ; the CELL, not the logical column
+             sec
+             sbc   HOFF
              sta   CURSCOL
              lda   GAPEND
              sta   AUXPTR
@@ -402,9 +404,23 @@ RENDER       lda   #$00
              cmp   #TEXTLO          ; any break ends the line
              bcc   :eol
 
-             ldx   CURCOL
-             cpx   GSCRW
-             bcs   :next            ; past the right margin, drop it
+*--- Which screen cell does this character land in? CURCOL is the LOGICAL
+*    column, counted from the start of the line; the cell is CURCOL-HOFF.
+*    ZipEdit had no HOFF and simply dropped anything past GSCRW, because
+*    hard wrap meant there was never anything past GSCRW to drop.
+*
+*    Both the too-far-left and too-far-right cases fall to :bump rather than
+*    :next, because CURCOL has to go on counting either way -- it is what
+*    puts the cursor in the right cell when the gap is reached, and getting
+*    that wrong parks the cursor on the wrong character rather than merely
+*    drawing an odd screen.
+             lda   CURCOL
+             sec
+             sbc   HOFF
+             bcc   :bump            ; scrolled off to the left
+             cmp   GSCRW
+             bcs   :bump            ; and off to the right
+             tax
              lda   VIS
              beq   :bump            ; above the viewport: count, do not draw
              lda   INSEL
@@ -414,7 +430,15 @@ RENDER       lda   #$00
              jmp   :store
 :plain       lda   TMPA
 :store       sta   LINEBUF,x
+
+*--- CURCOL is one byte, so it saturates rather than wrapping. An Applesoft
+*    line is 239 characters at most and nothing here enforces that yet, so a
+*    longer one is possible; saturating makes it render wrongly from column
+*    255 on, where wrapping would send characters back to the left margin and
+*    look like buffer corruption.
 :bump        inc   CURCOL
+             bne   :next
+             dec   CURCOL
              jmp   :next
 
 *--- end of line

@@ -308,7 +308,8 @@ KNEW         jsr   ASKUNSAVED
              lda   #$00
              sta   SCROLLTOP
              sta   SCROLLTOP+1
-             sta   GOALCOL
+             sta   HOFF             ; HSCROLLFIX would walk it back anyway, but
+             sta   GOALCOL          ; a new document should not blink sideways
              sta   VERTMOVE
              sta   WASVERT
              sta   FNAME            ; length 0, so OA-S asks for a name

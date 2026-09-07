@@ -43,10 +43,36 @@ cursor arithmetic are untouched.
 
 Soft wrap remains on *ZipEdit's* wishlist, where it belongs.
 
-**Status: not built.** Today a long line renders truncated at column 80. The
-buffer holds it correctly — 105 characters typed, `C:105` on the status row,
-nothing corrupted — the display simply stops at the edge. That is the right
-starting point: only the renderer is missing an offset.
+**Status: built.** `HOFF` is the logical column drawn in screen cell 0.
+`RENDER` puts a character in cell `CURCOL - HOFF` and skips it if that falls
+outside the screen; `HSCROLLFIX` in `scroll.S` is the horizontal twin of
+`SCROLLFIX` and slides `HOFF` to keep the cursor in view.
+
+**It jumps in steps of `HSTEP` (16) rather than tracking column by column.**
+Two reasons, and the second is the one that matters:
+
+- A horizontal scroll shifts every row, so it costs a full `RENDER`. Tracking
+  by single columns would pay that on *every keystroke* past the margin;
+  jumping pays it once every sixteen characters.
+- It lands the cursor well inside the screen rather than pinned against the
+  edge, so you can see what you are typing towards.
+
+Two limits, both deliberate and both documented at the code:
+
+- `CURCOL` is one byte and **saturates rather than wrapping**. An Applesoft
+  line is 239 characters at most, so this is only reachable by a line longer
+  than the language allows — and saturating misrenders from column 255 on,
+  where wrapping would send characters back to the left margin and look like
+  buffer corruption. Enforcing the 239-character limit is a real feature and
+  is not built.
+- `HOFF` is one byte and saturates at 255 for the same reason. `HSCROLLFIX`
+  stops looping when it does, or it would spin.
+
+Verified on the emulator: a 104-character line scrolls to `HOFF` 32 — the
+first multiple of 16 that keeps the cursor on screen — `Ctrl-A` brings it home
+and `Ctrl-E` sends it back out, an insert twelve characters back from the
+cursor lands in the right place while scrolled, and moving up to a short line
+brings the view home on its own.
 
 ## 3. Tokenized files
 

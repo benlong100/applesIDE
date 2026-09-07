@@ -123,8 +123,21 @@ ctrl) as "tell (last machine) to type ctrl \"$1\"" ;;
 oa)   as "tell (last machine) to type open Apple \"$1\"" ;;
 ca)   as "tell (last machine) to type solid Apple \"$1\"" ;;
 
-# key <name> -- a special key, e.g. left, right, up, down, escape, return, tab
-key)  as "tell (last machine) to type key $1" ;;
+# key <name> -- one of the few keys Virtual ][ exposes as a KEY rather than as
+# a character. The name has to be exact, and the old comment here listed names
+# that do not exist ("left", "up"): AppleScript accepts the command, the
+# emulator does nothing, and the shell sees success. That silence cost a
+# debugging round -- ten left-arrows that never happened looked like the
+# cursor arithmetic being wrong. So the list is checked here instead.
+key)
+    case "$1" in
+        "left arrow"|"right arrow"|"up arrow"|"down arrow"|esc|escape|tab|return) ;;
+        *) echo "vii.sh key: '$1' is not a key Virtual ][ knows." >&2
+           echo "  try: 'left arrow' 'right arrow' 'up arrow' 'down arrow' esc tab return" >&2
+           echo "  (bare 'left'/'up' are accepted by AppleScript and do NOTHING)" >&2
+           exit 2 ;;
+    esac
+    as "tell (last machine) to type key $1" ;;
 
 # dump <addr> <len> <bank> <outfile> -- read emulated RAM.
 # bank 0 = main, bank 1 = auxiliary (where our text buffer lives).

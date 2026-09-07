@@ -32,12 +32,13 @@ the project and the one component deliberately deferred.
 - typing, arrows, Return, Delete, selection
 - the two-page help screen
 - the status row: filename, line, column, free memory
+- **long lines**: the view scrolls sideways in jumps of 16 columns to follow
+  the cursor, which is how a BASIC line stays one screen row without ever
+  being broken
 - English and any other language you write a `lang/<code>.txt` for
 
 ## What does not yet
 
-- **long lines are truncated at column 80.** The buffer holds them correctly;
-  the renderer has no horizontal offset yet. This is the next piece of work.
 - no line-number handling, renumbering or reference tracking
 - no keyword display, no syntax hints
 - no Applesoft file support — nothing reads or writes tokenized `$FC` files

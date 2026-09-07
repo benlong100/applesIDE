@@ -104,6 +104,11 @@ PARTIAL      equ   $69              ; handler changed nothing above the cursor
 RSKIP        equ   $6a              ; rows RENDER counts without drawing
 VISLINE      equ   $6b              ; 2 bytes, the first line RENDER draws
 DSTPTR       equ   $6d              ; 2 bytes, main-memory destination for AUXBLK
+HOFF         equ   $6f              ; horizontal scroll: the logical column
+                                    ; drawn in screen cell 0. Always a multiple
+                                    ; of HSTEP, and zero almost all the time.
+HOLD         equ   $70              ; HOFF before the keystroke, so the main
+                                    ; loop can tell whether the view moved
 CLIPMAX      equ   1024             ; clipboard capacity
 
 
@@ -111,6 +116,18 @@ CLIPMAX      equ   1024             ; clipboard capacity
 FCHEAT       equ   %00000001        ; cheat sheet visible
 
 *--- screen geometry ---
+*--- Horizontal scrolling. ApplesIDE never breaks a line, so a line wider than
+*    the screen is ordinary rather than exceptional, and the view slides
+*    sideways to follow the cursor.
+*
+*    It moves in JUMPS of HSTEP rather than a column at a time, for two
+*    reasons. A horizontal scroll shifts every row, so it costs a full RENDER
+*    -- tracking by single columns would pay that on every keystroke past the
+*    margin, where jumping pays it once every HSTEP characters. And landing the
+*    cursor well inside the screen instead of pinned against the edge means you
+*    can see where you are going.
+HSTEP        equ   16               ; columns per jump
+
 SCRW         equ   80               ; the WIDEST line we allocate for. The
                                     ; layout reads GSCRW at run time; this is
                                     ; only ever a buffer size. See geom.S.

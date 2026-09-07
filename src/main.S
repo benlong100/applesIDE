@@ -22,6 +22,8 @@ START        lda   #$00             ; nothing remembered about the viewport yet
              lda   #$00
              sta   SCROLLTOP
              sta   SCROLLTOP+1
+             sta   HOFF             ; and the view starts at the left margin
+             sta   HOLD
 
              jsr   UNHOOKRAM        ; claim aux before anything else uses it
              lda   #$e5             ; poison, so tests can see untouched gap
@@ -93,6 +95,7 @@ START        lda   #$00             ; nothing remembered about the viewport yet
 * at all, and averaged the effect away into "depth does not matter".
 *--------------------------------------
 MAINLOOP     jsr   SCROLLFIX
+             jsr   HSCROLLFIX
              jsr   REDRAW
 
 *--- remember what a one-row redraw is allowed to assume
@@ -137,6 +140,7 @@ MAINLOOP     jsr   SCROLLFIX
 *    expensive that a burst of typing would otherwise repeat.
 
              jsr   SCROLLFIX
+             jsr   HSCROLLFIX
              jsr   STATUPD
 
 *--- one row is enough only if the handler opted in AND nothing structural
@@ -152,6 +156,11 @@ MAINLOOP     jsr   SCROLLFIX
              bne   :full
              lda   CURLNO+1
              cmp   OLDLINE+1
+             bne   :full
+*--- A horizontal jump shifts every row, so it is a full redraw exactly like
+*    a vertical scroll. HSCROLLFIX left the old value in HOLD.
+             lda   HOFF
+             cmp   HOLD
              bne   :full
              lda   SCROLLTOP
              cmp   OLDTOP
