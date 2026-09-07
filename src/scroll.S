@@ -67,12 +67,22 @@ HSCROLLFIX   lda   HOFF
 *--- cursor left of the view? jump left until it is not. HOFF cannot go below
 *    zero, and the CCOL high byte cannot be non-zero here: if it is, the
 *    cursor is past column 255 and is certainly not to the left of HOFF.
-:left        lda   CCOL+1
+*    The left edge is HOFF+HPIN rather than HOFF, because the first HPIN cells
+*    are where RENDER pins the line number. The cursor may not sit there: the
+*    character it is on would not be drawn, and typing into a cell you cannot
+*    see is worse than a scroll that happens a little early.
+:left        lda   HOFF
+             beq   :right           ; already home, so nothing is pinned
+             lda   CCOL+1
              bne   :right           ; way off to the right; nothing to do here
-             lda   CCOL
-             cmp   HOFF
-             bcs   :right           ; cursor at or right of the left edge
              lda   HOFF
+             clc
+             adc   #HPIN
+             bcs   :jumpl           ; over 255, so certainly past CCOL
+             cmp   CCOL
+             bcc   :right           ; cursor is clear of the pinned cells
+             beq   :right           ; exactly at the first free one: fine
+:jumpl       lda   HOFF
              sec
              sbc   #HSTEP
              bcs   :setl

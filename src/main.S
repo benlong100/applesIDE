@@ -60,7 +60,6 @@ START        lda   #$00             ; nothing remembered about the viewport yet
              sta   CLIPLEN          ; and nothing on the clipboard to paste
              sta   CLIPLEN+1
              sta   CLIPLINE
-             sta   FLOWOWED         ; no reflow put off yet
              sta   KBHEAD           ; and nothing caught in the ring. These
              sta   KBTAIL           ; live in a dum block, so a relaunch would
                                     ; otherwise start with garbage indices
@@ -280,8 +279,12 @@ HOMECURSOR   jsr   GAPLEFT
              rts
 
 *--- $1428 is display.S's LASTCOLH; $1429-$142f is otherwise free.
+*    FLOWOWED lived at $1429 and went with the deferred reflow.
              dum   $1429
-FLOWOWED     ds    1                ; a reflow was put off and is still owed
+RNUMW        ds    1                ; RENDER: digits in this line's leading
+                                    ; number, so the body knows what not to
+                                    ; draw over when the view is scrolled
+RINNUM       ds    1                ; RENDER: still inside that digit run
              dend
 
 *--------------------------------------

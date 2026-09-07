@@ -74,7 +74,50 @@ and `Ctrl-E` sends it back out, an insert twelve characters back from the
 cursor lands in the right place while scrolled, and moving up to a short line
 brings the view home on its own.
 
-## 3. Tokenized files
+## 3. Line numbers are text, and the screen pins them
+
+The buffer holds `10 HOME` exactly as the file does. Line numbers are not
+metadata the editor owns; they are characters, the cursor can move into them,
+and you can edit one by hand the way you always could in BASIC.
+
+That was not the obvious choice, so here is why.
+
+**References are text whatever you decide.** `GOTO 20` carries its operand
+inside the line body, typed by the user. An editor that owned every line's
+number as metadata would still need the same scanner over `GOTO`, `GOSUB`,
+`THEN`, `ON…GOTO`, `RUN` and `LIST` — and would now hold *two* representations
+of a line number that have to agree. Since §6 already chose `RENUM` over
+symbolic identity, and `RENUM` rewrites numbers and references together as
+text, owning the numbers separately buys very little and costs the thing this
+editor is built on: a gap buffer holding plain text, where save and load are
+trivially correct and what you see is what is in the file.
+
+**But scrolling took something away.** Scroll out to column 100 and the line
+number goes off the left edge, so you are editing a long line with no idea
+which line it is. The status row shows `L:2`, and that is the ordinal, not the
+BASIC line number.
+
+So the number is **pinned on screen**: when `HOFF` is non-zero, `RENDER` draws
+the leading digit run in its own columns and never scrolls it. This is a
+display trick, not a data-model change. `RINNUM` tracks whether we are still
+in the digit run, `RNUMW` counts how wide it is.
+
+Two consequences had to be handled, and both were found by looking at the
+screen rather than by reasoning:
+
+- **The pinned number and the scrolled body together read as a line that does
+  not exist.** `20 PRINT "THE QUICK...` looks like the whole of line 20 when
+  sixteen characters have been skipped. A `>` in the cell between them says so.
+- **The cursor could sit under the pinned number**, where the character it is
+  on is not drawn — typing somewhere you cannot see. `HSCROLLFIX` treats the
+  first `HPIN` (6) cells as unavailable and jumps the view home rather than let
+  the cursor enter them. Six is five digits, Applesoft's ceiling being 63999,
+  plus the marker.
+
+Unscrolled, none of this is visible: no marker, no pinning, the line drawn
+exactly as it is stored.
+
+## 4. Tokenized files
 
 An Applesoft program on disk is normally ProDOS file type `$FC`: a dump of
 memory from `$801`, structured as a linked list of lines, each one two bytes of
@@ -91,7 +134,7 @@ Reading that format is worth the work for three reasons:
 
 Plain-text import and export comes afterwards, for moving code to the Mac.
 
-## 4. The tokenizer will be the sharp edge
+## 5. The tokenizer will be the sharp edge
 
 Applesoft matches keywords **greedily against a table, in table order**, and the
 table is not sorted helpfully. `AT` is `$C5`; `ATN` is `$E1`. A naive matcher
@@ -106,7 +149,7 @@ that are easy to miss:
 - everything after `REM` is literal
 - `DATA` has its own quoting rules
 
-## 5. Renumbering
+## 6. Renumbering
 
 The request was that `GOTO` targets follow their lines automatically. Two ways:
 
@@ -123,14 +166,14 @@ Either way the essential piece is the same, and it is where the actual work is:
 a scanner that finds every line-number reference — `GOTO`, `GOSUB`, `THEN`,
 `ON…GOTO`, `ON…GOSUB`, `RUN`, `LIST`.
 
-## 6. Where the syntax hints go
+## 7. Where the syntax hints go
 
 ZipEdit spends one screen row on a Markdown cheat sheet, toggled with `OA-/`.
 That row is already wired up, already toggleable, and already excluded from the
 text area's height. It is where the syntax of the keyword under the cursor
 belongs. Nothing new is needed but content.
 
-## 7. The AI window — deferred, deliberately
+## 8. The AI window — deferred, deliberately
 
 The original request ended with an AI panel talking to OpenAI over Uthernet or
 FujiNet. The hardware reading in it is correct: Uthernet II is a W5100 with a
@@ -146,14 +189,14 @@ It is deferred because it is the only component that does nothing when the
 machine is offline, and because letting it shape the editor's design would be
 the wrong trade. It is not ruled out.
 
-## 8. The name
+## 9. The name
 
 ProDOS truncates a filename at fifteen characters. `APPLESIDE.SYSTEM` is
 sixteen — it would land as `APPLESIDE.SYSTE`, stop looking like a `.SYSTEM`
 file, and never auto-launch. Hence **`ASIDE.SYSTEM`**, which also reads as a
 word. The volume is `/APPLESIDE/`, where fifteen characters is plenty.
 
-## 9. What is deliberately absent
+## 10. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be

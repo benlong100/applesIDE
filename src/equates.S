@@ -128,6 +128,13 @@ FCHEAT       equ   %00000001        ; cheat sheet visible
 *    can see where you are going.
 HSTEP        equ   16               ; columns per jump
 
+*    HPIN is how many cells the pinned line number may occupy: five digits,
+*    because Applesoft's highest line number is 63999, plus the marker. Those
+*    cells are not available to the cursor -- if it could sit there it would be
+*    under the pinned number, where the character it is on is not drawn, and
+*    you would be typing somewhere you cannot see. HSCROLLFIX keeps it out.
+HPIN         equ   6
+
 SCRW         equ   80               ; the WIDEST line we allocate for. The
                                     ; layout reads GSCRW at run time; this is
                                     ; only ever a buffer size. See geom.S.

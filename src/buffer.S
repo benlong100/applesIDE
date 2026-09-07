@@ -294,6 +294,10 @@ RENDER       lda   #$00
              sta   RPOS
              sta   RPOS+1
              sta   INSEL
+             sta   RNUMW            ; the first line begins here too
+             lda   #$01
+             sta   RINNUM
+             lda   #$00
              lda   SELACT
              beq   :nosel
              jsr   SELBOUNDS
@@ -414,13 +418,65 @@ RENDER       lda   #$00
 *    puts the cursor in the right cell when the gap is reached, and getting
 *    that wrong parks the cursor on the wrong character rather than merely
 *    drawing an odd screen.
+*--- Is this character part of the line's leading number? The run ends at the
+*    first non-digit, and RINNUM stays clear for the rest of the line.
+             lda   RINNUM
+             beq   :body
+             lda   TMPA
+             cmp   #'0'+$80
+             bcc   :notdig
+             cmp   #'9'+$80+1
+             bcc   :isdig
+*--- The number is pinned and the body beside it is scrolled, so what you see
+*    is not a line that exists anywhere: "20 PRINT ..." would read as the whole
+*    of line 20 when sixteen characters have been skipped. The cell between
+*    them says so.
+:notdig      lda   #$00
+             sta   RINNUM
+             lda   HOFF
+             beq   :body            ; not scrolled: nothing was skipped
+             lda   RNUMW
+             beq   :body            ; no number to pin, so nothing to mark off
+             lda   VIS
+             beq   :body            ; above the viewport; not being drawn
+             ldx   RNUMW
+             cpx   GSCRW
+             bcs   :body
+             lda   #'>'+$80
+             sta   LINEBUF,x
+             jmp   :body
+
+*--- A digit of the line number is drawn at its own column and NEVER scrolls.
+*    Numbers in the text are what the file holds and what RENUM rewrites; this
+*    is only about keeping them on screen, because a long line scrolled out to
+*    column 100 would otherwise leave you editing a line you cannot identify.
+:isdig       inc   RNUMW
              lda   CURCOL
+             cmp   GSCRW
+             bcs   :bump
+             tax
+             jmp   :vis
+
+*--- The body scrolls. Where the view has moved, it must not draw over the
+*    pinned number, so the leftmost RNUMW+1 cells are off limits -- the +1
+*    leaves a blank so the number does not run into the text. With HOFF zero
+*    nothing is pinned and the guard is skipped, or a line like 10HOME with no
+*    space would lose its H.
+:body        lda   CURCOL
              sec
              sbc   HOFF
              bcc   :bump            ; scrolled off to the left
              cmp   GSCRW
              bcs   :bump            ; and off to the right
+             tay
+             lda   HOFF
+             beq   :cell            ; not scrolled: nothing is pinned
+             cpy   RNUMW
+             bcc   :bump            ; would land on the pinned number
+             beq   :bump            ; or in its trailing blank
+:cell        tya
              tax
+:vis
              lda   VIS
              beq   :bump            ; above the viewport: count, do not draw
              lda   INSEL
@@ -453,6 +509,9 @@ RENDER       lda   #$00
              jsr   CLRBUF
 :skipped     lda   #$00
              sta   CURCOL
+             sta   RNUMW            ; a new line: no digits counted yet
+             lda   #$01
+             sta   RINNUM           ; and we are at the front of it
              inc   LINENO
              bne   :chkvis
              inc   LINENO+1

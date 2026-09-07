@@ -34,7 +34,8 @@ the project and the one component deliberately deferred.
 - the status row: filename, line, column, free memory
 - **long lines**: the view scrolls sideways in jumps of 16 columns to follow
   the cursor, which is how a BASIC line stays one screen row without ever
-  being broken
+  being broken. The line number stays pinned at the left when it does, with a
+  `>` marking where text has been scrolled past
 - English and any other language you write a `lang/<code>.txt` for
 
 ## What does not yet
