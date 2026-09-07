@@ -410,7 +410,25 @@ RENDER       lda   #$00
              bcs   :online
              jmp   :eol             ; the MASKBUF work below pushed :eol out
                                     ; of branch range
-:online
+
+*--- EVERY character has to be counted for the string state, drawn or not.
+*    This used to sit down at :store, which only drawn cells reach -- so with
+*    the view scrolled the opening quote was off the left edge, never toggled
+*    anything, and every keyword inside the string highlighted. It showed up
+*    on real hardware as: quotes protect a PRINT for the first eighty
+*    columns, and stop protecting it the moment the line scrolls.
+*
+*    RSTRC is the state that applies to THIS cell, captured before the toggle,
+*    because a quote is itself part of the string it opens.
+:online      lda   RSTR
+             sta   RSTRC
+             lda   TMPA
+             cmp   #$a2
+             bne   :nostr
+             lda   RSTR
+             eor   #$01
+             sta   RSTR
+:nostr
 
 *--- Which screen cell does this character land in? CURCOL is the LOGICAL
 *    column, counted from the start of the line; the cell is CURCOL-HOFF.
@@ -491,20 +509,12 @@ RENDER       lda   #$00
 :plain       lda   TMPA
 :store       sta   LINEBUF,x
 
-*--- Record whether this cell is CODE or the inside of a string, because the
-*    keyword highlighter cannot work it out for itself: a quote may have opened
-*    to the left of the screen, and LINEBUF holds only what is visible. The
-*    quote characters themselves count as string, so PRINT "GOTO" highlights
-*    neither the GOTO nor anything else inside the quotes.
-             lda   RSTR
+*--- The keyword highlighter cannot work out for itself whether a cell is
+*    inside a string -- the quote may have opened off the left edge, and
+*    LINEBUF holds only what is visible -- so record what the walk already
+*    knows. Decided above, at :online, where undrawn characters are counted too.
+             lda   RSTRC
              sta   MASKBUF,x
-             lda   TMPA
-             cmp   #$a2             ; a double quote flips the state AFTER the
-             bne   :nostr           ; cell it occupies has been marked
-             lda   RSTR
-             eor   #$01
-             sta   RSTR
-:nostr
 
 *--- CURCOL is one byte, so it saturates rather than wrapping. An Applesoft
 *    line is 239 characters at most and nothing here enforces that yet, so a

@@ -38,17 +38,29 @@
 *                   and it should end up DELETED rather than implemented.
 *--------------------------------------
 
-KFIND        rts
-FINDNEXT     rts
-KGOTO        rts
-KCOPY        rts
-KCUT         rts
-KPASTE       rts
-KDELEOL      rts
-KBOLD        rts
+*--- These are bound to keys, so pressing one and getting silence is
+*    indistinguishable from a bug -- which the header above predicted and
+*    real hardware confirmed. They say so now.
+KFIND
+FINDNEXT
+KGOTO
+KCOPY
+KCUT
+KPASTE
+KDELEOL      lda   #<MSGNOTYET
+             sta   STRPTR
+             lda   #>MSGNOTYET
+             sta   STRPTR+1
+             jmp   SHOWMSG
+
+*--- Markdown emphasis, which Applesoft has no notion of. Silent on purpose:
+*    these are not "not yet", they are "never", and they go when the keymaps
+*    are rewritten for this machine rather than inherited from ZipEdit.
+KBOLD
 KITALIC      rts
 
-*--- not a stub so much as a decision: see above.
+*--- not a stub so much as a decision: see above. Called on every keystroke,
+*    so it must stay silent.
 WRAPCHECK    rts
 KWORDL       rts
 KWORDR       rts

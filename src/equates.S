@@ -108,6 +108,8 @@ HOFF         equ   $6f              ; horizontal scroll: the logical column
                                     ; drawn in screen cell 0. Always a multiple
                                     ; of HSTEP, and zero almost all the time.
 RSTR         equ   $77              ; RENDER: inside a string literal
+RSTRC        equ   $78              ; ...and the state for the current cell,
+                                    ; which a quote's own cell shares
 HOLD         equ   $70              ; HOFF before the keystroke, so the main
                                     ; loop can tell whether the view moved
 RFTP         equ   $71              ; 2 bytes, refs.S: into the line-number

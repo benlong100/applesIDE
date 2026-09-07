@@ -17,8 +17,10 @@ START        lda   #$00             ; nothing remembered about the viewport yet
              jsr   GEOMINIT         ; the layout's columns first of all: it
                                     ; depends on nothing, and everything that
                                     ; draws depends on it
-             lda   #$00             ; cheat sheet hidden by default; OA-/ shows it
-             sta   FLAGS
+             lda   #FCHEAT          ; the syntax hint row is ON to begin with.
+             sta   FLAGS            ; It is the reason half this editor exists,
+                                    ; and a feature nobody finds is no feature;
+                                    ; OA-/ turns it off for the extra text row.
              lda   #$00
              sta   SCROLLTOP
              sta   SCROLLTOP+1

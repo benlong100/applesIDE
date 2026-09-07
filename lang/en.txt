@@ -64,6 +64,9 @@ MSGNOLINE = " NO SUCH LINE: "
 
 # OA-R renumbers to 10, 20, 30 and carries every reference with it.
 MSGRENUM = " RENUMBERED"
+
+# Shown by a key that is bound but whose command is not written yet.
+MSGNOTYET = " NOT BUILT YET"
 HINTESC = "ESC CANCELS"
 
 # ---------------------------------------------------------- the unsaved guard

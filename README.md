@@ -38,7 +38,8 @@ the project and the one component deliberately deferred.
   `>` marking where text has been scrolled past
 - **automatic line numbers**: press Return and the next number is supplied,
   taking the midpoint when you insert between two existing lines
-- **OA-/ shows syntax hints** for the keyword you are working on
+- **the syntax hint row**, on by default, showing the keyword you are
+  working on; OA-/ turns it off for the extra text row
 - **Applesoft keywords are drawn inverse**, all 98 of them, ignoring anything
   inside a string or after REM
 - **OA-R renumbers** to 10, 20, 30, and every GOTO, GOSUB, THEN and RUN
@@ -50,7 +51,8 @@ the project and the one component deliberately deferred.
 ## What does not yet
 
 - no Applesoft file support — nothing reads or writes tokenized `$FC` files
-- find, clipboard and go-to-line are stubs in `src/unbuilt.S`
+- find, clipboard and go-to-line are stubs in `src/unbuilt.S`, and say
+  `NOT BUILT YET` if you press them rather than doing nothing
 
 ## Requirements
 

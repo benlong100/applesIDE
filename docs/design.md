@@ -266,6 +266,23 @@ is literal.
 **Lowercase is not matched.** Applesoft tokenizes uppercase only, so `print` is
 a variable name to the machine, and drawing it as a keyword would be a lie.
 
+### The bug real hardware found
+
+The string state was recorded at the point a cell is **drawn** — and undrawn
+characters never reach it. Scroll a long `PRINT` line and its opening quote
+goes off the left edge, toggles nothing, and every keyword inside the string
+lights up. Reported exactly that way from the machine: *"keywords within the
+quotes don't highlight within the first 80 characters. After the screen
+scrolls to the left, keywords within the quotes inverse."*
+
+The state is now tracked for every character the walk sees, drawn or not, and
+`RSTRC` carries the value that applies to the current cell — captured before
+the toggle, because a quote belongs to the string it opens.
+
+Nothing in the emulator would have caught this without deliberately scrolling a
+string, which is the sort of case a person finds in a minute and a test suite
+finds only if someone thought of it.
+
 ### The known limitation
 
 On a **scrolled** row the leftmost character is mid-line and possibly

@@ -120,36 +120,39 @@ def page(left, right):
     return lines
 
 P1L = [header(T("MOVING"), "L"),
-       entry("arrows", T("char / line"),     "L"),
-       entry("@-arrows", T("word / page"),   "L"),
-       entry("Ctrl-A", T("line start"),      "L"),
-       entry("Ctrl-E", T("line end"),        "L"),
-       entry("@-<  @->", T("start/end"),     "L"),
+       entry("arrows", T("char / line"),      "L"),
+       entry("Ctrl-A", T("line start"),       "L"),
+       entry("Ctrl-E", T("line end"),         "L"),
+       entry("@-<  @->", T("top / end"),      "L"),
        None,
-       header(T("SELECTING"), "L"),
-       entry("@-space", T("start selecting"), "L"),
-       entry("arrows", T("paint"),           "L"),
-       entry("Esc", T("cancel"),             "L")]
-P1R = [header(T("EDITING"), "R"),
-       entry("Delete", T("delete left"),     "R"),
-       entry("Ctrl-D", T("delete right"),    "R"),
-       entry("@-Q", T("quit"),               "R"),
+       header(T("EDITING"), "L"),
+       entry("Delete", T("delete left"),      "L"),
+       entry("Ctrl-D", T("delete right"),     "L"),
+       entry("@-Delete", T("delete word left"), "L"),
+       entry("Return", T("new line, numbered"), "L")]
+P1R = [header(T("PROGRAM"), "R"),
+       entry("@-R", T("renumber by ten"),     "R"),
+       entry("@-K", T("check GOTO targets"),  "R"),
+       entry("@-/", T("syntax hint row"),     "R"),
        None,
-       header(T("SCREEN"), "R"),
-       entry("@-?", T("this help"),          "R")]
+       header(T("SELECTING"), "R"),
+       entry("@-space", T("start selecting"), "R"),
+       entry("arrows", T("paint"),            "R"),
+       entry("Esc", T("cancel"),              "R")]
 
-P2L = [header(T("PROGRAM"), "L"),
-       entry("@-K", T("check GOTO targets"), "L"),
+P2L = [header(T("FILES"), "L"),
+       entry("@-O", T("open"),                "L"),
+       entry("@-S", T("save"),                "L"),
+       entry("@-A", T("save as"),             "L"),
+       entry("@-N", T("new"),                 "L"),
+       entry("@-Q", T("quit"),                "L")]
+P2R = [header(T("NOT BUILT YET"), "R"),
+       entry("@-F @-G", T("find"),            "R"),
+       entry("@-L", T("go to line"),          "R"),
+       entry("@-C/X/V", T("clipboard"),       "R"),
+       entry("Ctrl-Y", T("to end of line"),   "R"),
        None,
-       header(T("NOT YET BUILT"), "L"),
-       entry("", T("renumbering"),           "L"),
-       entry("", T("keyword display"),       "L"),
-       entry("", T("syntax hints"),          "L"),
-       entry("", T("find / clipboard"),      "L")]
-P2R = [header(T("FILES"), "R"),
-       entry("@-O", T("open"),               "R"),
-       entry("@-S", T("save"),               "R"),
-       entry("@-N", T("new"),                "R")]
+       entry("", T("these say so"),     "R")]
 
 TITLE  = T("APPLESIDE  --  AN APPLESOFT EDITOR FOR THE APPLE //e")
 FOOT1  = T("press any key for more   --   page 1 of 2")
@@ -266,20 +269,21 @@ P1_40 = [
     None,
     h40(T("EDITING")),
     e40("ctrl-z d", T("delete left/right")),
+    e40("return", T("new line, numbered")),
     e40("ctrl-t", T("select")),
-    e40("esc", T("cancel")),
 ]
 
 P2_40 = [
+    h40(T("PROGRAM")),
+    e40("esc r", T("renumber by ten")),
+    e40("esc k", T("check GOTO")),
+    e40("esc /", T("syntax hints")),
+    None,
     h40(T("FILES")),
     e40("ctrl-o", T("open")),
     e40("ctrl-s", T("save")),
     e40("ctrl-n", T("new")),
     e40("ctrl-q", T("quit")),
-    None,
-    h40(T("NOT YET BUILT")),
-    e40("", T("renumbering")),
-    e40("", T("keywords")),
 ]
 
 TITLE40 = T("applesIDE -- commands")
