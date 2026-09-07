@@ -40,8 +40,11 @@ KCHECK       jsr   RFCOLL           ; pass one: every line's own number
              sta   STRPTR+1
              jmp   SHOWMSG
 
-*--- RFLINE is the line the reference sits on, RFWANT what it asked for
-:bad         lda   #$00
+*--- RFLINE is the line the reference sits on, RFWANT what it asked for.
+*    RENUM jumps here too, since a program with a dangling reference is
+*    exactly the one that must not be renumbered.
+:bad
+RFREPORT     lda   #$00
              sta   RFMI
              ldx   #$00
 :copy        lda   MSGNOLINE,x      ; " LINE " and so on, up to the first $00
@@ -265,6 +268,7 @@ RFNUMBER     lda   #$00
 *--------------------------------------
 RFSCAN       jsr   RFRESET
              lda   #$00
+             sta   RNONLY
              sta   RFLINE
              sta   RFLINE+1
              sta   RFBAD
@@ -412,7 +416,7 @@ RFMATCH      ldx   #$00
 :nextk       inx
              cpx   #RFNKW
              bcc   :each
-             clc
+             clc                    ; nothing completed
              rts
 
 *--- a whole keyword landed. Clear every candidate and act on it.
@@ -423,7 +427,13 @@ RFMATCH      ldx   #$00
              dex
              bpl   :clr
              ldx   RFWH
-             lda   RFKWR,x          ; does this one take a line number?
+*--- RENUM calls this through RNMATCH and wants only the fact of a match, so
+*    RFWH is set before anything acts on it.
+             lda   RNONLY           ; renumbering? hand it back rather than
+             beq   :act             ; chasing the target ourselves
+             sec
+             rts
+:act         lda   RFKWR,x          ; does this one take a line number?
              bne   :takes
              sec                    ; REM: the line is over as far as meaning
              lda   #$03             ; goes -- but NOT as far as the buffer is
@@ -591,6 +601,7 @@ RFMI         ds    1                ; write index into MSGBUF
 RFLEAD       ds    1
 RFDGT        ds    1
 RFPI         ds    1
+RNONLY       ds    1                ; RENUM wants the match, not the action
 RFHIT        ds    8                ; per-keyword progress
 MSGBUF       ds    40
              dend

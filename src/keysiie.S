@@ -106,7 +106,8 @@ KEYTBL
              dfb   $be,$80
              da    KEND             ; OA->
              dfb   $d2,$80
-             da    REFLOW           ; OA-R
+             da    KRENUM           ; OA-R -- renumber. Was reflow, which a
+                                    ; program has no use for.
              dfb   $d3,$80
              da    KSAVE            ; OA-S
              dfb   $cf,$80

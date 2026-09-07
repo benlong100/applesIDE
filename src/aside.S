@@ -33,6 +33,7 @@
              put   column           ; where wrap.S sits in ZipEdit, and does not here
              put   lineno           ; automatic line numbers
              put   refs             ; line-number references, and OA-K
+             put   renum            ; OA-R, which needs refs
              put   scroll
              put   select
              put   unbuilt          ; the work queue; see the header

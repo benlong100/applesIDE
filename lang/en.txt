@@ -61,6 +61,9 @@ MSGNOROOM = " NO FREE LINE NUMBER HERE"
 # fifteen more characters.
 MSGREFOK = " ALL LINE REFERENCES OK"
 MSGNOLINE = " NO SUCH LINE: "
+
+# OA-R renumbers to 10, 20, 30 and carries every reference with it.
+MSGRENUM = " RENUMBERED"
 HINTESC = "ESC CANCELS"
 
 # ---------------------------------------------------------- the unsaved guard

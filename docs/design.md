@@ -249,20 +249,40 @@ that are easy to miss:
 
 ## 8. Renumbering
 
-The request was that `GOTO` targets follow their lines automatically. Two ways:
+`OA-R` renumbers the program to 10, 20, 30 and carries every reference with it.
+This is the thing the project was asked for: *"when lines are added to the
+code, the GOTO statement would automatically update to the new line number."*
 
-**Symbolic references.** A `GOTO` points at a line's identity, and real numbers
-are generated only on save. Impossible to get wrong; replaces the flat-text gap
-buffer with something structured.
+**It refuses to run on a broken program.** `OA-K`'s check goes first, and if
+any reference points at a line that is not there, `RENUM` says so and changes
+nothing. That is not tidiness. Renumbering around a dangling `GOTO 999` would
+leave the 999 untouched while every real line moved — and 999 might now *be* a
+line, so a reference that was visibly broken becomes a jump to somewhere
+arbitrary. A visible bug is worth more than a hidden one.
 
-**Gapped numbering plus a real `RENUM`.** Number by tens, use the gaps on
-insert, and renumber — rewriting every reference — only when a gap runs out.
-This is what every BASIC toolchain has done, and it gets essentially all of
-what was asked for at a fraction of the cost. **Chosen.**
+**How it moves.** The gap buffer makes an edit cheap at the cursor and
+expensive anywhere else, so the pass works strictly left to right and the gap
+only ever moves forwards — one walk of the document, not one per line. At each
+number the old digits are removed with `DELFWD`, which does not move the
+cursor, and the new ones inserted at it. The replacement therefore lands
+exactly where the original was and the lengths need not match, which is what
+makes `1` → `10` and `500` → `40` equally safe.
 
-Either way the essential piece is the same, and it is where the actual work is:
-a scanner that finds every line-number reference — `GOTO`, `GOSUB`, `THEN`,
-`ON…GOTO`, `ON…GOSUB`, `RUN`, `LIST`.
+**No second table.** A line's position in `RFTAB` *is* its position in the
+program, and the line in position *n* is about to be numbered *(n+1)×10*. So
+mapping an old reference to a new one needs nothing the check did not already
+build.
+
+**There is no undo**, and the file on disk is untouched until you save — so the
+remedy for a renumber you did not want is to not save.
+
+Verified on the machine: `100/200/300/500` with `GOSUB 500` and `THEN 100`
+became `10/20/30/40` with `GOSUB 40` and `THEN 10`; `1/2/3/4` grew to
+`10/20/30/40` with `ON X GOTO 1,2,3` becoming `ON X GOTO 10,20,30`, while
+`REM GOTO 999` and `PRINT "GOTO 3"` kept their numbers; and a program with a
+dangling reference was reported and left alone.
+
+`OA-R` took the slot that was reflow, which a program has no use for.
 
 ## 9. Where the syntax hints go
 

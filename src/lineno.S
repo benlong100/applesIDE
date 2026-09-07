@@ -101,7 +101,13 @@ AUTONUM      jsr   LNPREV           ; what was the line we just left?
 *    a loop counter kept there restarts at 1 the moment the first digit is
 *    written. That hangs the editor outright. It is the trap already written
 *    down in ZipEdit's notes, walked into anyway.
-LNEMIT       lda   #$00
+LNEMIT       jsr   LNDIGITS
+             lda   #' '+$80         ; and the space after it
+             jmp   INSCHR
+
+*--- the digits alone. RENUM wants these without the space, because it is
+*    replacing a number that already has whatever follows it.
+LNDIGITS     lda   #$00
              sta   LNLEAD
              sta   LNPI
 
@@ -139,9 +145,7 @@ LNEMIT       lda   #$00
              sta   LNPI
              cmp   #10
              bne   :pow
-
-             lda   #' '+$80         ; and the space after it
-             jmp   INSCHR
+             rts
 
 LNPOW        dw    10000,1000,100,10,1
 
