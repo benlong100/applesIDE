@@ -17,6 +17,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VII="$ROOT/tools/vii.sh"
 IMAGE="${IMAGE:-$ROOT/build/APPLESIDE.po}"
+DISTIMG="${DISTIMG:-$ROOT/build/APPLESIDE-DIST.po}"
 BIN="${BIN:-$ROOT/build/ASIDE.SYSTEM}"
 
 # One suite at a time. Virtual ][ has exactly one front machine, so a second
@@ -500,6 +501,67 @@ oa "S"
 "$VII" text "NONUM" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 8 >/dev/null
 snapshot
 assert_row "an unnumbered line is refused"      23 "EVERY LINE NEEDS A NUMBER"
+fi
+
+#--------------------------------------
+# Leaving, and coming back. Both directions were broken: quitting landed in a
+# file picker with the screen still in 80-column mode, and returning left no
+# ProDOS prefix, so every relative filename failed with $40.
+#
+# Needs BASIC.SYSTEM, so it runs against the DIST image rather than the plain
+# build one.
+#--------------------------------------
+if section "quit and return"; then
+if [ ! -f "$DISTIMG" ]; then
+    bad "the dist image exists" "no $DISTIMG -- run: make dist"
+else
+"$VII" boot "$DISTIMG" >/dev/null || { echo "boot failed"; exit 1; }
+"$VII" await "ApplesIDE" 120 >/dev/null || bad "the dist image never booted"
+"$VII" text " " >/dev/null
+"$VII" await "UNTITLED" 60 >/dev/null || bad "the editor never opened"
+"$VII" caps false >/dev/null
+t '10 PRINT "ROUND TRIP"'
+oa "S"
+"$VII" await "SAVE AS" 30 >/dev/null; "$VII" settle 2 >/dev/null
+"$VII" text "LOOP" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 8 >/dev/null
+
+oa "Q"
+"$VII" settle 12 >/dev/null
+if "$VII" screen 2>/dev/null | grep -q "PRODOS BASIC"; then
+    ok "OA-Q goes straight to BASIC, not to the file picker"
+else
+    bad "OA-Q goes straight to BASIC, not to the file picker" \
+        "$("$VII" screen 2>/dev/null | tail -2)"
+fi
+# the banner interleaved with the editor's screen when 80-column mode was
+# left on, and came out as "P R O D O S   B A S I C"
+if "$VII" screen 2>/dev/null | grep -q "P R O D O S"; then
+    bad "and hands the screen back in 40 columns" "still interleaved with the aux half"
+else
+    ok "and hands the screen back in 40 columns"
+fi
+
+"$VII" caps true >/dev/null
+"$VII" line "RUN LOOP" >/dev/null; "$VII" settle 8 >/dev/null
+if "$VII" screen 2>/dev/null | grep -q "ROUND TRIP"; then
+    ok "and the saved program runs there without EXEC"
+else
+    bad "and the saved program runs there without EXEC" \
+        "$("$VII" screen 2>/dev/null | tail -2)"
+fi
+
+# back into the editor, and a RELATIVE filename must work
+"$VII" line "-ASIDE.SYSTEM" >/dev/null
+"$VII" await "ApplesIDE" 120 >/dev/null || bad "BASIC could not relaunch the editor"
+"$VII" text " " >/dev/null
+"$VII" await "UNTITLED" 60 >/dev/null
+oa "O"
+"$VII" await "OPEN:" 30 >/dev/null; "$VII" settle 2 >/dev/null
+"$VII" text "LOOP" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 8 >/dev/null
+snapshot
+assert_row "and a relative name opens after the relaunch"  0 "10 PRINT"
+assert_notrow "with no invalid-pathname error"            23 "ERROR"
+fi
 fi
 
 #--------------------------------------

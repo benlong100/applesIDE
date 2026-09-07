@@ -436,7 +436,34 @@ sixteen — it would land as `APPLESIDE.SYSTE`, stop looking like a `.SYSTEM`
 file, and never auto-launch. Hence **`ASIDE.SYSTEM`**, which also reads as a
 word. The volume is `/APPLESIDE/`, where fifteen characters is plenty.
 
-## 12. The stale image
+## 12. Leaving, and coming back
+
+`OA-Q` loads `BASIC.SYSTEM` and jumps to it, falling back to the ProDOS
+dispatcher only where a disk has not got one. MLI QUIT lands in Bitsy Bye, a
+file picker, from which you then choose BASIC — two steps to reach the thing
+you almost always want, which is the `]` prompt with your program beside you.
+
+A SYS file loads at `$2000`, which is where the editor is running, so the few
+instructions that do the reading are copied to `$0300` and run from there while
+`$2000` is overwritten.
+
+**Two things had to be handed back on the way out**, and both were found by
+looking at the screen rather than by reasoning:
+
+- **The screen.** `DISPINIT` turns on 80-column video, 80STORE and the
+  alternate character set. BASIC.SYSTEM assumes none of them and undoes none
+  of them, so its banner came up interleaved with the editor's last screen and
+  read `P R O D O S   B A S I C` — every other cell still the aux half.
+- **The prefix**, coming back the other way. BASIC.SYSTEM leaves no ProDOS
+  prefix behind when it launches a SYS file, so `-ASIDE.SYSTEM` from the `]`
+  prompt gave an editor in which every relative filename failed with `$40`,
+  invalid pathname syntax — which on screen is indistinguishable from having
+  mistyped the name. ProDOS sets a prefix when it boots and launches the first
+  `.SYSTEM` file, which is why booting from the disk always worked and nothing
+  noticed. `SETPFX` now derives one at startup from `$BF30`, the last device
+  ProDOS touched, when there is none.
+
+## 13. The stale image
 
 Virtual ][ buffers writes to a mounted image and flushes them when the disk is
 ejected, so an image the emulator is holding can be quietly overwritten with an
@@ -448,18 +475,16 @@ and ZipEdit's notes describe it. It got through anyway, and cost two wrong
 diagnoses in a row: a fix that was already correct was made twice more, because
 the binary under test was 72 bytes older than the one on the desk.
 
-`tests/run.sh` compares the image against the build **first** now, and stops
+`mkdisk.sh` now waits after the eject — `osascript` returns before the
+emulator has finished writing — and then extracts the SYS file back out and
+compares it to the binary, refusing to claim it built anything otherwise.
+`tests/run.sh` compares the image against the build **first** too, and stops
 the run if they differ. It was already checked — in the *last* section, which
 is no use at all: by the time it fires, every result above it is worthless.
 
     eject in Virtual ][, then:  rm -f build/APPLESIDE.po && make disk
 
-## 13. Known limits
-
-**Relaunching from BASIC breaks OPEN.** Quit to BASIC, start the editor again
-with `-ASIDE.SYSTEM`, and `OA-O` answers `PRODOS ERROR $40` — invalid
-pathname. Booting straight from the disk works. Not diagnosed, and it is a
-realistic thing to do: quit, run the program, come back.
+## 14. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a
 mis-counted test merged two lines into `10 GOTO 99920 END`, and `OA-K`
@@ -477,7 +502,7 @@ Worth noting how it turned up. The test was wrong, not the code — but a wrong
 test still ran a program no deliberate test would have written, which is most
 of the value of running one at all.
 
-## 14. What is deliberately absent
+## 15. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be

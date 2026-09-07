@@ -281,18 +281,8 @@ ASKUNSAVED   lda   MODFLAG
 * cost is the whole document. If anything has been edited since the last save
 * or load, ask first.
 *--------------------------------------
-KQUIT        jsr   ASKUNSAVED
-             bcc   :stay
-             jsr   MLI
-             dfb   $65
-             da    QUITPARM
-:stay        rts                    ; the MLI quit does not come back
-
-QUITPARM     dfb   $04
-             dfb   $00
-             da    $0000
-             dfb   $00
-             da    $0000
+*--- KQUIT is in ops.S now: it goes to BASIC.SYSTEM where there is one, and
+*    only falls back to the ProDOS dispatcher where there is not.
 
 *--------------------------------------
 * KNEW -- start an empty document (OA-N)

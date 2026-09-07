@@ -345,7 +345,7 @@ RNMATCH      lda   #$01
 :none        clc
              rts
 
-             dum   $1250
+             dum   $1350
 RNIDX        ds    2                ; which line we are on, counting from zero
 RNIDX2       ds    2                ; RNMAP's, kept apart from RNIDX
 RNJ          ds    2                ; RNMAP's walk through the table

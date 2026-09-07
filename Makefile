@@ -37,6 +37,12 @@ NAME    ?= ASIDE.SYSTEM
 BUILD   := build
 TOOLS   := tools
 
+# After BUILD, not before it. `:=` expands immediately, so defined any earlier
+# this reads as /APPLESIDE-DIST.po -- the root of the filesystem -- and the
+# build fails with "Read-only file system" while the stale image it should have
+# replaced sits there looking current.
+DISTIMG := $(BUILD)/APPLESIDE-DIST.po
+
 MERLIN  := $(TOOLS)/merlin32
 ASMINC  := $(TOOLS)/asminc
 AC      := $(TOOLS)/ac
@@ -85,8 +91,6 @@ $(IMAGE): $(BIN)
 #
 # BASIC.SYSTEM is added AFTER ours, because ProDOS launches the first .SYSTEM
 # file in DIRECTORY ORDER and the disk has to come up in the editor.
-DISTIMG := $(BUILD)/APPLESIDE-DIST.po
-
 dist: $(BIN) disk/README.TXT
 	@RELEASE=1 VOL=APPLESIDE SYS=$(NAME) $(TOOLS)/mkdisk.sh $(DISTIMG) $(BIN) >/dev/null
 	@$(AC) -p $(DISTIMG) README.TXT TXT < disk/README.TXT
@@ -121,8 +125,11 @@ eject:
 # metadata that fragments a FAT volume, and writes the image fresh. It also
 # lists every image left on the card, because an older build under a previous
 # name still boots and is confusing to meet on the machine.
-card: $(IMAGE)
-	@$(TOOLS)/tocard.sh "$(or $(VOL),$(error set VOL to the card's volume name, e.g. make card VOL='NO NAME'))" $(IMAGE)
+# The DIST image, not the plain build one. The plain image carries the editor
+# and nothing else, so a program saved on it cannot be run without another
+# disk -- which is exactly the trap this target used to walk into.
+card: $(DISTIMG)
+	@$(TOOLS)/tocard.sh "$(or $(VOL),$(error set VOL to the card's volume name, e.g. make card VOL='NO NAME'))" $(DISTIMG)
 
 tools:
 	@$(TOOLS)/bootstrap.sh
@@ -136,6 +143,6 @@ help:
 	@echo "make disk     bootable image at $(IMAGE)"
 	@echo "make run      build and boot it in Virtual ]["
 	@echo "make LANG=xx  build in another language"
-	@echo "make card VOL=NAME   copy the image to an SD card"
+	@echo "make card VOL=NAME   copy the DIST image to an SD card"
 	@echo "make test      run the regression suite"
 	@echo "make dist      an image to give away: adds BASIC.SYSTEM + README"

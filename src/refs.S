@@ -586,7 +586,14 @@ KWREM        asc   "REM"
 *    $1470 does not: forty bytes from there runs into GEOM at $14a8.
 *    RFTP and RFSP are NOT here: they are indirect-indexed and so must live on
 *    zero page. See equates.S.
-             dum   $1200
+*
+*    MOVED FROM $1200. file.S lays its buffers out from $0800 and the block
+*    grew past $1200 when SETPFX added a prefix buffer -- straight over these,
+*    silently, because a dum block is only a promise about addresses and
+*    nothing checks two of them do not overlap. The symptom was PRODOS ERROR
+*    $40 from a prefix that had been correctly built and then overwritten.
+*    Everything here now starts at $1300; $1400 upward is the editor's.
+             dum   $1300
 RFPTR        ds    2                ; the walk
 RFN          ds    2                ; how many lines are in it
 RFI          ds    2                ; RFLOOK's countdown

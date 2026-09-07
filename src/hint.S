@@ -185,7 +185,7 @@ HNCMP        ldy   #$00
 :no          sec
              rts
 
-             dum   $1280
+             dum   $1380
 HNP          ds    2                ; the walk
 HNQ          ds    2                ; HNCMP's scratch pointer
 HNW          ds    1                ; the keyword found, $ff for none

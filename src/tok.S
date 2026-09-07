@@ -621,7 +621,7 @@ TKFILL       lda   #<DATBUF
 :none        sec
              rts
 
-             dum   $1290
+             dum   $1390
 TKADDR       ds    2                ; where the line being written will live
 TKBL         ds    1                ; bytes of tokenised body so far
 TKLL         ds    1                ; length of the source line in LNBUF

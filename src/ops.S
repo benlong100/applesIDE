@@ -59,3 +59,89 @@ KDELEOL      jsr   ATEND
              jsr   DELFWD
              jmp   KDELEOL
 :done        rts
+
+*--------------------------------------
+* KQUIT -- leave, into BASIC where there is one
+*
+* MLI QUIT lands at the ProDOS dispatcher, which on 2.4 is Bitsy Bye: a file
+* picker, from which you then choose BASIC.SYSTEM. That is two steps to reach
+* the thing you almost always want, which is the ] prompt with your program
+* sitting next to you ready to RUN.
+*
+* So this loads BASIC.SYSTEM itself and jumps to it, and falls back to the
+* dispatcher when the disk has not got one -- the plain build image, for
+* instance. A SYS file loads at $2000 and is entered there, which is where
+* THIS program is running, so the few instructions that do the reading are
+* copied to $300 first and run from there while $2000 is overwritten.
+*--------------------------------------
+KQUIT        jsr   ASKUNSAVED
+             bcs   :go
+             rts                    ; carry clear: stay put
+:go          ldx   #BASNEND-BASNAME-1
+:name        lda   BASNAME,x        ; FNAME is the document; we are leaving
+             sta   FNAME,x
+             dex
+             bpl   :name
+
+             jsr   OPENF
+             bcs   PLAINQUIT        ; no BASIC.SYSTEM here
+             lda   OPENPARM+5
+             sta   READPARM+1
+             sta   CLOSEPARM+1
+
+*--- $2000 up to just below ProDOS. READ hands back what is actually there.
+             lda   #$00
+             sta   READPARM+2
+             lda   #$20
+             sta   READPARM+3
+             lda   #$00
+             sta   READPARM+4
+             lda   #$70
+             sta   READPARM+5
+
+*--- Put the screen back the way it was found. DISPINIT turned on 80-column
+*    video, 80STORE and the alternate character set; BASIC.SYSTEM assumes
+*    none of them and does not undo them, so its banner came up interleaved
+*    with the editor's last screen -- "P R O D O S   B A S I C", every other
+*    cell still holding the aux half.
+             sta   CLR80VID
+             sta   CLR80STORE
+             sta   CLRALTCHAR
+             sta   MAINWR
+             sta   TXTSET
+             sta   MIXCLR
+             jsr   $fc58            ; HOME, in the monitor
+
+             ldx   #LAUNEND-LAUNCH-1
+:copy        lda   LAUNCH,x
+             sta   $0300,x
+             dex
+             bpl   :copy
+             jmp   $0300
+
+PLAINQUIT    jsr   MLI
+             dfb   $65
+             da    QUITPARM
+             rts                    ; the MLI quit does not come back
+
+QUITPARM     dfb   $04
+             dfb   $00
+             da    $0000
+             dfb   $00
+             da    $0000
+
+BASNAME      dfb   12
+             asc   'BASIC.SYSTEM'   ; single quotes: ProDOS wants LOW ascii
+BASNEND
+
+*--- Copied to $300 and run there, because it is about to overwrite the code
+*    it was assembled next to. Absolute addresses throughout, so it has to go
+*    to that exact address -- it is relocated, not relocatable.
+LAUNCH       jsr   MLI
+             dfb   $ca              ; READ
+             da    READPARM
+             jsr   MLI
+             dfb   $cc              ; CLOSE
+             da    CLOSEPARM
+             jmp   $2000
+LAUNEND

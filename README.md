@@ -10,7 +10,7 @@ a text editor are built yet.
     make          assemble src/aside.S
     make disk     bootable ProDOS 8 image at build/APPLESIDE.po
     make run      build and boot it in Virtual ][
-    make test     run the regression suite (68 assertions)
+    make test     run the regression suite (74 assertions)
     make dist     an image to give away: adds BASIC.SYSTEM and a README
     make card VOL=NAME   copy the image to an SD card
     make tools    fetch the toolchain on a fresh clone
@@ -49,6 +49,8 @@ the project and the one component deliberately deferred.
   working on; OA-/ turns it off for the extra text row
 - **Applesoft keywords are drawn inverse**, all 98 of them, ignoring anything
   inside a string or after REM
+- **OA-Q quits straight to BASIC**, and `-ASIDE.SYSTEM` from the `]` prompt
+  brings you back
 - **OA-R renumbers** to 10, 20, 30, and every GOTO, GOSUB, THEN and RUN
   follows its line. Refuses to run if any reference is already broken
 - **OA-K checks line references**: every GOTO, GOSUB, THEN and RUN target,

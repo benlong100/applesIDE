@@ -150,7 +150,7 @@ TKLINE       lda   #$00
              jmp   :loop
 :done        rts
 
-             dum   $1270
+             dum   $1370
 TKI          ds    1                ; cell being examined
 TKK          ds    1                ; candidate keyword
 TKC          ds    1                ; how many candidates are left
