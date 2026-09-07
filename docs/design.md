@@ -328,12 +328,42 @@ dangling reference was reported and left alone.
 
 `OA-R` took the slot that was reflow, which a program has no use for.
 
-## 9. Where the syntax hints go
+## 9. Syntax hints
 
-ZipEdit spends one screen row on a Markdown cheat sheet, toggled with `OA-/`.
-That row is already wired up, already toggleable, and already excluded from the
-text area's height. It is where the syntax of the keyword under the cursor
-belongs. Nothing new is needed but content.
+`OA-/` shows a row carrying the syntax of the Applesoft keyword you are
+working on. It is the row ZipEdit spent on a Markdown cheat sheet — already
+wired up, already toggleable, already excluded from the text area's height.
+Only the content is new.
+
+**The LAST keyword before the cursor, not the one under it.** Typing `PRINT`
+and then a space would lose a hint that only looked at the word being typed,
+and that is exactly the moment it is wanted: the syntax is *for the
+arguments*, and the arguments come after the keyword. So it stays up until
+another keyword replaces it — `FOR I=1 TO 9` shows `FOR` while you type `I=1`,
+then switches to `TO`.
+
+Found by walking the line from its first character to the cursor. That sounds
+expensive and is not: the line begins exactly `CCOL` bytes before the gap so
+there is nothing to search for, an Applesoft line is 239 characters at the
+most, and the same first-letter dispatch the highlighter uses means most
+characters cost one table lookup. It runs once a keystroke, not once per
+character drawn.
+
+Strings and `REM` are honoured, so `PRINT "GOTO` keeps `PRINT`'s hint and
+`REM GOSUB 10` keeps `REM`'s. Longest-match holds too: `ATN(1)` shows `ATN`.
+
+The syntax strings live in `tools/gentokens.py` beside the keywords, one per
+keyword, 2,440 bytes in all. For the many that take no arguments the string is
+a short description instead — `HOME - clear the text screen` — because for
+those the syntax alone would say nothing.
+
+### It had to be drawn from two places
+
+`REDRAW` called the old `DRAWCHEAT`, but `REDRAW` is the *full* redraw and
+ordinary typing takes the one-row path. So the hint only ever changed on a
+full redraw and otherwise showed whatever had been true when the row was
+switched on. This is the second time a feature has had to learn that a row
+reaches the screen by two different routes — see §7.
 
 ## 10. The AI window — deferred, deliberately
 

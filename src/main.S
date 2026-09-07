@@ -188,6 +188,16 @@ MAINLOOP     jsr   SCROLLFIX
              cmp   GSCRW
              bcs   :full
              jsr   RENDERROW
+
+*--- The hint row belongs to the KEYWORD before the cursor, so it has to be
+*    revisited whenever the cursor or the line changes -- which is every
+*    keystroke, and most keystrokes come through here rather than through
+*    REDRAW. Without this the hint only ever changed on a full redraw, so it
+*    showed whatever was true when the row was switched on.
+             lda   FLAGS
+             and   #FCHEAT
+             beq   :keys
+             jsr   DRAWCHEAT
              jmp   :keys
 
 *--- A wrap rearranges the text below the cursor and cannot touch a line above

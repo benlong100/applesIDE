@@ -79,13 +79,8 @@ SHOWCHROME   sta   TMPA
 *--------------------------------------
 * DRAWCHEAT -- render the Markdown cheat sheet on CHEATROW
 *--------------------------------------
-DRAWCHEAT    lda   #<CHEATTXT
-             sta   STRPTR
-             lda   #>CHEATTXT
-             sta   STRPTR+1
-             lda   #CHEATROW
-             jsr   SHOWSTR
-             rts
+*--- DRAWCHEAT now lives in hint.S, which puts the syntax of the keyword you
+*    are working on here rather than a fixed line of text.
 
 *--------------------------------------
 * CLRCHEAT -- blank CHEATROW (cheat sheet hidden)

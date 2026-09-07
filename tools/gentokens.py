@@ -52,6 +52,115 @@ TOKENS = [
     "LEFT$", "RIGHT$", "MID$",
 ]
 
+
+# What each keyword looks like in use. Shown on the hint row for the last
+# keyword before the cursor, so it stays up while you type the arguments --
+# which is when it is wanted, not the instant the word is finished.
+#
+# No double quotes anywhere: these become `asc "..."` and Merlin would end the
+# string early. Kept short, because the row is 80 columns on a //e and 40 on a
+# ][+, and because every byte here is a byte of the code budget.
+SYNTAX = {
+    "END": "END - stop the program",
+    "FOR": "FOR v=a TO b [STEP c]",
+    "NEXT": "NEXT [v][,v...]",
+    "DATA": "DATA item[,item...]",
+    "INPUT": "INPUT [prompt;] var[,var...]",
+    "DEL": "DEL first,last - delete lines",
+    "DIM": "DIM name(size)[,...]",
+    "READ": "READ var[,var...] - from DATA",
+    "GR": "GR - lo-res graphics, 40x40",
+    "TEXT": "TEXT - back to the text screen",
+    "PR#": "PR# slot - send output to a slot",
+    "IN#": "IN# slot - take input from a slot",
+    "CALL": "CALL addr - run machine code",
+    "PLOT": "PLOT x,y - one lo-res dot",
+    "HLIN": "HLIN x1,x2 AT y",
+    "VLIN": "VLIN y1,y2 AT x",
+    "HGR2": "HGR2 - hi-res page 2, full screen",
+    "HGR": "HGR - hi-res page 1, mixed",
+    "HCOLOR=": "HCOLOR= 0..7 - hi-res colour",
+    "HPLOT": "HPLOT x,y [TO x,y ...]",
+    "DRAW": "DRAW shape AT x,y",
+    "XDRAW": "XDRAW shape AT x,y - erases",
+    "HTAB": "HTAB col - 1 to 40",
+    "HOME": "HOME - clear the text screen",
+    "ROT=": "ROT= 0..63 - shape rotation",
+    "SCALE=": "SCALE= 1..255 - shape size",
+    "SHLOAD": "SHLOAD - shape table from tape",
+    "TRACE": "TRACE - show lines as they run",
+    "NOTRACE": "NOTRACE - stop tracing",
+    "NORMAL": "NORMAL - ordinary text",
+    "INVERSE": "INVERSE - inverse text",
+    "FLASH": "FLASH - flashing text",
+    "COLOR=": "COLOR= 0..15 - lo-res colour",
+    "POP": "POP - forget the last GOSUB",
+    "VTAB": "VTAB row - 1 to 24",
+    "HIMEM:": "HIMEM: addr - top of memory",
+    "LOMEM:": "LOMEM: addr - bottom of variables",
+    "ONERR": "ONERR GOTO line",
+    "RESUME": "RESUME - retry the line that failed",
+    "RECALL": "RECALL array - from tape",
+    "STORE": "STORE array - to tape",
+    "SPEED=": "SPEED= 0..255 - printing speed",
+    "LET": "[LET] var = expr",
+    "GOTO": "GOTO line",
+    "RUN": "RUN [line]",
+    "IF": "IF cond THEN stmt  or  THEN line",
+    "RESTORE": "RESTORE - reset the DATA pointer",
+    "GOSUB": "GOSUB line",
+    "RETURN": "RETURN - back from a GOSUB",
+    "REM": "REM comment - to end of line",
+    "STOP": "STOP - break, with a message",
+    "ON": "ON expr GOTO line[,line...]",
+    "WAIT": "WAIT addr,mask[,value]",
+    "LOAD": "LOAD - program from tape",
+    "SAVE": "SAVE - program to tape",
+    "DEF": "DEF FN name(v) = expr",
+    "POKE": "POKE addr,value",
+    "PRINT": "PRINT [expr][;,][expr...]",
+    "CONT": "CONT - carry on after a STOP",
+    "LIST": "LIST [first][-last]",
+    "CLEAR": "CLEAR - forget all variables",
+    "GET": "GET var - one key, no Return",
+    "NEW": "NEW - erase the program",
+    "TAB(": "TAB(col) - inside PRINT",
+    "TO": "FOR v=a TO b   /   HPLOT .. TO",
+    "FN": "FN name(expr)",
+    "SPC(": "SPC(n) - n spaces inside PRINT",
+    "THEN": "IF cond THEN stmt  or  THEN line",
+    "AT": "HLIN/VLIN/DRAW ... AT",
+    "NOT": "NOT expr",
+    "STEP": "FOR v=a TO b STEP c",
+    "AND": "expr AND expr",
+    "OR": "expr OR expr",
+    "SGN": "SGN(x) - sign: -1, 0 or 1",
+    "INT": "INT(x) - whole part",
+    "ABS": "ABS(x) - absolute value",
+    "USR": "USR(x) - call machine code",
+    "FRE": "FRE(0) - bytes of memory free",
+    "SCRN(": "SCRN(x,y) - lo-res colour there",
+    "PDL": "PDL(n) - paddle n, 0 to 255",
+    "POS": "POS(0) - current print column",
+    "SQR": "SQR(x) - square root",
+    "RND": "RND(x) - random, 0 to 1",
+    "LOG": "LOG(x) - natural logarithm",
+    "EXP": "EXP(x) - e to the power x",
+    "COS": "COS(x) - cosine, radians",
+    "SIN": "SIN(x) - sine, radians",
+    "TAN": "TAN(x) - tangent, radians",
+    "ATN": "ATN(x) - arctangent, radians",
+    "PEEK": "PEEK(addr) - the byte there",
+    "LEN": "LEN(a$) - length of a string",
+    "STR$": "STR$(x) - number as a string",
+    "VAL": "VAL(a$) - string as a number",
+    "ASC": "ASC(a$) - code of first character",
+    "CHR$": "CHR$(n) - character with that code",
+    "LEFT$": "LEFT$(a$,n)",
+    "RIGHT$": "RIGHT$(a$,n)",
+    "MID$": "MID$(a$,start[,len])",
+}
+
 def main():
     assert len(TOKENS) == 107, f"the table is $80-$EA, which is 107, not {len(TOKENS)}"
 
@@ -106,9 +215,22 @@ def main():
         out.append("             dfb   " + ",".join(f">TKW{j}" for j in range(i, min(i + 8, len(order)))))
 
     out.append("")
+    out.append("*--- what each looks like in use, for the hint row")
+    out.append("TKSLO        dfb   " + ",".join(f"<TKS{i}" for i in range(min(8, len(order)))))
+    for i in range(8, len(order), 8):
+        out.append("             dfb   " + ",".join(f"<TKS{j}" for j in range(i, min(i + 8, len(order)))))
+    out.append("TKSHI        dfb   " + ",".join(f">TKS{i}" for i in range(min(8, len(order)))))
+    for i in range(8, len(order), 8):
+        out.append("             dfb   " + ",".join(f">TKS{j}" for j in range(i, min(i + 8, len(order)))))
+
+    out.append("")
     out.append("*--- and the text itself, high ASCII")
     for i, w in enumerate(order):
         out.append(f'TKW{i}'.ljust(12) + f' asc   "{w}"')
+    out.append("")
+    for i, w in enumerate(order):
+        out.append(f'TKS{i}'.ljust(12) + f' asc   "{SYNTAX[w]}"')
+        out.append("             dfb   $00")
 
     print("\n".join(out))
 
