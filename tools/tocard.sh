@@ -43,6 +43,29 @@ echo "==> clearing macOS metadata from $DEST"
 rm -rf "$DEST/.Spotlight-V100" "$DEST/.fseventsd" "$DEST/.Trashes" 2>/dev/null || true
 find "$DEST" -name '._*' -delete 2>/dev/null || true
 
+# THE HOLES THOSE DELETIONS JUST MADE ARE THE PROBLEM.
+#
+# macOS's FAT driver allocates from the first free cluster, and the directories
+# removed above sat near the front of the volume. Freeing them leaves a scatter
+# of small gaps exactly where the next write will go -- so purging the metadata
+# and then copying, which is what this script used to do, is a reliable way to
+# land the image in pieces. On a 15GB card with 99.8% free space.
+#
+# Clusters here are 8KB, so a 140K floppy image needs eighteen in a row. A
+# freed directory is one or two. Hence: fill the gaps with a scratch file
+# first, copy the image into the clean space beyond them, then take the filler
+# away again. The image has already been placed by then and does not move.
+#
+# It leaves the card better than it found it, too: the space the filler
+# vacates is one large contiguous hole rather than a scatter of small ones.
+FILLER="$DEST/.contiguous.tmp"
+FILLMB="${FILLMB:-32}"
+echo "==> filling fragmented free space (${FILLMB}MB scratch file)"
+rm -f "$FILLER" 2>/dev/null || true
+dd if=/dev/zero of="$FILLER" bs=1m count="$FILLMB" 2>/dev/null || \
+    echo "    (could not write the filler; the copy may fragment)" >&2
+sync
+
 for img in "${IMAGES[@]}"; do
     name="$(basename "$img")"
     echo "==> $name"
@@ -54,6 +77,9 @@ for img in "${IMAGES[@]}"; do
 done
 
 find "$DEST" -name '._*' -delete 2>/dev/null || true
+sync
+
+rm -f "$FILLER" 2>/dev/null || true    # the images are placed; let the space go
 sync
 
 # Every image on the card, not just the ones we wrote. The pattern below has to
