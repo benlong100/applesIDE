@@ -50,7 +50,7 @@ BIN     := $(BUILD)/$(LANGUP)-$(NAME)
 IMAGE   ?= $(BUILD)/APPLESIDE-$(LANGUP).po
 endif
 
-.PHONY: all disk run screen clean tools eject help
+.PHONY: all disk run screen clean tools eject help card
 
 all: $(BIN)
 
@@ -92,6 +92,18 @@ eject:
 	@osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' 2>/dev/null || true
 	@echo "ejected"
 
+# Copy the built image to an SD or CF card for a Floppy Emu or CFFA.
+#
+#   make card VOL=EMU        the card's volume name as Finder shows it
+#
+# The Floppy Emu reads the card at block level and needs each image stored
+# contiguously, so tools/tocard.sh deletes any previous copy, clears the macOS
+# metadata that fragments a FAT volume, and writes the image fresh. It also
+# lists every image left on the card, because an older build under a previous
+# name still boots and is confusing to meet on the machine.
+card: $(IMAGE)
+	@$(TOOLS)/tocard.sh "$(or $(VOL),$(error set VOL to the card's volume name, e.g. make card VOL='NO NAME'))" $(IMAGE)
+
 tools:
 	@$(TOOLS)/bootstrap.sh
 
@@ -104,3 +116,4 @@ help:
 	@echo "make disk     bootable image at $(IMAGE)"
 	@echo "make run      build and boot it in Virtual ]["
 	@echo "make LANG=xx  build in another language"
+	@echo "make card VOL=NAME   copy the image to an SD card"

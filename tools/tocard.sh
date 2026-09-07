@@ -33,7 +33,7 @@ esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGES=("$@")
-[ ${#IMAGES[@]} -eq 0 ] && IMAGES=("$ROOT/build/ZIPEDIT-REL.po")
+[ ${#IMAGES[@]} -eq 0 ] && IMAGES=("$ROOT/build/APPLESIDE.po")
 
 # Stop Spotlight re-creating its index here; that is what keeps scattering
 # directories among the disk images.
@@ -56,7 +56,13 @@ done
 find "$DEST" -name '._*' -delete 2>/dev/null || true
 sync
 
-# Every image on the card, not just the ones we wrote. Copying leaves earlier
+# Every image on the card, not just the ones we wrote. The pattern below has to
+# cover hard-disk images as well as floppies: it once listed only .po, .dsk and
+# .2mg, so a card holding a 32MB .hdv reported one fewer image than it had.
+# Nothing was lost, but a listing that quietly omits a file is worse than no
+# listing, because it is read as a statement that the file is gone.
+#
+# Copying leaves earlier
 # images in place -- they are somebody's data as far as this script knows -- so
 # a renamed build quietly leaves its predecessor behind, and the Floppy Emu
 # lists both. That is confusing enough to be worth naming out loud rather than
@@ -72,7 +78,8 @@ while IFS= read -r f; do
     done
     [ "$mark" = "   " ] && stray=$((stray + 1))
     printf "  %s%-28s %6s KB\n" "$mark" "$name" "$(( $(stat -f%z "$f") / 1024 ))"
-done < <(find "$DEST" -maxdepth 1 \( -iname '*.po' -o -iname '*.dsk' -o -iname '*.2mg' \) | sort)
+done < <(find "$DEST" -maxdepth 1 \( -iname '*.po' -o -iname '*.dsk' -o -iname '*.2mg' \
+                                      -o -iname '*.hdv' -o -iname '*.2img' \) | sort)
 echo "  ** = written by this run"
 if [ "$stray" -gt 0 ]; then
     echo
