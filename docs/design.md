@@ -507,11 +507,27 @@ guarantees the first one matches, and the test was correctly hoisted out of the
 candidate loop. It was reverted rather than kept, because code whose cost
 cannot be explained is worse than code that is merely slow.
 
-**The fix that would actually work is structural.** An arrow key redraws all 23
-rows; moving the cursor one line genuinely changes two — the row it left and
-the row it reached. `RENDERROW` already exists and is used for typing. It is
-not used for cursor movement only because `main.S` forces a full redraw
-whenever `CURLNO` changes.
+**Fixed structurally, and it turned out smaller than that.** An arrow key does
+not need two rows redrawn — it needs **two cells written**. `SHOWCURSOR`
+already drew the cursor as one inverted cell rather than a repaint; it simply
+did not remember what it had covered. It does now, because inverting is not
+reversible: `$C8` and `$48` both invert to `$08`, and inverse lowercase
+inverts to itself, so the original byte is kept rather than computed back.
+`HIDECURSOR` puts it there again. `CURSROW` and `CURSCOL` are computed from
+`CURLNO` and `CCOL`, both of which are maintained anyway.
+
+**Knowing when that is safe is the interesting half.** Rather than have fifteen
+movement handlers each declare themselves, the main loop watches **the size of
+the gap**: moving the cursor slides both edges together and leaves it
+identical, while an insert or a delete cannot help but change it. So "only the
+cursor moved" is decided in one place and no handler was touched. The path is
+additionally guarded on no selection, unchanged `SCROLLTOP`, unchanged `HOFF`,
+and no message owning a row.
+
+    0.427s -> 0.118s per arrow, 3.6x
+
+Left and right arrows were paying the same full redraw and get the same
+benefit. What remains is mostly the gap shuffle the movement itself requires.
 
 ### Measuring anything here is harder than it looks
 

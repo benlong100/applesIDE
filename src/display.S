@@ -431,3 +431,10 @@ NAMELEN      ds    1                ; SHOWNAME: how many characters it has
              dum   $1428            ; $1428-$142f is free; $1422 is buffer.S's
 LASTCOLH     ds    1                ; high byte of the last column painted
              dend
+
+*--- What the cursor is sitting on top of, so it can be lifted off again.
+             dum   $142b            ; $1429-$142a are buffer.S's render state
+CURSBK       ds    1                ; 0 main, 1 aux -- 80 columns interleave
+CURSCH       ds    1                ; the byte the cursor covered
+CURSOK       ds    1                ; non-zero while the two above mean something
+             dend

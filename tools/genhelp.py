@@ -152,9 +152,7 @@ P2L = [header(T("FILES"), "L"),
 P2R = [header(T("NOT BUILT YET"), "R"),
        entry("@-F @-G", T("find"),            "R"),
        entry("@-L", T("go to line"),          "R"),
-       entry("@-C/X/V", T("clipboard"),       "R"),
-       None,
-       entry("", T("these say so"),           "R")]
+       entry("@-C/X/V", T("clipboard"),       "R")]
 
 TITLE  = T("APPLESIDE  --  AN APPLESOFT EDITOR FOR THE APPLE //e")
 FOOT1  = T("press any key for more   --   page 1 of 2")

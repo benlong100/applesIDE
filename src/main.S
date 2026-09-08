@@ -108,6 +108,21 @@ MAINLOOP     jsr   SCROLLFIX
              sta   OLDLINE
              lda   CURLNO+1
              sta   OLDLINE+1
+
+*--- The size of the gap, which is the one thing that says whether the BUFFER
+*    changed. Moving the cursor slides both edges together and leaves it
+*    alone; an insert or a delete cannot help but alter it. So the redraw
+*    below can tell "only the cursor moved" without a single handler having to
+*    declare it, which is the difference between fixing this in one place and
+*    fixing it in fifteen.
+             lda   GAPEND
+             sec
+             sbc   GAPBEG
+             sta   OLDGAP
+             lda   GAPEND+1
+             sbc   GAPBEG+1
+             sta   OLDGAP+1
+
              lda   SCROLLTOP
              sta   OLDTOP
              lda   SCROLLTOP+1
@@ -145,10 +160,68 @@ MAINLOOP     jsr   SCROLLFIX
              jsr   HSCROLLFIX
              jsr   STATUPD
 
+*--- NOTHING BUT THE CURSOR MOVED?
+*
+*    Then the screen is already right everywhere except two cells: the one the
+*    cursor was on, and the one it is on now. Lifting it off one and putting it
+*    on the other is two writes, against RENDER walking the buffer and
+*    repainting twenty-three rows -- which is what an arrow key used to cost,
+*    and why scrolling up a long program was slow enough to complain about.
+*
+*    CURSROW and CURSCOL can be computed rather than rendered: the line and
+*    column are both maintained, and SCROLLTOP and HOFF have not moved or we
+*    would not be here.
+             lda   SELACT           ; a selection is a painted region
+             ora   OLDSEL
+             bne   :notmove
+             lda   SCROLLTOP
+             cmp   OLDTOP
+             bne   :notmove
+             lda   SCROLLTOP+1
+             cmp   OLDTOP+1
+             bne   :notmove
+             lda   HOFF
+             cmp   HOLD
+             bne   :notmove
+             lda   MSGSHOWN         ; a message owns a row; let REDRAW have it
+             bne   :notmove
+
+             lda   GAPEND           ; the buffer itself unchanged?
+             sec
+             sbc   GAPBEG
+             sta   TMPA
+             lda   GAPEND+1
+             sbc   GAPBEG+1
+             cmp   OLDGAP+1
+             bne   :notmove
+             lda   TMPA
+             cmp   OLDGAP
+             bne   :notmove
+
+             jsr   HIDECURSOR
+             lda   CURLNO
+             sec
+             sbc   SCROLLTOP
+             sta   CURSROW
+             lda   CCOL             ; the difference is always under a screen
+             sec                    ; width, so one byte is enough
+             sbc   HOFF
+             sta   CURSCOL
+             jsr   SHOWCURSOR
+
+*--- The hint row still has to follow: moving onto a different keyword is
+*    exactly when it should change, and skipping it here would leave it saying
+*    whatever was true where the cursor used to be.
+             lda   FLAGS
+             and   #FCHEAT
+             beq   :backj
+             jsr   DRAWCHEAT
+             jmp   :backj
+
 *--- one row is enough only if the handler opted in AND nothing structural
 *    moved. Anything else -- a wrap, a newline, a scroll, a file load -- falls
 *    through to the full redraw.
-             lda   SELACT           ; a selection spans rows: repaint the lot
+:notmove     lda   SELACT           ; a selection spans rows: repaint the lot
              ora   OLDSEL
              bne   :full
              lda   FASTDRAW
@@ -199,9 +272,10 @@ MAINLOOP     jsr   SCROLLFIX
 *    showed whatever was true when the row was switched on.
              lda   FLAGS
              and   #FCHEAT
-             beq   :keys
+             beq   :backj
              jsr   DRAWCHEAT
-             jmp   :keys
+:backj       jmp   :keys            ; the cursor-only path pushed :keys out of
+                                    ; branch range from here
 
 *--- A wrap rearranges the text below the cursor and cannot touch a line above
 *    it, so the rows above the one the cursor started on are already right and
@@ -304,6 +378,11 @@ RNUMW        ds    1                ; RENDER: digits in this line's leading
                                     ; number, so the body knows what not to
                                     ; draw over when the view is scrolled
 RINNUM       ds    1                ; RENDER: still inside that digit run
+             dend
+
+*--- $142b-$142d are display.S's cursor-save; $142e is free.
+             dum   $142e
+OLDGAP       ds    2                ; gap size before the keystroke
              dend
 
 *--------------------------------------
