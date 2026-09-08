@@ -106,7 +106,9 @@ SETMAXROW    lda   FLAGS
 *--------------------------------------
 * TOGGLECHEAT -- flip the cheat sheet on or off
 *--------------------------------------
-TOGGLECHEAT  lda   FLAGS
+TOGGLECHEAT  lda   #$01             ; the text area changes height, so the row
+             sta   SCRLOST          ; that appears or vanishes wants painting
+             lda   FLAGS
              eor   #FCHEAT
              sta   FLAGS
              jsr   SETMAXROW
@@ -437,4 +439,5 @@ LASTCOLH     ds    1                ; high byte of the last column painted
 CURSBK       ds    1                ; 0 main, 1 aux -- 80 columns interleave
 CURSCH       ds    1                ; the byte the cursor covered
 CURSOK       ds    1                ; non-zero while the two above mean something
+SCRLOST      ds    1                ; something painted over the text area
              dend

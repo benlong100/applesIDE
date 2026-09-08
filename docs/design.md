@@ -529,6 +529,20 @@ and no message owning a row.
 Left and right arrows were paying the same full redraw and get the same
 benefit. What remains is mostly the gap shuffle the movement itself requires.
 
+**And it broke the help screen**, which is the flaw in reasoning worth keeping.
+The test is "did the buffer change" — correct for a cursor that moved, and
+wrong for anything that paints over the text area *without* touching the
+buffer. Reading the help screen does exactly that, so the key that left page
+two moved two cells and left the help box sitting on the program.
+
+`SCRLOST` says *something painted over the text area*. `HELPSHOW` sets it, and
+so does `TOGGLECHEAT`, which had the same latent fault: turning the hint row
+off makes the text area a row taller and that row wanted painting. Anything
+else that writes over the text area must set it too.
+
+The suite did not catch it because it walked to page two and stopped — it
+entered the help screen and never left it. Real hardware found it instead.
+
 ### Measuring anything here is harder than it looks
 
 Four measurements in one session were worthless before one was trustworthy:

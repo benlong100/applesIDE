@@ -63,7 +63,16 @@ HELPPAGES    equ   2
 *--------------------------------------
 * HELPSHOW -- paint a page, wait for a key, then turn or leave
 *--------------------------------------
-HELPSHOW     lda   #$00
+*--- This is about to paint over the whole text area, and the buffer will not
+*    change while it does. The main loop's cursor-only path decides there is
+*    nothing to repaint by looking at the gap -- which is exactly right for a
+*    cursor that moved and exactly wrong here -- so say so. Without this, the
+*    key that leaves page two moved the cursor two cells and left the help
+*    screen sitting on top of the program. Found on real hardware; the suite
+*    walked to page two and never pressed the key that leaves it.
+HELPSHOW     lda   #$01
+             sta   SCRLOST
+             lda   #$00
              sta   HELPPG
 :page        lda   #$00
              sta   HELPI

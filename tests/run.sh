@@ -584,6 +584,22 @@ assert_row "and the reference check"                 6 "check GOTO targets"
 snapshot
 assert_row "page two lists the file keys"            5 "open"
 assert_row "and admits what is not built"            4 "NOT BUILT YET"
+
+# THE KEY THAT LEAVES. The suite walked to page two and stopped, so the exit
+# path was never exercised -- and when the cursor-only redraw landed, leaving
+# the help screen stopped repainting the program underneath it. Found on real
+# hardware instead of here, which is the whole argument for this assertion.
+reboot
+t '10 HOME'
+tl ''
+t '20 PRINT "STILL HERE"'
+oa "?"
+"$VII" text " " >/dev/null; "$VII" settle 4 >/dev/null    # to page two
+"$VII" text " " >/dev/null; "$VII" settle 5 >/dev/null    # and back out
+snapshot
+assert_row "a key on page two brings the program back" 0 "10 HOME"
+assert_row "all of it"                                 1 "20 PRINT"
+assert_notrow "and the help screen is gone"            1 "APPLESIDE  --"
 fi
 
 #--------------------------------------

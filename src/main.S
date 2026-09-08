@@ -104,6 +104,7 @@ MAINLOOP     jsr   SCROLLFIX
 :keys        lda   #$00
              sta   FASTDRAW
              sta   PARTIAL
+             sta   SCRLOST
              lda   CURLNO
              sta   OLDLINE
              lda   CURLNO+1
@@ -184,6 +185,8 @@ MAINLOOP     jsr   SCROLLFIX
              cmp   HOLD
              bne   :notmove
              lda   MSGSHOWN         ; a message owns a row; let REDRAW have it
+             bne   :notmove
+             lda   SCRLOST          ; something painted over the text area
              bne   :notmove
 
              lda   GAPEND           ; the buffer itself unchanged?
