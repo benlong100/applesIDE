@@ -226,7 +226,7 @@ STATUPD      lda   MSGSHOWN
              bne   :paintcol
              lda   CCOL
              cmp   LASTCOL
-             beq   :docol2
+             beq   :dofree
 :paintcol    lda   CCOL
              sta   LASTCOL
              lda   CCOL+1
@@ -241,6 +241,35 @@ STATUPD      lda   MSGSHOWN
              lda   #$03
              sta   PWID
              ldx   GCLDIG
+             jsr   PUTNUM
+             jmp   :dofree
+
+*--- Free memory, which until now was two characters of the layout string that
+*    nothing ever wrote over: it read "46K FREE" with a fifteen-kilobyte
+*    program loaded, and would have read it with the buffer full.
+*
+*    The free space IS the gap, so the figure is GAPEND-GAPBEG with no
+*    counting to do. Dividing by 1024 is the high byte shifted right twice --
+*    exactly, not approximately: write the difference as 256*hi+lo and take
+*    hi = 4q+r, and the remainder 256r+lo can never reach 1024.
+:dofree      lda   GFREEC
+             beq   :docol2          ; no room for it on this screen
+             lda   GAPEND
+             sec
+             sbc   GAPBEG
+             lda   GAPEND+1
+             sbc   GAPBEG+1
+             lsr
+             lsr
+             cmp   LASTFREE
+             beq   :docol2          ; unchanged; most keystrokes
+             sta   LASTFREE
+             sta   NUMV
+             lda   #$00
+             sta   NUMV+1
+             lda   #$02
+             sta   PWID
+             ldx   GFREEC
              jsr   PUTNUM
 
 *--- modified indicator. It is a star straight after the name now, so it moves
@@ -390,6 +419,7 @@ PEND         ds    1                ; one past the last cell of the field
 LASTLN       ds    2                ; last values painted, to skip redundant work
 LASTCOL      ds    1                ; low byte; LASTCOLH below holds the high
 LASTMOD      ds    1
+LASTFREE     ds    1                ; free K last painted
 MODFLAG      ds    1                ; non-zero when the document has unsaved edits
 MSGSHOWN     ds    1                ; a message owns the status line
 NAMEI        ds    1                ; SHOWNAME: index into the name

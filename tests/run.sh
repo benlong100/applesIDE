@@ -194,10 +194,16 @@ reboot
 snapshot
 assert_row "the status row names the untitled program" 23 "UNTITLED.BAS"
 assert_row "and reports free memory"                   23 "FREE"
+assert_row "and the free memory it has"                23 "46K FREE"
 t '10 HOME'
 snapshot
 assert_row "typing reaches the buffer"                  0 "10 HOME"
 assert_col "and the column follows it"                  8
+
+# The figure was static text in the layout for the whole project's life: it
+# read 46K with a fifteen-kilobyte program loaded. An empty buffer is exactly
+# 46K, so any content at all has to move it.
+assert_notrow "and typing moves the free figure"       23 "46K FREE"
 fi
 
 #--------------------------------------

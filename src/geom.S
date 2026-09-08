@@ -43,6 +43,7 @@ GEOM80       dfb   80               ; GSCRW     screen width
              dfb   66               ; GPHINT    prompt: the escape hint
              dfb   45               ; GPMAX     prompt: longest input accepted
              dfb   8                ; GHELPCOL  help box: left edge
+             dfb   52               ; GFREEC    free memory, in K
              dfb   <STATTXT         ; GSTATLO   the static status row text,
              dfb   >STATTXT         ; GSTATHI   which is a layout, not a string
              dfb   <MSGUNSAVED      ; GUNSVLO   and the unsaved-changes
@@ -70,6 +71,8 @@ GEOM40       dfb   40               ; GSCRW
              dfb   0                ; GHELPCOL  no box at all: the border is
                                     ;           MouseText, which this machine
                                     ;           cannot draw
+             dfb   0                ; GFREEC    no room for it at 40 columns;
+                                    ;           zero means do not draw it
              dfb   <STATTXT40       ; GSTATLO
              dfb   >STATTXT40       ; GSTATHI
              dfb   <MSGUNSV40       ; GUNSVLO
@@ -88,6 +91,7 @@ GNAMEWM1     ds    1
 GPHINT       ds    1
 GPMAX        ds    1
 GHELPCOL     ds    1
+GFREEC       ds    1                ; column of the free-memory figure, 0 = none
 GSTATLO      ds    1
 GSTATHI      ds    1
 GUNSVLO      ds    1

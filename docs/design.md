@@ -484,7 +484,46 @@ is no use at all: by the time it fires, every result above it is worthless.
 
     eject in Virtual ][, then:  rm -f build/APPLESIDE.po && make disk
 
-## 14. Known limits
+## 14. What an arrow key costs
+
+Measured at 1 MHz — which the suite never does, because `vii.sh` runs the
+emulator at `maximum` speed and every performance problem in this project has
+therefore been invisible to it. On a 250-line program:
+
+| | per arrow | share |
+|---|---|---|
+| as it stands | 0.43s | |
+| the keyword highlighter | 0.14s | 32% |
+| the syntax hint row | ~0.00s | free |
+| `RENDER` and the rest | 0.29s | 68% |
+
+**The two thirds is the inherited redraw**, which is why ApplesIDE feels like
+ZipEdit rather than worse than it.
+
+**An attempt to speed the highlighter up made it 10% slower**, twice,
+reproducibly: 0.469 and 0.472 against 0.427 and 0.431. The idea was to reject
+candidates on their *second* character, since first-letter dispatch already
+guarantees the first one matches, and the test was correctly hoisted out of the
+candidate loop. It was reverted rather than kept, because code whose cost
+cannot be explained is worse than code that is merely slow.
+
+**The fix that would actually work is structural.** An arrow key redraws all 23
+rows; moving the cursor one line genuinely changes two — the row it left and
+the row it reached. `RENDERROW` already exists and is used for typing. It is
+not used for cursor movement only because `main.S` forces a full redraw
+whenever `CURLNO` changes.
+
+### Measuring anything here is harder than it looks
+
+Four measurements in one session were worthless before one was trustworthy:
+`vii.sh settle N` sleeps for at least N seconds *by design*, so a benchmark
+that ends with `settle 30` measures the harness; a poll timed out and returned
+its own timeout as the answer; `make dist` had deleted the test program, so the
+document was empty; and one target line was unreachable, so the cursor never
+moved. A benchmark must check its preconditions and refuse to print a number
+for a run that did not happen.
+
+## 15. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a
 mis-counted test merged two lines into `10 GOTO 99920 END`, and `OA-K`
@@ -502,7 +541,7 @@ Worth noting how it turned up. The test was wrong, not the code — but a wrong
 test still ran a program no deliberate test would have written, which is most
 of the value of running one at all.
 
-## 15. What is deliberately absent
+## 16. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be

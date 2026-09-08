@@ -26,7 +26,7 @@ UNTITLED = "UNTITLED.BAS"
 # syntax of the keyword under the cursor will go -- the one line of screen
 # that is already wired up and already toggleable. Placeholder until the
 # tokenizer exists.
-CHEATTXT = "applesoft syntax hints appear here"
+CHEATTXT = "Applesoft syntax hints"
 
 # --------------------------------------------------------------- the status row
 # Exactly 80 characters, and a layout rather than a sentence: the filename, the
