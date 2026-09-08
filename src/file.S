@@ -354,7 +354,8 @@ LOADFILE     jsr   GINFOF
              sta   CLOSEPARM+1
              jsr   BUFINIT
              jsr   TOKLOAD
-             lda   #$00
+             jsr   HOMECURSOR       ; a reader starts at the top of a program,
+             lda   #$00             ; not at the end of it
              sta   MODFLAG
              clc
              rts
@@ -384,6 +385,7 @@ LOADFILE     jsr   GINFOF
              jmp   :ins
 
 :eof         jsr   CLOSEF
+             jsr   HOMECURSOR       ; the text path, likewise
              lda   #$00             ; freshly loaded: not dirty
              sta   MODFLAG
              clc

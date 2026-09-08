@@ -121,6 +121,7 @@ def page(left, right):
 
 P1L = [header(T("MOVING"), "L"),
        entry("arrows", T("char / line"),      "L"),
+       entry("@-arrows", T("word / page"),    "L"),
        entry("Ctrl-A", T("line start"),       "L"),
        entry("Ctrl-E", T("line end"),         "L"),
        entry("@-<  @->", T("top / end"),      "L"),

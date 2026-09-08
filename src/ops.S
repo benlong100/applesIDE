@@ -112,6 +112,17 @@ KQUIT        jsr   ASKUNSAVED
              sta   MIXCLR
              jsr   $fc58            ; HOME, in the monitor
 
+*--- CLOSE EVERY FILE, not just this one. A ref_num of zero means all of them,
+*    and it is what releases the ProDOS I/O buffers and the pages they hold in
+*    the system bitmap. Jumping to another SYS file with a buffer still
+*    allocated leaves BASIC.SYSTEM to relocate itself around memory ProDOS
+*    still believes is spoken for -- which is a plausible way to arrive in the
+*    monitor, and to lose the SmartPort volumes ProDOS had listed. Reported
+*    from a //c with volumes on slots 1 and 2, intermittently, which is the
+*    shape of a thing that depends on whether a file happened to be open.
+             lda   #$00
+             sta   CLOSEPARM+1
+
              ldx   #LAUNEND-LAUNCH-1
 :copy        lda   LAUNCH,x
              sta   $0300,x
@@ -119,7 +130,10 @@ KQUIT        jsr   ASKUNSAVED
              bpl   :copy
              jmp   $0300
 
-PLAINQUIT    jsr   MLI
+PLAINQUIT    lda   #$00             ; close every file here too: the dispatcher
+             sta   CLOSEPARM+1      ; inherits whatever we leave allocated
+             jsr   CLOSEF
+             jsr   MLI
              dfb   $65
              da    QUITPARM
              rts                    ; the MLI quit does not come back

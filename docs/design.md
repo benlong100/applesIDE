@@ -523,7 +523,36 @@ document was empty; and one target line was unreachable, so the cursor never
 moved. A benchmark must check its preconditions and refuse to print a number
 for a run that did not happen.
 
-## 15. Known limits
+## 15. What the //c reported
+
+The performance complaint did not survive a retest: the same tester who
+reported roughly two seconds a keypress, four or five times running, could not
+reproduce it afterwards from either our image or A2Desktop. Nothing here
+explains that, and nothing was changed to fix it. The measured cost of an
+arrow key — §14 — is consistent with the "usable" he reports now.
+
+Three real things came out of the same report:
+
+- **Page up and page down were already bound**, to `OA-up` and `OA-down`, and
+  the help screen did not say so. I dropped that line when I rewrote the help
+  content and nobody could find the feature. The same shape of mistake as the
+  hint row, which was on `OA-/` with nothing to say so.
+- **A load left the cursor at the END of the program.** It starts at the top
+  now. `HOMECURSOR` walks the gap back a byte at a time, which costs about
+  1.5s on a fifteen-kilobyte file at 1 MHz — roughly a ninth of a load that
+  takes thirteen. Loading the text so it lands above the gap would avoid the
+  walk and is a bigger change than it is worth today.
+- **Quitting sometimes crashed into the monitor** and left ProDOS without the
+  SmartPort volumes it had listed on slots 1 and 2 until a reboot. Both quit
+  paths now close EVERY open file — a ref_num of zero means all of them —
+  before handing over. That releases the ProDOS I/O buffers and the pages they
+  hold in the system bitmap; jumping to another SYS file with one still
+  allocated leaves BASIC.SYSTEM relocating itself around memory ProDOS
+  believes is spoken for. **Unverified**: it is a correct thing to do and a
+  plausible cause, the intermittency fits a condition that depends on whether
+  a file happened to be open, and it cannot be tested here.
+
+## 16. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a
 mis-counted test merged two lines into `10 GOTO 99920 END`, and `OA-K`
@@ -541,7 +570,7 @@ Worth noting how it turned up. The test was wrong, not the code — but a wrong
 test still ran a program no deliberate test would have written, which is most
 of the value of running one at all.
 
-## 16. What is deliberately absent
+## 17. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be

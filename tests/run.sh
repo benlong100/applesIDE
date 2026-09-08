@@ -495,6 +495,7 @@ oa "O"
 "$VII" text "TOKTEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
 snapshot
 assert_row "it reads back its own file"          0 "10 HOME"
+assert_row "and the cursor lands at the TOP"    23 "L:1 "
 assert_row "a string and comment survive"        1 "20 PRINT\"HI\":REM X"
 assert_row "and the spacing Applesoft stores"    2 "30 A=ATN(1)+2"
 assert_row "a keyword gets a space before a digit" 3 "40 GOTO 10"
@@ -577,6 +578,7 @@ oa "?"
 snapshot
 assert_row "the help screen names the program"       1 "APPLESIDE"
 assert_row "and lists renumbering"                   5 "renumber by ten"
+assert_row "and the paging keys, which exist but were unfindable" 6 "word / page"
 assert_row "and the reference check"                 6 "check GOTO targets"
 "$VII" text " " >/dev/null; "$VII" settle 3 >/dev/null
 snapshot
