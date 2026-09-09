@@ -128,8 +128,28 @@ eject:
 # The DIST image, not the plain build one. The plain image carries the editor
 # and nothing else, so a program saved on it cannot be run without another
 # disk -- which is exactly the trap this target used to walk into.
-card: $(DISTIMG)
+# `card` DEPENDS ON THE PHONY `dist`, NOT on the image file. It used to name
+# the file, which nothing had a rule to build -- so make saw it already existed,
+# pronounced it up to date, and tocard.sh faithfully copied a months-stale
+# image. The tester then reported a feature missing that had been built and
+# tested hours before. Depending on `dist` rebuilds it every time.
+#
+# And then it CHECKS, because the image's timestamp was newer than the binary's
+# while its contents were older -- an mtime is not evidence. mkdisk.sh already
+# refuses to hand back an image whose SYS file does not match the binary; this
+# is the same check one step further along, against what actually landed on
+# the card.
+card: dist
 	@$(TOOLS)/tocard.sh "$(or $(VOL),$(error set VOL to the card's volume name, e.g. make card VOL='NO NAME'))" $(DISTIMG)
+	@$(AC) -g "/Volumes/$(VOL)/$(notdir $(DISTIMG))" $(NAME) > $(BUILD)/.cardcheck 2>/dev/null; \
+	 if cmp -s $(BUILD)/.cardcheck $(BIN); then \
+	   echo "verified: $(NAME) on the card is the one in $(BUILD)"; \
+	 else \
+	   echo "ERROR: the card's $(NAME) is NOT the current build" >&2; \
+	   echo "  card:  $$(stat -f%z $(BUILD)/.cardcheck 2>/dev/null || echo absent) bytes" >&2; \
+	   echo "  build: $$(stat -f%z $(BIN)) bytes" >&2; \
+	   exit 1; \
+	 fi
 
 tools:
 	@$(TOOLS)/bootstrap.sh
