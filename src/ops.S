@@ -123,6 +123,17 @@ KQUIT        jsr   ASKUNSAVED
              lda   #$00
              sta   CLOSEPARM+1
 
+*--- The QUIT block the stub falls back on. QUITPARM itself is assembled into
+*    the code at $2000 and will not survive the read, so a copy goes somewhere
+*    that will.
+             lda   #$04
+             sta   QPARM
+             ldx   #$05
+             lda   #$00
+:qz          sta   QPARM+1,x
+             dex
+             bpl   :qz
+
              ldx   #LAUNEND-LAUNCH-1
 :copy        lda   LAUNCH,x
              sta   $0300,x
@@ -149,13 +160,49 @@ BASNAME      dfb   12
 BASNEND
 
 *--- Copied to $300 and run there, because it is about to overwrite the code
-*    it was assembled next to. Absolute addresses throughout, so it has to go
-*    to that exact address -- it is relocated, not relocatable.
+*    it was assembled next to.
+*
+*    IT CHECKS ITS WORK BEFORE JUMPING. BASIC.SYSTEM's first act is to copy
+*    thirty-five pages from $2400 to $9A00 -- it relocates its own bulk -- so a
+*    read that fell short leaves it copying whatever of the editor is still
+*    lying at $2400 into high memory and then entering it. A tester saw exactly
+*    that: a break at $2022, which is inside BASIC.SYSTEM's own zero padding,
+*    with A=$00 and X=$FF -- the X this stub's copy loop leaves behind.
+*
+*    So: the read must not report an error, it must have delivered at least 8K
+*    -- ProDOS stops at EOF without complaining, so a short read is silent --
+*    and the first byte must be the JMP
+*    every SYS file starts with. Failing either, quit to the dispatcher, which
+*    is where OA-Q went before any of this and always worked.
+*
+*    Only branches inside, and absolute references only to addresses that
+*    survive the read -- $BF00, $2000, and the parameter blocks, which live at
+*    $11xx and $13xx. Nothing here refers to a label in the overwritten range.
 LAUNCH       jsr   MLI
              dfb   $ca              ; READ
              da    READPARM
+             bcs   :bad
+             lda   READPARM+7       ; how much actually arrived, high byte
+             cmp   #$20             ; under 8K is not a BASIC.SYSTEM
+             bcc   :bad
+             lda   $2000
+             cmp   #$4c             ; JMP -- how a SYS file begins
+             bne   :bad
              jsr   MLI
              dfb   $cc              ; CLOSE
              da    CLOSEPARM
              jmp   $2000
+:bad         jsr   MLI
+             dfb   $cc
+             da    CLOSEPARM
+             jsr   MLI
+             dfb   $65              ; QUIT to the dispatcher
+             da    QPARM
+             rts
 LAUNEND
+
+*--- Outside $2000-$6FFF on purpose: the stub reads this after BASIC.SYSTEM
+*    has landed on top of everything the editor was assembled into.
+             dum   $13b0
+QPARM        ds    7                ; QUIT: count 4, then six reserved bytes
+             dend

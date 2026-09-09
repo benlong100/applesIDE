@@ -463,6 +463,53 @@ looking at the screen rather than by reasoning:
   noticed. `SETPFX` now derives one at startup from `$BF30`, the last device
   ProDOS touched, when there is none.
 
+### The stub has to check its work
+
+A tester's machine kept dropping into the monitor on the way out:
+
+```
+2022- m=00 a=00 x=ff y=a0 p=b0 s=e6
+```
+
+`$2022` is not our code. By then BASIC.SYSTEM has been read over `$2000`, and
+the byte there is `$00` — a `BRK` sitting in the zero padding between its
+header and its entry point. So the handover worked and BASIC.SYSTEM died a
+dozen instructions in. `a=00` says the last MLI call returned success; `x=ff`
+is exactly what the stub's copy loop leaves behind, so almost nothing ran in
+between.
+
+Disassembling its entry says why that is fatal:
+
+```
+$2047: LDA #$9A / STA $03      ; dest $9A00
+$204B: LDA #$24 / STA $01      ; src  $2400
+$2055: LDX #$23                ; 35 pages
+$2058: JSR $20C4
+$205B: LDX #$01 / LDA #$BE     ; then one page, $4700 -> $BE00
+```
+
+**BASIC.SYSTEM's first act is to relocate its own bulk**, and between the two
+copies it consumes `$2000-$47FF` — every one of the file's 10,240 bytes. Read
+it short and it copies whatever of the editor is still lying at `$2400` up to
+`$9A00` and enters that. It also explains the rest of the report, that the
+SmartPort volumes on slots 1 and 2 were gone afterwards: `$9A00-$BCFF` is
+where ProDOS keeps the tables that describe them.
+
+The stub now refuses to jump unless the read reported no error, **delivered at
+least 8K**, and left a `JMP` at `$2000`. The size check is the one that earns
+its keep: ProDOS stops at EOF *without* setting carry, so a short read is
+otherwise entirely silent. Failing any of the three it quits to the
+dispatcher, which is where `OA-Q` went before any of this and always worked.
+
+That fallback needs a QUIT parameter block that survives the read, so there is
+one at `$13B0` — `QUITPARM` itself is assembled into the code at `$2000` and is
+gone by the time the stub could want it.
+
+**This is a graceful failure, not a proven cure.** It converts one specific
+way of dying into a file picker. The crash has never reproduced here or on the
+author's Enhanced //e, so whether the read was truly the thing going wrong on
+that machine is still unknown.
+
 ## 13. The stale image
 
 Virtual ][ buffers writes to a mounted image and flushes them when the disk is
