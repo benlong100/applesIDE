@@ -65,6 +65,28 @@ SHOWSTR      sta   TMPA
              rts
 
 *--------------------------------------
+* SHOWSTRI -- SHOWSTR, drawn inverse
+*   STRPTR -> string, A = row
+*
+* The WHOLE row, padding included, so it reads as a solid bar rather than a few
+* inverse words adrift in a blank line. That is the entire point of it: a bar
+* is findable at a glance, which is what the row was reported to be missing.
+*--------------------------------------
+SHOWSTRI     sta   TMPA
+             jsr   CLRBUF
+             ldx   #$00
+             jsr   BUFSTR
+             ldx   #$00
+:inv         lda   LINEBUF,x
+             jsr   INVCHR           ; INVCHR leaves X alone. INSCHR is the one
+             sta   LINEBUF,x        ; in this codebase that does not.
+             inx
+             cpx   GSCRW
+             bcc   :inv
+             lda   TMPA
+             jmp   DRAWLINE
+
+*--------------------------------------
 * SHOWCHROME -- as SHOWSTR, but inverse video
 *--------------------------------------
 SHOWCHROME   sta   TMPA
@@ -104,14 +126,42 @@ SETMAXROW    lda   FLAGS
              rts
 
 *--------------------------------------
-* TOGGLECHEAT -- flip the cheat sheet on or off
+* TOGGLECHEAT -- OA-/ cycles the hint row: normal, inverse, off
+*
+* Three states rather than two, because a tester reported the hint getting lost
+* among the code -- it is one line of ordinary text in a screenful of ordinary
+* text, at the bottom where the eye is not. Inverse makes it a bar. Off is
+* still worth keeping: it is the only way to buy back the text row.
+*
+* The cycle runs off -> normal -> inverse -> off, so from the default the first
+* press is the one that makes it stand out, and it takes two more to lose it.
 *--------------------------------------
 TOGGLECHEAT  lda   #$01             ; the text area changes height, so the row
              sta   SCRLOST          ; that appears or vanishes wants painting
+
              lda   FLAGS
-             eor   #FCHEAT
+             and   #FCHEAT
+             beq   :normal          ; off -> normal
+             lda   FLAGS
+             and   #FCHEATI
+             beq   :inverse         ; normal -> inverse
+
+:off         lda   FLAGS            ; inverse -> off, clearing both
+             and   #%11111100
              sta   FLAGS
-             jsr   SETMAXROW
+             jmp   :redraw
+
+:normal      lda   FLAGS
+             ora   #FCHEAT
+             and   #%11111101       ; visible, and not inverse
+             sta   FLAGS
+             jmp   :redraw
+
+:inverse     lda   FLAGS
+             ora   #FCHEATI
+             sta   FLAGS
+
+:redraw      jsr   SETMAXROW
              lda   FLAGS
              and   #FCHEAT
              bne   :on

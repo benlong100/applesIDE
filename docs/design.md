@@ -413,6 +413,32 @@ full redraw and otherwise showed whatever had been true when the row was
 switched on. This is the second time a feature has had to learn that a row
 reaches the screen by two different routes — see §7.
 
+### Three states, because one line of plain text hides
+
+The tester's word was that the hint "gets lost in the code", and he is right:
+it is a line of ordinary text at the bottom of a screen of ordinary text,
+which is the one place the eye is not. So `OA-/` cycles rather than toggles —
+**off → normal → inverse → off** — and `SHOWSTRI` inverts the whole row,
+padding included. A few inverse words adrift in a blank line would be no more
+findable than the plain version; a solid bar is.
+
+The order puts *inverse* one press from the default, since that is the state
+that was asked for, and leaves *off* reachable in two — it still has a job,
+being the only way to buy back the text row.
+
+Visibility and ink are separate bits (`FCHEAT`, `FCHEATI`) because they answer
+to different things: `SETMAXROW` cares only whether the row exists, and
+inverting it does not change the geometry.
+
+**A latent hole in the test harness surfaced here.** `assert_inverse` reads
+`hlrow`'s two parallel strings, and `hlrow` strips the inverse line's trailing
+spaces — so a row with *nothing* inverse hands back an empty string, and every
+slice of it is empty. Asking "is this word not inverse?" could therefore never
+pass on a row that had no inverse cells anywhere on it. Every earlier use
+either expected `yes` or happened to sit on a row with some other inverse cell
+holding the string's length up, so it went unnoticed. The slice is padded back
+to the text's width now.
+
 ## 10. The AI window — deferred, deliberately
 
 The original request ended with an AI panel talking to OpenAI over Uthernet or

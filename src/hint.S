@@ -33,16 +33,22 @@ DRAWCHEAT    jsr   HNFIND
              sta   STRPTR
              lda   TKSHI,x
              sta   STRPTR+1
-             lda   #CHEATROW
-             jmp   SHOWSTR
+             jmp   :show
 
 *--- nothing to say: the placeholder, so the row does not look broken
 :none        lda   #<CHEATTXT
              sta   STRPTR
              lda   #>CHEATTXT
              sta   STRPTR+1
+
+*--- Both states draw the same text; only the ink differs. OA-/ chooses.
+:show        lda   FLAGS
+             and   #FCHEATI
+             bne   :inverse
              lda   #CHEATROW
              jmp   SHOWSTR
+:inverse     lda   #CHEATROW
+             jmp   SHOWSTRI
 
 *--------------------------------------
 * HNFIND -- which keyword was the last one before the cursor?

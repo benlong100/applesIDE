@@ -145,6 +145,10 @@ PY
 assert_inverse() {
     local name="$1" r="$2" word="$3" want="${4:-yes}" out txt inv i n
     out="$(hlrow "$r")"; txt="$(echo "$out" | sed -n '1p')"; inv="$(echo "$out" | sed -n '2p')"
+    # hlrow strips the inverse line's trailing spaces, so a row with NOTHING
+    # inverse hands back an empty string and every slice of it is empty --
+    # which read as a failure even when the answer was right. Pad it back out.
+    printf -v inv '%-*s' "${#txt}" "$inv"
     local before="${txt%%$word*}"
     if [ "$before" = "$txt" ]; then
         bad "$name" "'$word' is not on row $r at all" "row: $txt"; return
@@ -334,6 +338,27 @@ assert_row "and follows to the newest keyword"      22 "FOR v=a TO b"
 t '=1 TO 9'
 snapshot
 assert_row "and holds while the arguments are typed" 22 "TO"
+
+# OA-/ cycles normal -> inverse -> off -> normal. A tester lost the row among
+# the code, so inverse earns its place: the check is on the screen bytes, since
+# the emulator's screen TEXT reads the same either way.
+reboot
+t '10 PRINT '
+snapshot
+assert_inverse "the hint row starts out normal"     22 "PRINT" no
+oa /
+snapshot
+assert_inverse "OA-/ once draws it inverse"         22 "PRINT" yes
+assert_row "and it still says what it said"         22 "PRINT"
+oa /
+snapshot
+got="$(row 22)"
+if [ -z "${got// /}" ]; then ok "twice turns it off"
+else bad "twice turns it off" "row 22 should be blank, got: $got"; fi
+oa /
+snapshot
+assert_inverse "three times is back to normal"      22 "PRINT" no
+assert_row "with the hint text again"               22 "PRINT"
 fi
 
 #--------------------------------------

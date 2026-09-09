@@ -127,7 +127,10 @@ CLIPMAX      equ   1024             ; clipboard capacity
 
 
 *--- FLAGS bits ---
-FCHEAT       equ   %00000001        ; cheat sheet visible
+FCHEAT       equ   %00000001        ; hint row visible
+FCHEATI      equ   %00000010        ; ...and drawn inverse. Meaningless
+                                    ; without FCHEAT; OA-/ never sets it
+                                    ; alone.
 
 *--- screen geometry ---
 *--- Horizontal scrolling. ApplesIDE never breaks a line, so a line wider than
