@@ -102,11 +102,30 @@ TOKSAVE      lda   #$00
              jmp   :nonum
 :ok
 
-*--- the next line begins four bytes of header, the body, and a zero further on
-             lda   TKADDR
+*--- The next line begins four bytes of header, the body, and a zero further
+*    on. Add the whole offset in ONE 16-bit step.
+*
+*    This was `adc #$05` followed straight by `adc TKBL`, with no clc between
+*    them, and the two adds are not independent: the carry out of TKADDR+5 was
+*    added AGAIN as part of the second, and then lost before it could reach the
+*    high byte. So whenever a line began at $xxFB or later the pointer came out
+*    one too low and a page too low -- 257 bytes short.
+*
+*    It only bites where a line happens to start in the last five bytes of a
+*    page, which is about one line in fifty: a four-line test program never
+*    crosses one, a 343-line program does it seven times. And the editor could
+*    not see it, because loading walks the bodies sequentially and never
+*    follows these pointers. Applesoft does nothing else BUT follow them, so
+*    the file read back perfectly here and was rubble there.
+*
+*    TKBL is at most 248, so the offset always fits in a byte.
+             lda   TKBL
              clc
              adc   #$05
-             adc   TKBL
+             sta   TKT1
+             lda   TKADDR
+             clc
+             adc   TKT1
              sta   TOKBUF
              lda   TKADDR+1
              adc   #$00
@@ -424,7 +443,9 @@ TKMATCH      ldx   TKI2
 * own LIST puts a space on both sides of every token and prints " 30 A =  ATN
 * (1) + 2", which is not what anybody typed either.
 *--------------------------------------
-TOKLOAD      jsr   TKRINIT
+TOKLOAD      lda   #$00
+             sta   TKDROP
+             jsr   TKRINIT
 :line        jsr   TKRB             ; the next-line address
              bcs   :done
              sta   TKT1
@@ -449,8 +470,29 @@ TOKLOAD      jsr   TKRINIT
              beq   :eol
              cmp   #$80
              bcs   :token
+             cmp   #$20
+             bcc   :ctrl            ; see below
              ora   #$80             ; a literal, back to the editor's high ASCII
              jsr   TKPUT
+             jmp   :byte
+
+*--- A CONTROL CHARACTER CANNOT LIVE IN THE BUFFER. Every byte under $A0 is a
+*    line break here -- that is the whole of how lines are stored -- so a $0A
+*    read out of a program arrives as $8A and splits the line in two.
+*
+*    Real programs do this: REM lines with embedded line feeds, so that LIST
+*    double-spaces. PHONE.LIST has forty of them. Loading one turned
+*    "400 REM<0A><0A>SET PRINTER SLOT" into five lines, three with no number,
+*    and the editor then refused to save the result because a line without a
+*    number is not an Applesoft line.
+*
+*    They are dropped, and the loader says how the file differs from what is
+*    on disk. Keeping them would need an escape in the buffer and a column
+*    count that lies; silently rewriting the program without saying so is
+*    worse than either.
+:ctrl        inc   TKDROP
+             bne   :byte
+             dec   TKDROP           ; saturate rather than wrap to none
              jmp   :byte
 
 :token       jsr   TKTEXT           ; write the keyword out
@@ -642,4 +684,5 @@ TKRN         ds    1                ; bytes in DATBUF
 TKRI         ds    1                ; and how many have been handed out
 TKPREV       ds    1                ; the last character written out
 TKQUIET      ds    1                ; the failure has already been reported
+TKDROP       ds    1                ; control characters the buffer cannot hold
              dend

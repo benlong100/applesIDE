@@ -357,7 +357,14 @@ LOADFILE     jsr   GINFOF
              jsr   HOMECURSOR       ; a reader starts at the top of a program,
              lda   #$00             ; not at the end of it
              sta   MODFLAG
-             clc
+             lda   TKDROP           ; the file had characters we cannot hold
+             beq   :ok
+             lda   #<MSGCTRL
+             sta   STRPTR
+             lda   #>MSGCTRL
+             sta   STRPTR+1
+             jsr   SHOWMSG
+:ok          clc
              rts
 
 :astext      jsr   OPENF

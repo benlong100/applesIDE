@@ -518,6 +518,92 @@ fi
 # Needs BASIC.SYSTEM, so it runs against the DIST image rather than the plain
 # build one.
 #--------------------------------------
+# A LONG program, saved and then checked the way Applesoft reads it -- by
+# following the next-line pointers, not by walking the bodies.
+#
+# That distinction is the whole section. The editor loads by walking bodies,
+# so a file with a broken pointer chain looks perfect here and is rubble to
+# BASIC -- which is exactly how this shipped: "if I load the program into the
+# ide, everything looks good, if I try to run the program... the data appears
+# corrupted to the applesoft interpreter."
+#
+# The fault only shows where a line happens to begin in the last five bytes of
+# a page, about one line in fifty. Every short test program in this suite
+# crosses no page boundary at all.
+#--------------------------------------
+if section "long programs"; then
+python3 - "$TMP/long.bas" <<'PYEOF'
+import sys
+# Varied line lengths, so line starts land all over the page.
+lines = []
+for i in range(1, 221):
+    pad = "X" * (i % 37)
+    lines.append((i * 10, f'PRINT "L{i}{pad}": FOR J=1 TO 9: NEXT J'))
+out = bytearray(); addr = 0x801
+TOK = {"PRINT": 0xBA, "FOR": 0x81, "NEXT": 0x82, "TO": 0xC1, "=": 0xD0}
+for n, text in lines:
+    body = bytearray(); i = 0
+    while i < len(text):
+        for kw, t in TOK.items():
+            if text.startswith(kw, i): body.append(t); i += len(kw); break
+        else:
+            if text[i] != " ": body.append(ord(text[i]))
+            i += 1
+    nxt = addr + 5 + len(body)
+    out += bytes([nxt & 0xFF, nxt >> 8, n & 0xFF, n >> 8]) + body + b"\x00"
+    addr = nxt
+out += b"\x00\x00"
+open(sys.argv[1], "wb").write(bytes(out))
+PYEOF
+"$ROOT/tools/ac" -d "$IMAGE" LONG >/dev/null 2>&1
+"$ROOT/tools/ac" -p "$IMAGE" LONG BAS 0x0801 < "$TMP/long.bas"
+
+reboot
+oa "O"
+"$VII" await "OPEN:" 30 >/dev/null || bad "no open prompt"
+"$VII" settle 2 >/dev/null
+"$VII" text "LONG" >/dev/null; "$VII" line "" >/dev/null
+for i in $(seq 1 240); do "$VII" screen-raw 2>/dev/null | sed -n '24p' | grep -q "LONG" && break; sleep 0.5; done
+"$VII" settle 6 >/dev/null
+snapshot
+assert_row "a 220-line program loads"                 0 "10 PRINT"
+
+oa "A"
+"$VII" await "SAVE AS" 30 >/dev/null || bad "no save-as prompt"
+"$VII" settle 2 >/dev/null
+"$VII" text "LONG2" >/dev/null; "$VII" line "" >/dev/null
+for i in $(seq 1 240); do "$VII" screen-raw 2>/dev/null | sed -n '24p' | grep -qE "LONG2|NUMBER|ERROR" && break; sleep 0.5; done
+"$VII" settle 6 >/dev/null
+snapshot
+assert_row "and saves under a new name"              23 "LONG2"
+
+osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1
+sleep 2
+"$ROOT/tools/ac" -g "$IMAGE" LONG2 > "$TMP/long2.bas" 2>/dev/null
+python3 - "$TMP/long2.bas" > "$TMP/chain.txt" <<'PYEOF'
+import sys
+d = open(sys.argv[1], "rb").read()
+i, addr, n, bad = 0, 0x801, 0, 0
+while i < len(d) - 1:
+    nxt = d[i] | (d[i+1] << 8)
+    if nxt == 0: break
+    j = i + 4
+    while j < len(d) and d[j] != 0: j += 1
+    j += 1
+    if nxt != addr + (j - i): bad += 1
+    n += 1; addr = nxt; i = j
+else:
+    print("UNTERMINATED"); raise SystemExit
+print(f"{n} {bad}")
+PYEOF
+read -r nlines nbad < "$TMP/chain.txt" 2>/dev/null || { nlines=0; nbad=999; }
+if [ "$nlines" = "220" ]; then ok "the saved file holds all 220 lines"
+else bad "the saved file holds all 220 lines" "got $nlines"; fi
+if [ "$nbad" = "0" ]; then ok "and every next-line pointer is right, which is all Applesoft reads"
+else bad "and every next-line pointer is right, which is all Applesoft reads" "$nbad pointers wrong"; fi
+fi
+
+#--------------------------------------
 if section "quit and return"; then
 if [ ! -f "$DISTIMG" ]; then
     bad "the dist image exists" "no $DISTIMG -- run: make dist"

@@ -553,7 +553,48 @@ document was empty; and one target line was unreachable, so the cursor never
 moved. A benchmark must check its preconditions and refuse to print a number
 for a run that did not happen.
 
-## 15. What the //c reported
+## 15. Two bugs a real program found
+
+Both came from one report — *"if I load the program into the ide, everything
+looks good, if I try to run the program, or load it and list it... the data
+appears corrupted to the applesoft interpreter"* — on a file of 400-odd lines.
+
+### The next-line pointer, off by 257
+
+    lda TKADDR / clc / adc #$05 / adc TKBL
+
+Two `adc` with no `clc` between them are not independent. The carry out of
+`TKADDR+5` was added a second time as part of the `TKBL` addition, and then
+lost before it could reach the high byte — so the pointer came out one too low
+and a page too low. It only bites where a line begins in the last five bytes of
+a page, about one line in fifty: on a 343-line program, five wrong pointers.
+
+**The editor could not see it**, which is the important part. Loading walks the
+line bodies and never follows these pointers; Applesoft does nothing else but
+follow them. So the file read back perfectly here and was rubble there, and
+every short test in this suite crosses no page boundary at all.
+
+### Control characters in a REM
+
+Real programs put a line feed inside a `REM` so that `LIST` double-spaces.
+`PHONE.LIST` has forty of them. Every byte under `$A0` is a line break in this
+buffer — that *is* how lines are stored — so `$0A` arrived as `$8A` and split
+`400 REM<0A><0A>SET PRINTER SLOT` into five lines, three with no number. The
+editor then refused to save, correctly, because a line without a number is not
+an Applesoft line.
+
+They are dropped on load and the reader is told. Keeping them would need an
+escape in the buffer and a column count that lies about itself; rewriting
+somebody's program without saying so is worse than either.
+
+### What the test does differently
+
+`long programs` saves a 220-line program with varied line lengths and then
+**follows the pointer chain from the Mac**, which is what Applesoft does and
+what the editor never does. Checking the text would have passed against the
+broken version.
+
+## 16. What the //c reported
 
 The performance complaint did not survive a retest: the same tester who
 reported roughly two seconds a keypress, four or five times running, could not
@@ -600,7 +641,7 @@ Worth noting how it turned up. The test was wrong, not the code — but a wrong
 test still ran a program no deliberate test would have written, which is most
 of the value of running one at all.
 
-## 17. What is deliberately absent
+## 18. What is deliberately absent
 
 `src/unbuilt.S` holds a stub for every handler the inherited keymaps still name
 and this editor has not written. It is meant to shrink to nothing and then be

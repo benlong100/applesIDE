@@ -71,6 +71,12 @@ MSGNOTYET = " NOT BUILT YET"
 # A tokenised Applesoft file has a number on every line; there is nowhere
 # to put a line that has not got one.
 MSGNEEDNUM = " EVERY LINE NEEDS A NUMBER"
+
+# Some programs put control characters in a REM so that LIST double-spaces.
+# The buffer cannot hold one -- every byte below a space is a line break --
+# so they are dropped, and the reader is told rather than left to wonder
+# why the program on screen is not the program on disk.
+MSGCTRL = " CONTROL CHARACTERS DROPPED"
 HINTESC = "ESC CANCELS"
 
 # ---------------------------------------------------------- the unsaved guard
