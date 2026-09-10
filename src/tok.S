@@ -100,7 +100,23 @@ TOKSAVE      lda   #$00
              jsr   TKONE            ; LNBUF -> TOKBUF+4, length in TKBL
              bcc   :ok
              jmp   :nonum
-:ok
+
+*--- A NUMBER WITH NOTHING AFTER IT IS NOT A LINE. Return supplies the next
+*    number before there is anything to put on it, so a program written here
+*    ends with one every time -- and it was being saved, and LISTed back in
+*    Applesoft as a bare number sitting under the program.
+*
+*    Applesoft cannot make such a line itself: typing a number alone at the ]
+*    prompt DELETES that line, so an empty numbered line is an artefact of
+*    this editor and of nothing else. Dropping it is what makes the file look
+*    like one Applesoft would have written.
+*
+*    TKBL counts the body, and TKONE has already dropped the spaces outside
+*    strings, so "50" and "50   " both arrive here as zero and both go.
+:ok          lda   TKBL
+             bne   :body
+             jmp   :nextq
+:body
 
 *--- The next line begins four bytes of header, the body, and a zero further
 *    on. Add the whole offset in ONE 16-bit step.

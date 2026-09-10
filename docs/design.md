@@ -812,6 +812,45 @@ typing the literal string "left arrow" while proving nothing, and removed.
 These two routines rest on the port's provenance and on reading. They want a
 check by hand.
 
+## 15d. A number with nothing after it is not a line
+
+Reported from real use: write a program, press Return on the last line, and
+the number Return supplies for the line you have not written yet gets saved
+with the rest — so LISTing the file in Applesoft shows a bare number sitting
+under the program.
+
+`TKONE` reports the body length in `TKBL`, and a line whose number is followed
+by nothing comes back as zero, so `TOKSAVE` skips it. `TKONE` has already
+dropped the spaces outside strings, so `50` and `50   ` both arrive as zero
+and both go. There was already a skip for wholly blank lines; this is the
+numbered case, which is the one that actually happens.
+
+**Applesoft cannot make such a line itself.** Typing a number alone at the `]`
+prompt *deletes* that line, so an empty numbered line is an artefact of this
+editor and of nothing else — which is the argument for dropping it rather than
+preserving it faithfully. The file ends up looking like one Applesoft would
+have written.
+
+The editor still shows the line, and the suite asserts that: dropping it on
+the way out must not delete the line the writer is standing on.
+
+### The one thing this leaves crooked
+
+`OA-K` and the saved file now disagree about what counts as a line. `RFCOLL`
+collects a leading number whether or not anything follows it, so a program
+with `10 GOTO 50` and an empty line `50` passes the reference check — and then
+saves without line 50, which is `?UNDEF'D STATEMENT ERROR` on RUN.
+
+It is narrow: it needs an empty line deliberately kept as a jump target, and
+Applesoft could not have produced that program in the first place. But it is
+the same shape as the bugs §15 is about — the editor saying one thing and the
+file being another — and it is written down here rather than left to be found.
+
+Two ways to close it. Make `RFCOLL` skip empty lines too, so `OA-K` reports
+the dangling reference before the save; or have the save keep an empty line
+whose number is referenced. The first is better: one rule, applied
+everywhere, and the warning lands where people already look. Neither is done.
+
 ## 16. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a

@@ -556,6 +556,68 @@ fi
 # a page, about one line in fifty. Every short test program in this suite
 # crosses no page boundary at all.
 #--------------------------------------
+# A number with nothing after it is not a line.
+#
+# Reported from real use: write a program, press Return on the last line, and
+# the number Return supplies for the line you have not written yet is saved
+# with the rest -- so LISTing the file in Applesoft shows a bare number
+# sitting under the program. Applesoft cannot make such a line itself (typing
+# a number alone at the ] prompt deletes that line), so it is an artefact of
+# this editor and of nothing else.
+#--------------------------------------
+if section "empty lines are not saved"; then
+reboot
+t '10 HOME'
+tl ''
+t 'PRINT "HI"'
+tl ''
+snapshot
+assert_row "Return supplies a number for the line not yet written" 2 "30"
+
+oa "S"
+"$VII" await "SAVE AS" 30 >/dev/null || bad "the save prompt never appeared"
+"$VII" text "EMPTYTEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
+osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1
+sleep 2
+
+"$ROOT/tools/ac" -g "$IMAGE" EMPTYTEST > "$TMP/empty.bin" 2>/dev/null
+python3 - "$TMP/empty.bin" > "$TMP/empty.txt" <<'PYEOF'
+import sys
+d = open(sys.argv[1], 'rb').read()
+i, out = 0, []
+while i < len(d) - 1:
+    nxt = d[i] | (d[i+1] << 8)
+    if nxt == 0: break
+    ln = d[i+2] | (d[i+3] << 8); j = i + 4; body = []
+    while j < len(d) and d[j] != 0: body.append(d[j]); j += 1
+    out.append(f"{ln}:" + ' '.join(f'{b:02X}' for b in body))
+    i = j + 1
+print('\n'.join(out))
+PYEOF
+
+if grep -q "^10:" "$TMP/empty.txt"; then ok "line 10 is in the file"
+else bad "line 10 is in the file" "$(cat "$TMP/empty.txt")"; fi
+if grep -q "^20:" "$TMP/empty.txt"; then ok "and line 20"
+else bad "and line 20" "$(cat "$TMP/empty.txt")"; fi
+if grep -q "^30:" "$TMP/empty.txt"; then
+    bad "the empty trailing line is NOT saved" "line 30 is in the file: $(grep '^30:' "$TMP/empty.txt")"
+else
+    ok "the empty trailing line is NOT saved"
+fi
+# every line that IS there must carry something
+if grep -qE "^[0-9]+: *$" "$TMP/empty.txt"; then
+    bad "no line in the file has an empty body" "$(grep -nE '^[0-9]+: *$' "$TMP/empty.txt" | head -1)"
+else
+    ok "no line in the file has an empty body"
+fi
+
+# and the editor still shows it: dropping it on save must not delete the
+# writer's cursor line out from under them
+snapshot
+assert_row "the editor still shows the line being written" 2 "30"
+fi
+
+#--------------------------------------
 if section "long programs"; then
 python3 - "$TMP/long.bas" <<'PYEOF'
 import sys
