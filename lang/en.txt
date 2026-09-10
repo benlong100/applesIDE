@@ -65,6 +65,13 @@ MSGNOLINE = " NO SUCH LINE: "
 # OA-R renumbers to 10, 20, 30 and carries every reference with it.
 MSGRENUM = " RENUMBERED"
 
+# OA-C says so, because a copy is the one clipboard action that changes
+# nothing on screen -- a cut and a paste are both visible on their own.
+MSGCOPIED = " COPIED"
+
+# OA-L asks for a line NUMBER, not the n'th line of the file.
+MSGGOTO = "GO TO LINE: "
+
 # Shown by a key that is bound but whose command is not written yet.
 MSGNOTYET = " NOT BUILT YET"
 

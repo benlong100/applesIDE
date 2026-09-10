@@ -20,11 +20,9 @@
 *                   fixed in ZipEdit 1.4 and the two bugs it flushed out
 *                   (OA-G never advancing, and the end-of-buffer match) are
 *                   not ones to reintroduce by retyping it from memory.
-* KGOTO             go to line. Means something different here: a BASIC line
-*                   NUMBER, not an ordinal. Wants rewriting, not copying.
-* KCOPY KCUT KPASTE clipboard, line-oriented. Portable.
-*                   (KDELEOL and KDELWORD are NOT here any more: ops.S and
-*                   keyboard.S define them.)
+*                   (KGOTO, KCOPY, KCUT and KPASTE are NOT here any more:
+*                   goto.S and clip.S define them. Nor are KDELEOL and
+*                   KDELWORD -- ops.S and keyboard.S do those.)
 *
 *   from ZipEdit's edit_ops.S -- Markdown, and NOT wanted
 * KBOLD KITALIC     emphasis. There is no such thing in Applesoft. These
@@ -42,11 +40,7 @@
 *    indistinguishable from a bug -- which the header above predicted and
 *    real hardware confirmed. They say so now.
 KFIND
-FINDNEXT
-KGOTO
-KCOPY
-KCUT
-KPASTE       lda   #<MSGNOTYET
+FINDNEXT     lda   #<MSGNOTYET
              sta   STRPTR
              lda   #>MSGNOTYET
              sta   STRPTR+1

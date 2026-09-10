@@ -696,6 +696,71 @@ Three real things came out of the same report:
   plausible cause, the intermittency fits a condition that depends on whether
   a file happened to be open, and it cannot be tested here.
 
+## 15b. The clipboard, and going to a line
+
+Both were queued in `unbuilt.S` and both were costed before being written, by
+stubbing the equivalents out of ZipEdit and diffing the binary: 239 bytes for
+the clipboard, 174 for go-to-line. The pair came in at 587, against 3,734 free
+in the `$2000-$6FFF` budget. Worth doing that first — it is the difference
+between "these are probably cheap" and knowing.
+
+### Almost all of the clipboard was already here
+
+`CLIPBUF` (1024 bytes), `CLIPLEN`, `CLIPPTR`, `CLIPLINE`, `DECLEN`, `COPYSEL`
+and `DELSEL` all came across with the engine and had been sitting unused since
+the fork. Only the three handlers were missing, which is why `unbuilt.S` called
+the clipboard "portable" and was right.
+
+**A whole line goes back as a whole line.** ZipEdit inserts the clipboard at
+the cursor wherever it happens to be, which in prose merely joins two bits of
+text. Here, pasting a copied line with the cursor mid-line produced
+
+```
+30 PRINT 30 PRINT
+```
+
+which is not untidy but a **syntax error**, on the line the writer was in the
+middle of. So a line-wise paste steps to the start of the line first and the
+pasted line lands above the one the cursor was on. A selection still pastes at
+the cursor — it was taken from mid-line and belongs back there. `CLIPLINE`
+tells the two apart.
+
+**Paste does not renumber.** Pasting a copied line leaves two lines with the
+same number, and Applesoft keeps only one of them on load. That is a real trap
+and the answer is `OA-R` rather than magic in the paste: a paste that silently
+rewrote the number would not be giving back what it took, and `OA-K` already
+reports duplicate trouble properly.
+
+### Go to line means the NUMBER, not the n'th line
+
+ZipEdit's `OA-L` takes an ordinal. Here that is the wrong question: a program's
+lines carry numbers of their own, those numbers are what `GOTO` refers to and
+what `OA-K` reports, and in a program numbered by tens the 300th line does not
+exist at all. The suite states it as its own assertion — asking for `3` in a
+four-line program numbered 100 to 500 must report no such line, not land on the
+third one.
+
+**It scans without moving the cursor.** The obvious version walks the cursor
+forward a line at a time and stops on a match, but then a number that is not in
+the program leaves the cursor stranded at the bottom of the file — having
+destroyed the position the writer was at, in order to tell them it found
+nothing. The scan is a read-only walk over auxiliary memory using `RFRESET`,
+`RFGET` and `RFNUMBER`, which already know how to step over the gap and read a
+leading number; the control flow is `RFCOLL`'s with the comparison where its
+`RFSTORE` call was. The cursor moves once, at the end, and only on a hit.
+
+Moving it is `GTMOVE`, and it steps with `GAPLEFT`/`GAPRIGHT` rather than
+setting `GAPBEG`: those primitives carry `CURLNO` and `CCOL` with them, and
+anything that assigned the gap directly would leave both lying.
+
+### LNMUL10 already adds the digit
+
+`LNMUL10` is `LNUM = LNUM * 10 + A`. `GTPARSE` passed the digit **and** added
+it again afterwards, so every digit counted twice and typing `30` asked for
+line 60. Worth writing down because of how it presents: 60 looks like a
+doubling, and the arithmetic is 3+3 tens and 0+0 units, which is not a
+doubling of anything and only resolves when written out.
+
 ## 16. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a

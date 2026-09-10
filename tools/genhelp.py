@@ -149,10 +149,14 @@ P2L = [header(T("FILES"), "L"),
        entry("@-A", T("save as"),             "L"),
        entry("@-N", T("new"),                 "L"),
        entry("@-Q", T("quit"),                "L")]
-P2R = [header(T("NOT BUILT YET"), "R"),
-       entry("@-F @-G", T("find"),            "R"),
-       entry("@-L", T("go to line"),          "R"),
-       entry("@-C/X/V", T("clipboard"),       "R")]
+P2R = [header(T("EDITING"), "R"),
+       entry("@-C", T("copy the line"),       "R"),
+       entry("@-X", T("cut the line"),        "R"),
+       entry("@-V", T("paste it back"),       "R"),
+       entry("@-L", T("go to line number"),   "R"),
+       None,
+       header(T("NOT BUILT YET"), "R"),
+       entry("@-F @-G", T("find"),            "R")]
 
 TITLE  = T("APPLESIDE  --  AN APPLESOFT EDITOR FOR THE APPLE //e")
 FOOT1  = T("press any key for more   --   page 1 of 2")

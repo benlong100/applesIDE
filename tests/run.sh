@@ -694,7 +694,10 @@ assert_row "and the reference check"                 6 "check GOTO targets"
 "$VII" text " " >/dev/null; "$VII" settle 3 >/dev/null
 snapshot
 assert_row "page two lists the file keys"            5 "open"
-assert_row "and admits what is not built"            4 "NOT BUILT YET"
+assert_row "page two lists the clipboard"            5 "copy the line"
+assert_row "and going to a line"                     8 "go to line number"
+assert_row "and admits what is not built"           10 "NOT BUILT YET"
+assert_row "which is now only find"                 11 "find"
 
 # THE KEY THAT LEAVES. The suite walked to page two and stopped, so the exit
 # path was never exercised -- and when the cursor-only redraw landed, leaving
@@ -711,6 +714,101 @@ snapshot
 assert_row "a key on page two brings the program back" 0 "10 HOME"
 assert_row "all of it"                                 1 "20 PRINT"
 assert_notrow "and the help screen is gone"            1 "APPLESIDE  --"
+fi
+
+#--------------------------------------
+# The clipboard, and going to a line by its number.
+#
+# The paste test is the one worth reading. A line-wise paste at a cursor
+# sitting mid-line used to produce "30 PRINT 30 PRINT" -- not untidy but a
+# syntax error, on the line the writer was in the middle of. A whole line now
+# goes back as a whole line, above the one the cursor is on.
+#--------------------------------------
+if section "clipboard"; then
+reboot
+t '100 HOME'
+numbered 4 '200 GOSUB 500'
+numbered 4 '300 RETURN'
+
+# OA-C says so, because a copy changes nothing on screen
+oa "C"
+snapshot
+assert_row "OA-C reports the copy"                  23 "COPIED"
+
+# up two lines, and the copied line goes in ABOVE line 200
+"$VII" key "up arrow" >/dev/null; "$VII" settle 3 >/dev/null
+oa "V"
+snapshot
+assert_row "the pasted line lands above the cursor"  1 "300 RETURN"
+assert_row "and the line it displaced is still there" 2 "200 GOSUB 500"
+assert_row "the line above is untouched"             0 "100 HOME"
+
+# a paste is a whole line, not an append to the one under the cursor
+if [ -n "$(row 1 | grep -o 'RETURN.*GOSUB')" ]; then
+    bad "a paste does not run two lines together" "row 1: $(row 1)"
+else
+    ok "a paste does not run two lines together"
+fi
+
+# and cut takes the line away
+reboot
+t '100 HOME'
+numbered 4 '200 GOSUB 500'
+numbered 4 '300 RETURN'
+"$VII" key "up arrow" >/dev/null; "$VII" settle 3 >/dev/null
+oa "X"
+snapshot
+assert_row "OA-X removes the line"                   0 "100 HOME"
+assert_row "and closes the gap it left"              1 "300 RETURN"
+if [ -n "$(grep -c 'GOSUB' "$SCREEN" | grep -v '^0$')" ]; then
+    bad "the cut line is gone from the screen" "still shows: $(grep GOSUB "$SCREEN" | head -1)"
+else
+    ok "the cut line is gone from the screen"
+fi
+fi
+
+#--------------------------------------
+if section "go to line"; then
+reboot
+t '100 HOME'
+numbered 4 '200 GOSUB 500'
+numbered 4 '300 RETURN'
+numbered 4 '500 END'
+
+# OA-L takes a line NUMBER, not the n'th line: 300 is the third line here, and
+# asking for 3 must not land on it.
+oa "L"
+"$VII" await "GO TO LINE" 30 >/dev/null || bad "OA-L never prompted"
+"$VII" text "300" >/dev/null
+"$VII" line "" >/dev/null
+"$VII" settle 5 >/dev/null
+snapshot
+assert_row "OA-L goes to the line with that number" 23 "L:3"
+
+# a number that is not in the program says so AND LEAVES THE CURSOR ALONE --
+# stranding it at the bottom to report a miss is the bug this avoids
+oa "L"
+"$VII" await "GO TO LINE" 30 >/dev/null || bad "OA-L never prompted the second time"
+"$VII" text "250" >/dev/null
+"$VII" line "" >/dev/null
+"$VII" settle 5 >/dev/null
+snapshot
+assert_row "a missing number is reported"           23 "NO SUCH LINE: 250"
+# any keystroke retires the message and puts the status row back; a RIGHT
+# arrow is the one that cannot change the line it reports, where a left arrow
+# at column 1 legitimately steps up to the end of the line above
+"$VII" key "right arrow" >/dev/null; "$VII" settle 3 >/dev/null
+snapshot
+assert_row "and the cursor never moved"             23 "L:3"
+
+# the ordinal trap, stated as its own assertion
+oa "L"
+"$VII" await "GO TO LINE" 30 >/dev/null || bad "OA-L never prompted the third time"
+"$VII" text "3" >/dev/null
+"$VII" line "" >/dev/null
+"$VII" settle 5 >/dev/null
+snapshot
+assert_row "3 is a line number, not the third line" 23 "NO SUCH LINE: 3"
 fi
 
 #--------------------------------------
