@@ -618,6 +618,90 @@ assert_row "the editor still shows the line being written" 2 "30"
 fi
 
 #--------------------------------------
+# Indentation, derived rather than stored.
+#
+# Applesoft cannot hold it: the tokeniser drops every space outside a string.
+# Storing the spaces in the FILE is not the way round it either -- a tokenised
+# line whose body begins with a literal space LISTs correctly and then fails
+# with ?SYNTAX ERROR when run, which was checked on the machine before any of
+# this was written. So it is computed from the FOR nesting on the way in, and
+# the file never sees it.
+#--------------------------------------
+if section "indent by nesting"; then
+reboot
+# three-digit numbers, so the four characters Return inserts ("110 ") are the
+# four `numbered` takes back out. With two-digit numbers it inserts three and
+# the fourth deletion eats the end of the line above, merging the program into
+# one line -- which is exactly what happened the first time this was written.
+t '100 FOR X = 1 TO 3'
+numbered 4 '200 FOR Y = 1 TO 2'
+numbered 4 '300 PRINT X,Y'
+numbered 4 '400 NEXT Y'
+numbered 4 '500 NEXT X'
+numbered 4 '600 PRINT "DONE"'
+oa "S"
+"$VII" await "SAVE AS" 30 >/dev/null || bad "the save prompt never appeared"
+"$VII" text "INDNEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
+
+# away and back, so the text comes from the file rather than from typing
+oa "N"
+oa "O"
+"$VII" await "OPEN" 30 >/dev/null || bad "the open prompt never appeared"
+"$VII" text "INDNEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
+snapshot
+assert_row "the outer FOR sits at the margin"        0 "100 FOR"
+assert_row "its body is indented one level"          1 "200   FOR"
+assert_row "and the inner body two"                  2 "300     PRINT"
+assert_row "NEXT outdents to match its FOR"          3 "400   NEXT"
+assert_row "and the outer NEXT to the margin"        4 "500 NEXT"
+assert_row "what follows the loops is back at zero"  5 "600 PRINT"
+
+# THE FILE MUST NOT HAVE CHANGED. Indentation that reached the disk would
+# either bloat the program or, worse, break it: Applesoft will not run a
+# statement that begins with a space.
+osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1
+sleep 2
+"$ROOT/tools/ac" -g "$IMAGE" INDNEST > "$TMP/ind1.bin" 2>/dev/null
+"$VII" boot "$IMAGE" >/dev/null
+"$VII" await "ApplesIDE" 120 >/dev/null
+"$VII" text " " >/dev/null
+"$VII" await "UNTITLED.BAS" 60 >/dev/null
+"$VII" caps true >/dev/null
+"$VII" oa "O" >/dev/null
+"$VII" await "OPEN" 30 >/dev/null || bad "the open prompt never appeared again"
+"$VII" text "INDNEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
+"$VII" oa "A" >/dev/null
+"$VII" await "SAVE AS" 30 >/dev/null || bad "the save-as prompt never appeared"
+"$VII" text "INDNEST2" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
+"$VII" caps false >/dev/null
+osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1
+sleep 2
+"$ROOT/tools/ac" -g "$IMAGE" INDNEST2 > "$TMP/ind2.bin" 2>/dev/null
+if cmp -s "$TMP/ind1.bin" "$TMP/ind2.bin"; then
+    ok "loading and saving again gives the same bytes"
+else
+    bad "loading and saving again gives the same bytes" \
+        "$(wc -c < "$TMP/ind1.bin" | tr -d ' ') then $(wc -c < "$TMP/ind2.bin" | tr -d ' ') bytes"
+fi
+if python3 -c "
+import sys
+d=open('$TMP/ind2.bin','rb').read()
+i=0
+while i < len(d)-1:
+    nxt=d[i]|(d[i+1]<<8)
+    if nxt==0: break
+    j=i+4
+    if j < len(d) and d[j]==0x20: sys.exit(1)
+    while j<len(d) and d[j]!=0: j+=1
+    i=j+1
+sys.exit(0)"; then
+    ok "no line in the file begins with a space"
+else
+    bad "no line in the file begins with a space" "a body starts with \$20 -- Applesoft would refuse to run it"
+fi
+fi
+
+#--------------------------------------
 if section "long programs"; then
 python3 - "$TMP/long.bas" <<'PYEOF'
 import sys

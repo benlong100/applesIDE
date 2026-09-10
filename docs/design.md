@@ -851,6 +851,72 @@ the dangling reference before the save; or have the save keep an empty line
 whose number is referenced. The first is better: one rule, applied
 everywhere, and the warning lands where people already look. Neither is done.
 
+## 15e. Indentation, derived rather than stored
+
+Asked for: the body of a `FOR` loop indented, so a program reads as the shape
+it has. Three things were measured before any of it was written, and the third
+decided the design.
+
+**Applesoft cannot hold indentation.** The tokeniser drops every space outside
+a string — verified by round-tripping through this editor: `20   PRINT X` came
+back `20 PRINT X`, and `X = 1` came back `X=1`. Anything typed is gone by the
+next save.
+
+**Writing the spaces into the file is not the way round it.** A tokenised line
+whose body begins with a literal `$20` **LISTs perfectly**:
+
+```
+ 20    PRINT X
+```
+
+and then `RUN` gives `?SYNTAX ERROR IN 20`. Confirmed against a control file
+identical but for those two bytes, which ran and printed 1 2 3. A file with
+stored indentation would look right and be broken. (Likely because Applesoft
+treats a statement not starting with a token as an implied `LET`, so a leading
+space begins a variable name — but the error and the control are the evidence;
+that part is a guess.)
+
+**So it is computed, not remembered.** `TOKLOAD` emits the indent while
+detokenising, where the tokens are already in hand: no extra pass, no gap
+moves, nothing stored. `FOR` (`$81`) opens a level and `NEXT` (`$82`) closes
+one; a line that BEGINS with `NEXT` outdents itself, which is why the first
+body byte is peeked before the indent is written. Depth is floored at zero and
+capped at eight, so a program with runaway nesting cannot indent off the
+screen.
+
+Being derived, it survives every round trip for free, and the file never sees
+it: an indented program saved back came out byte-identical to the original,
+which the suite now asserts along with "no line in the file begins with a
+space".
+
+### The cap that would have eaten code
+
+`TKREAD` stops a line at 240 characters and **drops the rest** — Applesoft's
+limit, enforced on the way out. Indentation in the buffer counts toward that,
+so a long line plus its indent would have lost real code off the end during a
+save. Silent truncation, in the one operation that must never lose anything.
+
+`TKREAD` now drops the spaces between the number and the code, so the cap
+applies to what the line actually says. `TKONE` discards those spaces anyway,
+so nothing downstream can tell the difference.
+
+### INSCHR clobbers X, for the second time
+
+The depth counter lived in `X` across `TKPUT`, which jumps to `INSCHR`, which
+sets `MODFLAG` through `X`. Every indented line came back with exactly one
+level whatever its nesting — right by luck at depth one, wrong everywhere
+else. It is written down in the notes of both projects and was walked into
+again anyway. The count lives in memory now.
+
+### Still flat while you type
+
+Indentation appears on load. Type a `FOR` loop and the body stays at the
+margin until the program is saved and opened again. Making Return indent as
+you type needs the nesting depth AT THE CURSOR, which is a different question
+from the one `TOKLOAD` answers for free — cheapest is probably to copy the
+previous line's indent and adjust it by that line's `FOR`/`NEXT` count, which
+is local and needs no scan. Not done.
+
 ## 16. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a

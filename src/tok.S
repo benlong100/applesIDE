@@ -248,6 +248,7 @@ TKWRITE      sta   WRITEPARM+4
 TKREAD       lda   #$00
              sta   TKLL
              sta   TKEOF
+             sta   TKIST            ; 0 = still in the leading number
 :loop        jsr   RFGET
              bcc   :got
              lda   #$02
@@ -258,9 +259,42 @@ TKREAD       lda   #$00
              lda   #$01             ; a break ends the line
              sta   TKEOF
              rts
-:keep        ldx   TKLL
+
+*--- INDENTATION IS NOT PART OF THE LINE, and this is where that has to be
+*    said, because of the cap below. An Applesoft line is 239 characters and
+*    the rest is DROPPED -- so counting the spaces that indent a FOR body
+*    would push a long line over and take real code off the end of it on the
+*    way to disk. Silent truncation, in a save.
+*
+*    The spaces between the number and the code are dropped here instead.
+*    TKONE drops every space outside a string anyway, so nothing downstream
+*    can tell the difference, and the cap now applies to what the line
+*    actually says.
+:keep        sta   TKRC
+             lda   TKIST
+             cmp   #$02
+             beq   :store           ; in the body: everything counts
+             cmp   #$01
+             beq   :sp
+
+             lda   TKRC             ; still a digit of the line number?
+             cmp   #$b0
+             bcc   :numend
+             cmp   #$ba
+             bcc   :store
+:numend      lda   #$01
+             sta   TKIST
+
+:sp          lda   TKRC
+             cmp   #$a0
+             beq   :loop            ; a space here is indentation: drop it
+             lda   #$02
+             sta   TKIST
+
+:store       ldx   TKLL
              cpx   #$f0             ; an Applesoft line is 239 at the most;
              bcs   :loop            ; drop the rest rather than overrun
+             lda   TKRC
              sta   LNBUF,x
              inc   TKLL
              jmp   :loop
@@ -461,28 +495,85 @@ TKMATCH      ldx   TKI2
 *--------------------------------------
 TOKLOAD      lda   #$00
              sta   TKDROP
+             sta   TKDEPTH
              jsr   TKRINIT
+             jmp   :line
+
+*--- The indent pushed :done out of branch range from the top of the loop, so
+*    the branches go through here. It must be JUMPED OVER rather than fallen
+*    into: put in the path above, it closed the file before a byte was read
+*    and every program loaded as nothing at all.
+:endj        jmp   :done
 :line        jsr   TKRB             ; the next-line address
-             bcs   :done
+             bcs   :endj
              sta   TKT1
              jsr   TKRB
-             bcs   :done
+             bcs   :endj
              ora   TKT1
-             beq   :done            ; a zero address ends the program
+             beq   :endj            ; a zero address ends the program
 
              jsr   TKRB             ; the line number
-             bcs   :done
+             bcs   :endj
              sta   LNUM
              jsr   TKRB
-             bcs   :done
+             bcs   :endj
              sta   LNUM+1
              jsr   LNDIGITS         ; straight into the text buffer
              lda   #' '+$80
              jsr   TKPUT
 
+*--- INDENT THE BODY BY ITS FOR NESTING.
+*
+*    Applesoft cannot store indentation: the tokeniser drops every space
+*    outside a string, so anything typed is gone by the next save. Writing the
+*    spaces into the FILE is not the way round it either -- a tokenised line
+*    whose body begins with a literal space LISTs correctly and then fails
+*    with ?SYNTAX ERROR when run. Tried, on the machine, before this was
+*    written.
+*
+*    So it is DERIVED rather than stored, here, where the tokens are already
+*    in hand and it costs nothing: no extra pass, no gap moves, and it comes
+*    back the same on every load because it is computed from the program
+*    rather than remembered about it.
+*
+*    A line beginning with NEXT closes a level, so the first body byte has to
+*    be looked at BEFORE the indent is written -- hence the peek.
+             lda   #$00
+             sta   TKNF
+             sta   TKNN
+             sta   TKLEAD
+
+             jsr   TKRB
+             bcs   :endj
+             sta   TKFB
+             cmp   #$82             ; NEXT
+             bne   :ind
+             inc   TKLEAD
+             lda   TKDEPTH
+             beq   :ind
+             dec   TKDEPTH
+
+*--- THE COUNT LIVES IN MEMORY. TKPUT jumps to INSCHR, and INSCHR sets MODFLAG
+*    through X -- so a depth counted in X comes back as 1 from every call and
+*    every indented line gets exactly one level, whatever its nesting. Which
+*    is what happened, and it is the second time this trap has been walked
+*    into on this codebase; it is written down in the notes of both projects.
+:ind         lda   TKDEPTH
+             beq   :first
+             sta   TKIC
+:sp          lda   #' '+$80
+             jsr   TKPUT
+             lda   #' '+$80
+             jsr   TKPUT
+             dec   TKIC
+             bne   :sp
+
+:first       lda   TKFB             ; the byte the peek took
+             jmp   :have
+
 :byte        jsr   TKRB
              bcs   :done
-             cmp   #$00
+:have        cmp   #$00
              beq   :eol
              cmp   #$80
              bcs   :token
@@ -511,10 +602,35 @@ TOKLOAD      lda   #$00
              dec   TKDROP           ; saturate rather than wrap to none
              jmp   :byte
 
-:token       jsr   TKTEXT           ; write the keyword out
+:token       cmp   #$81             ; FOR opens a level
+             bne   :nfor
+             inc   TKNF
+             bne   :emit            ; always taken
+:nfor        cmp   #$82             ; NEXT closes one
+             bne   :emit
+             inc   TKNN
+:emit        jsr   TKTEXT           ; write the keyword out
              jmp   :byte
 
-:eol         lda   #HARDCR
+*--- What this line did to the nesting. The leading NEXT, if there was one,
+*    has already been taken off, so it must not be counted twice.
+:eol         lda   TKNN
+             sec
+             sbc   TKLEAD
+             sta   TKT2
+             lda   TKDEPTH
+             clc
+             adc   TKNF
+             sec
+             sbc   TKT2
+             bpl   :dcap
+             lda   #$00             ; more NEXTs than FORs: the floor
+:dcap        cmp   #$09             ; and a ceiling, so a program with runaway
+             bcc   :dset            ; nesting does not indent off the screen
+             lda   #$08
+:dset        sta   TKDEPTH
+
+             lda   #HARDCR
              jsr   INSCHR
              jmp   :line
 
@@ -701,4 +817,12 @@ TKRI         ds    1                ; and how many have been handed out
 TKPREV       ds    1                ; the last character written out
 TKQUIET      ds    1                ; the failure has already been reported
 TKDROP       ds    1                ; control characters the buffer cannot hold
+TKIST        ds    1                ; TKREAD: 0 number, 1 indent, 2 body
+TKRC         ds    1                ; the character it is deciding about
+TKDEPTH      ds    1                ; FOR nesting, for the indent on load
+TKNF         ds    1                ; FORs on this line
+TKNN         ds    1                ; and NEXTs
+TKLEAD       ds    1                ; the line began with one, already counted
+TKFB         ds    1                ; first body byte, peeked before indenting
+TKIC         ds    1                ; indent levels left to write
              dend
