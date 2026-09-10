@@ -155,8 +155,10 @@ P2R = [header(T("EDITING"), "R"),
        entry("@-V", T("paste it back"),       "R"),
        entry("@-L", T("go to line number"),   "R"),
        None,
-       header(T("NOT BUILT YET"), "R"),
-       entry("@-F @-G", T("find"),            "R")]
+       header(T("SEARCH"), "R"),
+       entry("@-F", T("find"),                "R"),
+       entry("@-G", T("find again"),          "R"),
+       entry("", T("both wrap round"),        "R")]
 
 TITLE  = T("APPLESIDE  --  AN APPLESOFT EDITOR FOR THE APPLE //e")
 FOOT1  = T("press any key for more   --   page 1 of 2")

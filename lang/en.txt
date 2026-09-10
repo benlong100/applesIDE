@@ -72,6 +72,14 @@ MSGCOPIED = " COPIED"
 # OA-L asks for a line NUMBER, not the n'th line of the file.
 MSGGOTO = "GO TO LINE: "
 
+# OA-F asks; OA-G repeats. Both wrap round the end of the program, and
+# MSGWRAPPED is shown when a hit came from the second pass -- a cursor that
+# jumps backwards reads as a search that went the wrong way unless the row
+# says otherwise.
+MSGFIND = "FIND: "
+MSGNOTFND = " NOT FOUND"
+MSGWRAPPED = " WRAPPED TO THE TOP"
+
 # Shown by a key that is bound but whose command is not written yet.
 MSGNOTYET = " NOT BUILT YET"
 

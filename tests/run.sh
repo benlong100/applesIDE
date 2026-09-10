@@ -689,15 +689,23 @@ oa "?"
 snapshot
 assert_row "the help screen names the program"       1 "APPLESIDE"
 assert_row "and lists renumbering"                   5 "renumber by ten"
-assert_row "and the paging keys, which exist but were unfindable" 6 "word / page"
+assert_row "and the word and paging keys"            6 "word / page"
 assert_row "and the reference check"                 6 "check GOTO targets"
 "$VII" text " " >/dev/null; "$VII" settle 3 >/dev/null
 snapshot
 assert_row "page two lists the file keys"            5 "open"
 assert_row "page two lists the clipboard"            5 "copy the line"
 assert_row "and going to a line"                     8 "go to line number"
-assert_row "and admits what is not built"           10 "NOT BUILT YET"
-assert_row "which is now only find"                 11 "find"
+assert_row "and the search keys"                    11 "find"
+assert_row "and says they wrap"                     13 "both wrap round"
+
+# Nothing user-facing is unbuilt any more, so the heading that said so is gone.
+# It went when find landed; if it comes back, something regressed into a stub.
+if grep -q "NOT BUILT YET" "$SCREEN"; then
+    bad "no NOT BUILT YET heading remains" "$(grep -o 'NOT BUILT YET' "$SCREEN" | head -1)"
+else
+    ok "no NOT BUILT YET heading remains"
+fi
 
 # THE KEY THAT LEAVES. The suite walked to page two and stopped, so the exit
 # path was never exercised -- and when the cursor-only redraw landed, leaving
@@ -809,6 +817,78 @@ oa "L"
 "$VII" settle 5 >/dev/null
 snapshot
 assert_row "3 is a line number, not the third line" 23 "NO SUCH LINE: 3"
+fi
+
+#--------------------------------------
+# Find, ported whole from ZipEdit 1.4 -- including the two bugs that version
+# fixed, which are the ones asserted hardest here. OA-G never advancing, and a
+# match against the very end of the buffer being unfindable, were both
+# invisible to a find test that only checked OA-F once.
+#--------------------------------------
+if section "find"; then
+reboot
+t '100 HOME'
+numbered 4 '200 PRINT "ALPHA"'
+numbered 4 '300 PRINT "BETA"'
+numbered 4 '400 PRINT "ALPHA"'
+
+# To the top first. Typing leaves the cursor at the END of the program, where
+# every match is behind it and a search has to wrap to find anything -- which
+# is right, and tests nothing about the forward pass.
+oa "<"
+oa "F"
+"$VII" await "FIND" 30 >/dev/null || bad "OA-F never prompted"
+"$VII" text 'BETA' >/dev/null
+"$VII" line "" >/dev/null
+"$VII" settle 5 >/dev/null
+snapshot
+assert_row "OA-F finds a pattern below the cursor"  23 "L:3"
+if grep -q "WRAPPED" "$SCREEN"; then
+    bad "a forward hit does not claim to have wrapped" "$(row 23)"
+else
+    ok "a forward hit does not claim to have wrapped"
+fi
+
+# OA-G MUST ADVANCE. It re-matched where it stood, every time, until 1.4.
+reboot
+t '100 HOME'
+numbered 4 '200 PRINT "ALPHA"'
+numbered 4 '300 PRINT "BETA"'
+numbered 4 '400 PRINT "ALPHA"'
+oa "<"
+oa "F"
+"$VII" await "FIND" 30 >/dev/null || bad "OA-F never prompted the second time"
+"$VII" text 'ALPHA' >/dev/null
+"$VII" line "" >/dev/null
+"$VII" settle 5 >/dev/null
+snapshot
+first="$(row 23)"
+assert_row "the first ALPHA is on line 2"           23 "L:2"
+oa "G"
+snapshot
+assert_row "and OA-G moves on to the next"          23 "L:4"
+if [ "$(row 23)" = "$first" ]; then
+    bad "OA-G does not stand still" "row 23 unchanged: $first"
+else
+    ok "OA-G does not stand still"
+fi
+
+# and wraps, saying so, rather than stopping at the end
+oa "G"
+snapshot
+assert_row "a search past the last match wraps"     23 "WRAPPED TO THE TOP"
+"$VII" key "right arrow" >/dev/null; "$VII" settle 3 >/dev/null
+snapshot
+assert_row "and lands back on the first one"        23 "L:2"
+
+# a pattern that is not there says so and leaves the cursor alone
+oa "F"
+"$VII" await "FIND" 30 >/dev/null || bad "OA-F never prompted the third time"
+"$VII" text 'GAMMA' >/dev/null
+"$VII" line "" >/dev/null
+"$VII" settle 5 >/dev/null
+snapshot
+assert_row "a pattern that is absent says so"       23 "NOT FOUND"
 fi
 
 #--------------------------------------

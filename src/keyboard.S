@@ -171,6 +171,53 @@ KWORDLSEL    jsr   SELUPD
 KWORDRSEL    jsr   SELUPD
              jmp   KWORDR
 
+*--------------------------------------
+* KWORDL / KWORDR -- a word left, a word right (OA-left, OA-right)
+*
+* Ported from ZipEdit. They were stubbed in unbuilt.S while the keymaps that
+* call them were live, so both keys were bound and did nothing -- which is the
+* exact failure that file's header warns about, and it survived because the
+* help screen described them and nothing tested them.
+*
+* A word is a run of anything above a space, so a line number, a keyword and a
+* variable are each their own word and PRINT"A" is three. That suits a program
+* better than prose does: stepping by word is how you get past `10 PRINT ` to
+* the part you meant to edit.
+*--------------------------------------
+KWORDL       jsr   PEEKBACK
+             bcs   :done
+             cmp   #TEXTLO          ; at a line start: step onto the line above
+             bcs   :sp
+             jsr   GAPLEFT
+             jmp   KWORDL
+:sp          jsr   PEEKBACK         ; back over any spaces
+             bcs   :done
+             cmp   #$a0
+             bne   :word
+             jsr   GAPLEFT
+             jmp   :sp
+:word        jsr   PEEKBACK         ; then over the word itself
+             bcs   :done
+             cmp   #TEXTLO+1        ; a space or a break stops us
+             bcc   :done
+             jsr   GAPLEFT
+             jmp   :word
+:done        rts
+
+KWORDR       jsr   PEEKFWD          ; forward over the current word
+             bcs   :done
+             cmp   #TEXTLO+1
+             bcc   :sp
+             jsr   GAPRIGHT
+             jmp   KWORDR
+:sp          jsr   PEEKFWD          ; then over the gap between words
+             bcs   :done
+             cmp   #TEXTLO+1
+             bcs   :done
+             jsr   GAPRIGHT
+             jmp   :sp
+:done        rts
+
 *--- with a selection up, Delete removes the selection rather than a character
 KDELETE      lda   SELACT
              beq   :plain

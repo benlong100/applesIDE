@@ -761,6 +761,57 @@ line 60. Worth writing down because of how it presents: 60 looks like a
 doubling, and the arithmetic is 3+3 tens and 0+0 units, which is not a
 doubling of anything and only resolves when written out.
 
+## 15c. Find, and the two keys that were bound to nothing
+
+Find is a PORT, deliberately and almost unaltered, because `unbuilt.S` said to
+make it one. Its wrap logic was only got right in ZipEdit 1.4, and getting it
+right flushed out two bugs that had been shipping since the feature was
+written: `OA-G` never advancing, and a match lying against the very end of the
+buffer being unfindable. Both were invisible to a find test that pressed
+`OA-F` once and stopped. Retyping this from memory was a good way to
+reintroduce them, so the comments explaining which byte does what came across
+with the code.
+
+The two bugs are what the new assertions lean on hardest. `OA-G` is checked
+for actually moving rather than merely reporting something, and the search is
+run past the last match to prove it comes back round.
+
+**Nothing here knows about Applesoft.** A search for `PRINT` matches the
+keyword, the same letters inside a string, and the same letters in a `REM`,
+because that is what searching for `PRINT` means. The highlighter and the hint
+row care about the difference; a search does not.
+
+### A test that was testing itself
+
+Both find tests failed first time, and the code was right. Typing a program
+leaves the cursor at the END of it, so every match is behind the cursor and
+the search correctly wraps — the assertions were reading `WRAPPED TO THE TOP`
+where they wanted a line number, and the wrap message covers the status row
+they were reading. The fix is `OA-<` first, so the forward pass is exercised
+at all, plus an assertion that a forward hit does *not* claim to have wrapped.
+
+### OA-left and OA-right did nothing
+
+They were bound in both keymaps, through `KWORDLSEL`/`KWORDRSEL`, to `KWORDL`
+and `KWORDR` — which were `rts` stubs in `unbuilt.S`. So both keys were live
+and silent, while the help screen described them as `word / page`. This is
+exactly the failure that file's header predicts, and it survived because the
+help documented the feature and nothing tested it.
+
+The routines are ZipEdit's, ported. A word is a run of anything above a space,
+so a line number, a keyword and a variable are each their own word — which
+suits a program better than it suits prose, since stepping by word is how you
+get past `10 PRINT ` to the part you meant to edit.
+
+**They are not covered by a test, and cannot be.** `vii.sh`'s `oa` sends
+`type open Apple "<chars>"`, which takes characters only, so an Open-Apple
+arrow cannot be produced at all — the same limitation that already leaves
+`OA-up` and `OA-down` unverifiable, and there is no ][+ build here to reach
+the keys by their `Esc`-prefixed aliases. A test was written, found to be
+typing the literal string "left arrow" while proving nothing, and removed.
+These two routines rest on the port's provenance and on reading. They want a
+check by hand.
+
 ## 16. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a

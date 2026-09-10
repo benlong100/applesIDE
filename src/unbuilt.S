@@ -16,10 +16,9 @@
 * given a "not yet" message instead, so a key that does nothing says so.
 *
 *   from ZipEdit's edit_ops.S -- wanted, and mostly portable as-is
-* KFIND KFINDNEXT   search. The wrap logic is worth taking whole; it was only
-*                   fixed in ZipEdit 1.4 and the two bugs it flushed out
-*                   (OA-G never advancing, and the end-of-buffer match) are
-*                   not ones to reintroduce by retyping it from memory.
+*                   (KFIND and FINDNEXT are NOT here any more: find.S has
+*                   them, taken whole for exactly the reason this entry used
+*                   to give.)
 *                   (KGOTO, KCOPY, KCUT and KPASTE are NOT here any more:
 *                   goto.S and clip.S define them. Nor are KDELEOL and
 *                   KDELWORD -- ops.S and keyboard.S do those.)
@@ -39,13 +38,6 @@
 *--- These are bound to keys, so pressing one and getting silence is
 *    indistinguishable from a bug -- which the header above predicted and
 *    real hardware confirmed. They say so now.
-KFIND
-FINDNEXT     lda   #<MSGNOTYET
-             sta   STRPTR
-             lda   #>MSGNOTYET
-             sta   STRPTR+1
-             jmp   SHOWMSG
-
 *--- Markdown emphasis, which Applesoft has no notion of. Silent on purpose:
 *    these are not "not yet", they are "never", and they go when the keymaps
 *    are rewritten for this machine rather than inherited from ZipEdit.
@@ -55,7 +47,5 @@ KITALIC      rts
 *--- not a stub so much as a decision: see above. Called on every keystroke,
 *    so it must stay silent.
 WRAPCHECK    rts
-KWORDL       rts
-KWORDR       rts
 WRAPALL      rts
 REFLOW       rts
