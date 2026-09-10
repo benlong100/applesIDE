@@ -908,14 +908,59 @@ level whatever its nesting — right by luck at depth one, wrong everywhere
 else. It is written down in the notes of both projects and was walked into
 again anyway. The count lives in memory now.
 
-### Still flat while you type
+### And live, from the line above alone
 
-Indentation appears on load. Type a `FOR` loop and the body stays at the
-margin until the program is saved and opened again. Making Return indent as
-you type needs the nesting depth AT THE CURSOR, which is a different question
-from the one `TOKLOAD` answers for free — cheapest is probably to copy the
-previous line's indent and adjust it by that line's `FOR`/`NEXT` count, which
-is local and needs no scan. Not done.
+`LIEMIT` runs on Return. It reads the ONE line the cursor just left — the
+bounds `LNPREV` already worked out, kept before `LNFOLL` walks `LNPOS`
+elsewhere — takes that line's own indent, and adjusts it by what the line
+opens and closes. No scan of the program, no nesting stack: it costs one short
+walk on Return and nothing at all on any other key.
+
+Keywords are matched WITHOUT word boundaries, deliberately. Applesoft
+tokenises `FOR` wherever the letters fall — `FORM` is `FOR` then `M`, which is
+why a variable cannot contain a keyword — so counting every occurrence is what
+the machine itself does, and it agrees with the tokens `TOKLOAD` counts.
+Strings and `REM` are honoured, because `PRINT "FOR"` is not a loop.
+
+**The live rule is not the load rule**, and the difference is the whole of why
+this needed care. On the way in from disk a `NEXT` line has already been
+outdented, so its own closure is spent and must not be counted again. Typed
+here it has not: the writer got whatever indent the line above implied and
+then typed `NEXT` into it. So live, every `NEXT` counts.
+
+**What that leaves**: the line BELOW a `NEXT` is right, and the `NEXT` line
+itself sits one level too deep until the next load normalises it. Outdenting
+it as it is typed means reacting to the word — reindent-on-Return, or electric
+indent — and is not done. The suite asserts the current behaviour so it is
+recorded rather than rediscovered.
+
+### 512 spaces, from one wrong branch
+
+`:put beq :done` sat immediately after `cmp #$09`, so it tested whether the
+depth was NINE rather than whether it was zero. A depth that fell to zero went
+past it, stored zero, and `dec`/`bne` wrapped the counter to 255 — 256 times
+round the loop, 512 spaces onto the line.
+
+Every depth from one to eight behaved perfectly, so it took a program whose
+nesting came back to zero to show it at all, and the first symptom was not
+even the spaces: it was the horizontal-scroll marker appearing beside every
+line number, because the cursor had been pushed out to column 517. The buffer
+was correct in the first four lines and the screen was showing something true
+about a state nobody expected. **Dumping the text buffer settled it in one
+step** where reading the display had produced two wrong theories.
+
+### Two dum collisions, found while looking for it
+
+Not the cause, and not new, but found by auditing every block and worth
+writing down: `SCRLOST` (display.S, `$142B`+3) lands on `$142E`, which is also
+`OLDGAP`'s low byte (main.S). `NAMELEN` ends display.S's `$1430` block at
+`$1440`, which is the splash's `SPLI` — the comment there still says
+`$1400-$143F are taken`, and the block outgrew that.
+
+The first is the one that matters: `SCRLOST` is read by the cursor-only redraw
+gate, so that gate may be testing `OLDGAP`'s low byte and taking the full
+redraw far more often than §14 believes. Unfixed, and worth measuring before
+anything else is claimed about arrow-key cost.
 
 ## 16. Known limits
 

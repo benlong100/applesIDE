@@ -93,6 +93,18 @@ numbered() {
     "$VII" text "$2" >/dev/null; "$VII" settle 3 >/dev/null
 }
 
+# ownline <text> -- Return, then wipe whatever it supplied, then type our own.
+# `numbered` counts the characters Return inserted, which stopped being a
+# fixed number once Return began indenting: inside a FOR body it supplies a
+# number, a space AND the indent. Ctrl-A then Ctrl-Y clears the line whatever
+# is on it.
+ownline() {
+    "$VII" line "" >/dev/null; "$VII" settle 3 >/dev/null
+    "$VII" ctrl A >/dev/null; "$VII" settle 2 >/dev/null
+    "$VII" ctrl Y >/dev/null; "$VII" settle 2 >/dev/null
+    "$VII" text "$1" >/dev/null; "$VII" settle 4 >/dev/null
+}
+
 oa() { "$VII" caps true >/dev/null; "$VII" oa "$1" >/dev/null; "$VII" settle 5 >/dev/null; "$VII" caps false >/dev/null; }
 
 #--------------------------------------
@@ -629,16 +641,15 @@ fi
 #--------------------------------------
 if section "indent by nesting"; then
 reboot
-# three-digit numbers, so the four characters Return inserts ("110 ") are the
-# four `numbered` takes back out. With two-digit numbers it inserts three and
-# the fourth deletion eats the end of the line above, merging the program into
-# one line -- which is exactly what happened the first time this was written.
+# `ownline` rather than `numbered`: Return now supplies an indent as well as a
+# number inside a FOR body, so there is no fixed number of characters to take
+# back out. It clears the line instead.
 t '100 FOR X = 1 TO 3'
-numbered 4 '200 FOR Y = 1 TO 2'
-numbered 4 '300 PRINT X,Y'
-numbered 4 '400 NEXT Y'
-numbered 4 '500 NEXT X'
-numbered 4 '600 PRINT "DONE"'
+ownline '200 FOR Y = 1 TO 2'
+ownline '300 PRINT X,Y'
+ownline '400 NEXT Y'
+ownline '500 NEXT X'
+ownline '600 PRINT "DONE"'
 oa "S"
 "$VII" await "SAVE AS" 30 >/dev/null || bad "the save prompt never appeared"
 "$VII" text "INDNEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
@@ -698,6 +709,51 @@ sys.exit(0)"; then
     ok "no line in the file begins with a space"
 else
     bad "no line in the file begins with a space" "a body starts with \$20 -- Applesoft would refuse to run it"
+fi
+fi
+
+#--------------------------------------
+# Indent while typing, from the line above alone.
+#
+# The load-time pass is exact and global; this is the cheap live half, and it
+# reads ONE line. It gets the line BELOW a NEXT right and leaves the NEXT line
+# itself a level deep, which the next load corrects -- asserted here so the
+# limitation is recorded rather than discovered.
+#--------------------------------------
+if section "indent while typing"; then
+reboot
+t '100 FOR X = 1 TO 3'
+"$VII" line "" >/dev/null; "$VII" settle 5 >/dev/null
+snapshot
+assert_row "Return after a FOR indents the new line" 23 "C:7"
+
+t 'FOR Y = 1 TO 2'
+"$VII" line "" >/dev/null; "$VII" settle 5 >/dev/null
+snapshot
+assert_row "and a second FOR indents again"          23 "C:9"
+
+t 'PRINT X,Y'
+"$VII" line "" >/dev/null; "$VII" settle 5 >/dev/null
+snapshot
+assert_row "an ordinary line holds its level"        23 "C:9"
+
+t 'NEXT Y'
+"$VII" line "" >/dev/null; "$VII" settle 5 >/dev/null
+snapshot
+assert_row "and NEXT brings the line below back out" 23 "C:7"
+
+t 'NEXT X'
+"$VII" line "" >/dev/null; "$VII" settle 5 >/dev/null
+snapshot
+assert_row "the outer NEXT returns to the margin"    23 "C:5"
+
+# 512 spaces went onto the line here, once: `beq` after a `cmp #$09` tests
+# whether the depth is NINE, not whether it is zero, so a depth that fell to
+# zero stored zero and dec/bne wrapped the counter to 255.
+if [ "$(row 5 | wc -c | tr -d ' ')" -lt 40 ]; then
+    ok "a depth of zero writes no spaces at all"
+else
+    bad "a depth of zero writes no spaces at all" "row 5 is $(row 5 | wc -c | tr -d ' ') characters"
 fi
 fi
 

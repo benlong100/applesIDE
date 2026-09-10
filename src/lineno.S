@@ -31,6 +31,17 @@
 AUTONUM      jsr   LNPREV           ; what was the line we just left?
              bcs   :none            ; not numbered: leave well alone
 
+*--- Where that line lies, kept before LNFOLL walks LNPOS somewhere else. The
+*    indent for the new line is read back off it -- see LIEMIT.
+             lda   LNPOS
+             sta   LIPOS
+             lda   LNPOS+1
+             sta   LIPOS+1
+             lda   LNEND
+             sta   LIEND
+             lda   LNEND+1
+             sta   LIEND+1
+
              lda   LNUM             ; keep it: the arithmetic below needs it
              sta   LNPRV
              lda   LNUM+1
@@ -103,7 +114,238 @@ AUTONUM      jsr   LNPREV           ; what was the line we just left?
 *    down in ZipEdit's notes, walked into anyway.
 LNEMIT       jsr   LNDIGITS
              lda   #' '+$80         ; and the space after it
-             jmp   INSCHR
+             jsr   INSCHR
+             jmp   LIEMIT           ; and the indent the line above implies
+
+*--------------------------------------
+* LIEMIT -- indent the new line the way the line above says to
+*
+* TOKLOAD works this out globally, from the tokens, on the way in from disk.
+* That is exact and free but only happens on a LOAD, so a FOR body typed here
+* stayed at the margin until the program was saved and reopened.
+*
+* This is the cheap live half: it reads the ONE line above the cursor and
+* adjusts its indent by what that line opens and closes. No scan of the
+* program, no nesting stack -- which means it can be wrong where the global
+* pass is right, and the next load corrects it. That trade is the whole point:
+* it costs one short walk on Return and nothing at all on any other key.
+*
+* KEYWORDS ARE NOT WORD-BOUNDED, deliberately. Applesoft tokenises FOR
+* wherever the letters fall -- FORM is FOR followed by M, which is why a
+* variable cannot contain a keyword -- so counting every occurrence is what
+* the machine itself does, and it matches what TOKLOAD counts in tokens.
+*
+* Strings and REM are honoured, because PRINT "FOR" is not a loop.
+*--------------------------------------
+LIEMIT       lda   #$00
+             sta   LIF
+             sta   LIN
+             sta   LILEAD
+             sta   LISTR
+             sta   LILEV
+             lda   LIPOS
+             sta   LIP
+             lda   LIPOS+1
+             sta   LIP+1
+
+*--- step over the line number
+:num         ldy   #$00
+             jsr   LIPEEK
+             bne   :isnum
+             jmp   :done            ; the line ended: nothing to indent from
+:isnum       cmp   #$b0
+             bcc   :sp
+             cmp   #$ba
+             bcs   :sp
+             jsr   LISTEP
+             jmp   :num
+
+*--- its own indent, two spaces to the level
+:sp          ldy   #$00
+             jsr   LIPEEK
+             cmp   #$a0
+             bne   :body
+             inc   LILEV
+             jsr   LISTEP
+             jmp   :sp
+
+:body        lsr   LILEV            ; spaces to levels
+             lda   #$01
+             sta   LIFW             ; the next thing is the first word
+
+*--- and what the code does to the nesting
+:scan        ldy   #$00
+             jsr   LIPEEK
+             bne   :isch
+             jmp   :depth
+:isch        cmp   #$a2             ; a quote flips the string state
+             bne   :nq
+             lda   LISTR
+             eor   #$01
+             sta   LISTR
+             jsr   LISTEP
+             jmp   :scan
+:nq          lda   LISTR
+             bne   :step
+
+             jsr   LIREM            ; REM: the rest is a comment
+             bcc   :depth
+             jsr   LIFOR
+             bcc   :was
+             jsr   LINEXT
+             bcs   :step
+
+:was         lda   #$00             ; a keyword was matched and stepped over
+             sta   LIFW
+             jmp   :scan
+
+:step        ldy   #$00             ; an ordinary character
+             jsr   LIPEEK
+             cmp   #$a0
+             beq   :sk              ; a space does not end the first word
+             lda   #$00
+             sta   LIFW
+:sk          jsr   LISTEP
+             jmp   :scan
+
+*--- levels = the line's own, plus what it opened, less what it closed.
+*
+*    NO ALLOWANCE FOR A LEADING NEXT, and this is where the live rule parts
+*    company with TOKLOAD's. On the way in from disk a NEXT line has already
+*    been outdented, so its own closure is spent and must not be counted
+*    twice. Typed here it has NOT: the writer got whatever indent the line
+*    above implied and then typed NEXT into it. So every NEXT on the line
+*    counts, and the line BELOW lands at the right level even though the NEXT
+*    line itself is sitting one too deep -- which LINEXTFIX puts right as the
+*    word is typed.
+:depth       lda   LIN
+             sta   LIT2
+             lda   LILEV
+             clc
+             adc   LIF
+             sec
+             sbc   LIT2
+             bpl   :cap
+             lda   #$00
+:cap         cmp   #$09
+             bcc   :put
+             lda   #$08
+
+*--- TEST A, NOT THE COMPARISON. This was a bare `beq :done` after the `cmp
+*    #$09` above, which sets Z when A is NINE -- so a depth of zero fell
+*    through it, stored zero, and `dec`/`bne` wrapped the counter to 255: two
+*    hundred and fifty-six times round, 512 spaces onto the line. Every depth
+*    from one to eight came out right, which is why it took a program whose
+*    nesting returned to zero to show it at all.
+:put         cmp   #$00
+             beq   :done
+             sta   LIN2             ; in MEMORY: INSCHR sets MODFLAG through X
+:out         lda   #' '+$80
+             jsr   INSCHR
+             lda   #' '+$80
+             jsr   INSCHR
+             dec   LIN2
+             bne   :out
+:done        rts
+
+*--------------------------------------
+* LIPEEK -- the byte Y along from LIP, or zero once the line has ended
+*--------------------------------------
+LIPEEK       sty   LIT
+             lda   LIP
+             clc
+             adc   LIT
+             sta   AUXPTR
+             lda   LIP+1
+             adc   #$00
+             sta   AUXPTR+1
+             lda   AUXPTR+1         ; past the break that ended the line?
+             cmp   LIEND+1
+             bcc   :ok
+             bne   :out
+             lda   AUXPTR
+             cmp   LIEND
+             bcc   :ok
+:out         lda   #$00
+             rts
+:ok          ldy   #$00
+             jmp   AUXRD
+
+LISTEP       inc   LIP
+             bne   :d
+             inc   LIP+1
+:d           rts
+
+*--------------------------------------
+* LIFOR / LINEXT / LIREM -- match a keyword at LIP. Carry CLEAR if it matched,
+* and LIP is stepped past it.
+*--------------------------------------
+LIFOR        ldy   #$00
+             jsr   LIPEEK
+             cmp   #$c6             ; F
+             bne   :no
+             ldy   #$01
+             jsr   LIPEEK
+             cmp   #$cf             ; O
+             bne   :no
+             ldy   #$02
+             jsr   LIPEEK
+             cmp   #$d2             ; R
+             bne   :no
+             inc   LIF
+             jsr   LISTEP
+             jsr   LISTEP
+             jsr   LISTEP
+             clc
+             rts
+:no          sec
+             rts
+
+LINEXT       ldy   #$00
+             jsr   LIPEEK
+             cmp   #$ce             ; N
+             bne   :no
+             ldy   #$01
+             jsr   LIPEEK
+             cmp   #$c5             ; E
+             bne   :no
+             ldy   #$02
+             jsr   LIPEEK
+             cmp   #$d8             ; X
+             bne   :no
+             ldy   #$03
+             jsr   LIPEEK
+             cmp   #$d4             ; T
+             bne   :no
+             inc   LIN
+             lda   LIFW             ; the line's FIRST word closes its own
+             beq   :sk              ; level, which its indent already shows
+             inc   LILEAD
+:sk          jsr   LISTEP
+             jsr   LISTEP
+             jsr   LISTEP
+             jsr   LISTEP
+             clc
+             rts
+:no          sec
+             rts
+
+LIREM        ldy   #$00
+             jsr   LIPEEK
+             cmp   #$d2             ; R
+             bne   :no
+             ldy   #$01
+             jsr   LIPEEK
+             cmp   #$c5             ; E
+             bne   :no
+             ldy   #$02
+             jsr   LIPEEK
+             cmp   #$cd             ; M
+             bne   :no
+             clc
+             rts
+:no          sec
+             rts
 
 *--- the digits alone. RENUM wants these without the space, because it is
 *    replacing a number that already has whatever follows it.
@@ -355,6 +597,21 @@ LNPOS        ds    2                ; walking pointer
 LNANY        ds    1                ; digits seen, so "no number" is not zero
 LNDGT        ds    1                ; the digit being emitted
 LNLEAD       ds    1                ; non-zero once a digit has been printed
-LNPI         ds    1                ; index into LNPOW; see LNEMIT as to why
-                                    ; it is not simply held in X
+LNPI         ds    1                ; index into LNPOW; see LNEMIT as to
+                                    ; why it is not simply held in X
+             dend
+
+             dum   $1470
+LIPOS        ds    2                ; the line above: where it starts
+LIEND        ds    2                ; and the break that ended it
+LIP          ds    2                ; the walk along it
+LILEV        ds    1                ; its own indent, in levels
+LIF          ds    1                ; FORs on it
+LIN          ds    1                ; and NEXTs
+LILEAD       ds    1                ; one of which was its first word
+LISTR        ds    1                ; inside a string literal
+LIFW         ds    1                ; still looking at the first word
+LIT          ds    1                ; Y across LIPEEK
+LIT2         ds    1                ; the NEXTs that still count
+LIN2         ds    1                ; levels left to write
              dend
