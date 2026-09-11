@@ -56,7 +56,7 @@ BIN     := $(BUILD)/$(LANGUP)-$(NAME)
 IMAGE   ?= $(BUILD)/APPLESIDE-$(LANGUP).po
 endif
 
-.PHONY: all disk run screen clean tools eject help card test dist
+.PHONY: bench all disk run screen clean tools eject help card test dist
 
 all: $(BIN)
 
@@ -118,6 +118,11 @@ screen:
 
 # Virtual ][ buffers image writes until eject, so anything reading the image
 # back on the Mac needs a flush first.
+# What Applesoft spends its time on, and how much of it a compiler could take
+# away. Needs the dist image, and runs the machine at 1MHz for several minutes.
+bench: dist
+	@bench/bench.sh
+
 eject:
 	@osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' 2>/dev/null || true
 	@echo "ejected"

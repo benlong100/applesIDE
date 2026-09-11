@@ -1058,6 +1058,37 @@ suite asserts a later start is `UNTITLED.BAS`.
 Come back by itself. The program ends at the `]` prompt and `BYE` plus Return
 returns; staying resident underneath BASIC is a much larger thing than this.
 
+## 15g. What a compiler would buy, measured
+
+Before scoping one. `make bench` times five programs that compute the same sum
+the same number of times and differ only in the shape of the program around the
+loop; `bench/README.md` has the table and the method.
+
+On a realistically shaped program — 200 lines, 30 variables — **53% of the
+running time is Applesoft looking up addresses**: 46% walking the program from
+the start to find a `GOTO`'s target line, 7% scanning the variable table by
+name. Both are resolved once by a compiler and never paid again. The remaining
+47% is arithmetic and dispatch, and one statement costs 2.29ms of which the
+ROM's floating point is most — a compiler calls the same routines.
+
+**So the floor is 2.12×**, from a compiler that does nothing cleverer than
+resolve addresses. That is a floor because removing per-statement dispatch and
+the re-parsing of numeric constants eats into the other half as well. It agrees
+with what TASC and the Beagle Compiler reported in period.
+
+The decomposition is trustworthy: adding the two measured costs to the baseline
+predicts the combined case within 0.4%.
+
+**The finding that changes the plan** is that nearly all of it is the `GOTO`
+search, and that needs no code generator. A program that resolves line-number
+references to addresses, with a small runtime to honour them, is far smaller
+than a compiler and captures most of the benefit. If a compiler is ever built,
+this is the part to build first, and it is worth having on its own.
+
+**What the benchmark is not**: arithmetic in a loop is the best case. A program
+that mostly prints, works on strings or draws would show far less, because that
+work is in the ROM either way.
+
 ## 16. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a

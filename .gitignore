@@ -19,3 +19,4 @@ src/lang.S
 src/lang_*.S
 src/helpdata.S
 src/tokens.S
+build/bench/
