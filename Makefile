@@ -60,6 +60,11 @@ endif
 
 all: $(BIN)
 
+# dumcheck first: a dum block declares addresses without emitting anything, so
+# two of them can claim the same bytes and Merlin says nothing. That is how
+# SCRLOST came to sit on OLDGAP's low byte and switch off the cursor-only
+# redraw one commit after it was measured. The build asks every time now.
+#
 # Every module is pulled in with `put`, so the binary depends on all of them
 # rather than on $(SRC) alone. ZipEdit learned this one the hard way: depending
 # on $(SRC) meant edits to the other modules silently did not rebuild, which
@@ -68,6 +73,7 @@ $(BIN): $(wildcard src/*.S) $(LANGTXT) $(TOOLS)/genlang.py $(TOOLS)/genhelp.py $
 	@python3 $(TOOLS)/gentokens.py > src/tokens.S
 	@python3 $(TOOLS)/genlang.py $(LANGTXT) > src/lang.S
 	@python3 $(TOOLS)/genhelp.py $(LANGARG) > src/helpdata.S
+	@python3 $(TOOLS)/dumcheck.py
 	@$(MERLIN) $(ASMINC) $(SRC) > $(BUILD)/merlin32.log 2>&1 || \
 		{ echo "--- Merlin32 failed ---"; cat $(BUILD)/merlin32.log; exit 1; }
 	@grep -iE '^\s+(Error|Warning)' $(BUILD)/merlin32.log && exit 1 || true

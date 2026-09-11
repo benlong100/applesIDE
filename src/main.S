@@ -384,7 +384,18 @@ RINNUM       ds    1                ; RENDER: still inside that digit run
              dend
 
 *--- $142b-$142d are display.S's cursor-save; $142e is free.
-             dum   $142e
+*--- NOT $142e. display.S's cursor-save block runs $142b-$142e, so OLDGAP's
+*    low byte landed on SCRLOST -- and main.S writes OLDGAP immediately after
+*    clearing SCRLOST, so the gate below then read the gap size's low byte
+*    where it meant to read a flag. Non-zero almost always, which skipped the
+*    cursor-only redraw roughly two hundred and fifty-five times in every two
+*    hundred and fifty-six.
+*
+*    f8de4fb added OLDGAP and measured the arrow key at 0.427s -> 0.118s.
+*    b4311fb, the very next commit, added SCRLOST on top of it and undid that
+*    silently. tools/dumcheck.py now runs on every build so this cannot happen
+*    again quietly.
+             dum   $1450
 OLDGAP       ds    2                ; gap size before the keystroke
              dend
 

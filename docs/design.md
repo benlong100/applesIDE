@@ -949,18 +949,43 @@ was correct in the first four lines and the screen was showing something true
 about a state nobody expected. **Dumping the text buffer settled it in one
 step** where reading the display had produced two wrong theories.
 
-### Two dum collisions, found while looking for it
+### Two dum collisions, and what the first one cost
 
-Not the cause, and not new, but found by auditing every block and worth
-writing down: `SCRLOST` (display.S, `$142B`+3) lands on `$142E`, which is also
-`OLDGAP`'s low byte (main.S). `NAMELEN` ends display.S's `$1430` block at
-`$1440`, which is the splash's `SPLI` — the comment there still says
-`$1400-$143F are taken`, and the block outgrew that.
+Found by auditing every block, then fixed. `SCRLOST` (display.S, `$142B`+3)
+sat on `$142E`, which was also `OLDGAP`'s low byte (main.S); and `NAMELEN`
+ended display.S's `$1430` block at `$1440`, which was the splash's `SPLI` —
+the comment there still claimed `$1400-$143F are taken` after the block had
+outgrown that.
 
-The first is the one that matters: `SCRLOST` is read by the cursor-only redraw
-gate, so that gate may be testing `OLDGAP`'s low byte and taking the full
-redraw far more often than §14 believes. Unfixed, and worth measuring before
-anything else is claimed about arrow-key cost.
+**The first one switched off the cursor-only redraw entirely.** `main.S`
+clears `SCRLOST` and then writes `OLDGAP`'s low byte over the same address, so
+the gate read the size of the gap where it meant to read a flag. That size does
+not change while only the cursor moves, so this was not intermittent: it was
+off, permanently. Counted on the machine with a temporary `inc` in the fast
+path, ten up-arrows on a 250-line program:
+
+| | fast path fired |
+|---|---|
+| collision present | 0 of 10 |
+| collision fixed | 10 of 10 |
+
+The history is the part worth remembering. `f8de4fb` added `OLDGAP` and
+measured the arrow key at 0.427s → 0.118s. `b4311fb`, the very next commit,
+added `SCRLOST` on top of it. The optimisation was undone one commit after it
+was benchmarked and nothing said a word, because Merlin does not care when two
+`dum` blocks claim the same bytes.
+
+**Fixing it changed no measured time**, which is the honest and awkward half.
+Ten up-arrows at 1MHz on that program: 2.1s with the path dead, 2.1s with it
+alive — about 190ms an arrow either way, against a harness floor of 117ms per
+screen read. So on that workload the redraw is not what costs, and something
+else in the per-keystroke path dominates. **§14's 0.427/0.118 figures should be
+re-measured before they are quoted again**; they describe a program that has
+changed a good deal since.
+
+`tools/dumcheck.py`, ported from ZipFiler, now runs on every build and fails it
+on an overlap. It found the second collision; a person found the first, a
+commit too late.
 
 ## 16. Known limits
 

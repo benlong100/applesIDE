@@ -79,7 +79,10 @@ SPLROW       dfb   10,12,14,20,21
 *--- SPLHELP names a key, so it lives with the keymap: see keysiie.S and
 *    keys2p.S. Both builds share this file; they do not share that binding.
 
-             dum   $1440            ; $1400-$143F are taken; see design.md
+*--- display.S's PUTNUM block now ends AT $1440, so this had to move: the
+*    comment below said $1400-$143F were taken and that stopped being true
+*    when that block grew.
+             dum   $1452
 SPLI         ds    1                ; which line is being drawn
              dend
 
