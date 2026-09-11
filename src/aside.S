@@ -40,6 +40,7 @@
              put   clip             ; OA-C, OA-X, OA-V
              put   goto             ; OA-L, by line NUMBER rather than ordinal
              put   find             ; OA-F and OA-G, ported whole from ZipEdit
+             put   run              ; Ctrl-R: save, leave, and run it
              put   tok              ; tokenised Applesoft files
              put   tokens           ; generated: Applesoft's keyword table
              put   scroll

@@ -14,6 +14,15 @@
 *--------------------------------------
 START        lda   #$00             ; nothing remembered about the viewport yet
              sta   TOPOK
+
+*--- AND NO ROWS TO SKIP. RSKIP is cleared at the END of RENDER, so the FIRST
+*    render reads whatever the dum block happened to hold -- and a value at or
+*    past MAXROW makes RENDER count every row and draw none. That was harmless
+*    for as long as the editor always opened on an empty document, where a
+*    blank text area is the right answer. RSLOAD puts a document in the buffer
+*    before that first render and the screen came up empty with the text
+*    sitting in the buffer behind it.
+             sta   RSKIP
              jsr   GEOMINIT         ; the layout's columns first of all: it
                                     ; depends on nothing, and everything that
                                     ; draws depends on it
@@ -75,6 +84,7 @@ START        lda   #$00             ; nothing remembered about the viewport yet
              sta   MSGSHOWN
              jsr   DISPINIT
              jsr   SPLASH           ; dismissed by any key, before the document
+             jsr   RSLOAD           ; and back to whatever Ctrl-R ran, if any
              jsr   DRAWSTATUS
              jsr   STATUPD
 

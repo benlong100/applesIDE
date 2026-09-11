@@ -987,6 +987,77 @@ changed a good deal since.
 on an overlap. It found the second collision; a person found the first, a
 commit too late.
 
+## 15f. Ctrl-R: save, leave, run, and come back
+
+The thing that makes this an environment rather than an editor. `Ctrl-R` saves
+the program, loads BASIC.SYSTEM over the top of the editor, and runs it; `BYE`
+and Return come back, and the editor opens the program it just ran.
+
+**Ctrl-R rather than OA-R**, which is renumber and stays renumber. The deciding
+argument was not the mnemonic: a control key is one the harness can send, where
+Open-Apple with anything but a letter cannot be produced from Virtual ][ at all
+— which is why `OA-left`/`OA-right` have no test and never will. A command this
+central should not be one that cannot be tested.
+
+### How BASIC.SYSTEM is told what to run
+
+It keeps the name of its start-up program inside its own image, at `$2006`: a
+length byte and up to fifteen characters, holding `STARTUP` as it comes off the
+disk. Overwrite that between loading it and entering it and it runs what you
+name instead. ProDOS 2.4's own selector does the same. ZipFiler's `launch.S`
+records the two approaches that do **not** work, both checked on the machine:
+the pathname at `$0280`, which only sets a prefix, and hooking `KSW`, which
+BASIC.SYSTEM puts back as it starts.
+
+### Two traps in the launch, both mine
+
+**`RUNGO` overwrites `FNAME`.** Its first act is to copy `"BASIC.SYSTEM"` there
+so `OPENF` opens the interpreter — so by the time the stub runs, the document's
+name is gone, and reading `FNAME` in the stub named BASIC.SYSTEM to itself. The
+name travels in `RUNNAME` at `$13E0` instead, which the read does not reach.
+
+**The stub is relocated to `$0300`; its absolute references are not.** Putting
+a hard-coded name *inside* the stub — to isolate the problem — made
+`lda HARDNAME,x` read from the name's address in the code at `$2000`, which
+BASIC.SYSTEM had just been read over. The file's own header warns about exactly
+this, and the bogus result sent an hour after a patch that was already correct.
+
+### RSKIP was never initialised
+
+`RSKIP` is the count of rows RENDER walks past without drawing, and it is
+cleared at the **end** of RENDER. So the first render of a session read
+whatever the dum block held, and a value at or past `MAXROW` makes RENDER count
+every row and draw none.
+
+This was harmless for as long as the editor always opened on an empty document,
+where a blank text area is the right answer. `RSLOAD` puts a document in the
+buffer before that first render, and the screen came up empty with the program
+sitting in the buffer behind it — provable by dumping auxiliary memory while
+the screen showed nothing. Cleared at `START` now, beside `TOPOK`.
+
+### The note
+
+`Ctrl-R` writes `ASIDE.LAST`, one block, beside the program, holding its name.
+`RSLOAD` reads it at start-up, opens what it names, and **deletes it**. Deleted
+because the question it answers is "did the last thing that happened here go
+out to BASIC", which is true exactly once: quit with `OA-Q`, or start fresh,
+and there is nothing to come back to.
+
+A file on the writer's disk is the honest cost, and there is no alternative
+that survives — a program runs in between and BASIC.SYSTEM is loaded over
+everything the editor had.
+
+**`RSNAMEIT` leaves `FNAME` holding the note's own name**, because every
+parameter block points at `FNAME` and that is how they are aimed at it. Leaving
+it there when no note exists gave an empty document called `ASIDE.LAST`, one
+`OA-S` away from saving the writer's work over the editor's bookkeeping. The
+suite asserts a later start is `UNTITLED.BAS`.
+
+### What it does not do
+
+Come back by itself. The program ends at the `]` prompt and `BYE` plus Return
+returns; staying resident underneath BASIC is a much larger thing than this.
+
 ## 16. Known limits
 
 **A line number above 65535 wraps.** The suite found this by accident: a

@@ -72,6 +72,10 @@ MSGCOPIED = " COPIED"
 # OA-L asks for a line NUMBER, not the n'th line of the file.
 MSGGOTO = "GO TO LINE: "
 
+# Ctrl-R saves and runs. A name with a slash in it, or one too long for
+# BASIC.SYSTEM's fifteen-character start-up field, is saved but not run.
+MSGRUNNAME = " SAVED. THAT NAME CANNOT BE RUN FROM HERE"
+
 # OA-F asks; OA-G repeats. Both wrap round the end of the program, and
 # MSGWRAPPED is shown when a hit came from the second pass -- a cursor that
 # jumps backwards reads as a search that went the wrong way unless the row

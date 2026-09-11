@@ -831,6 +831,79 @@ else bad "and every next-line pointer is right, which is all Applesoft reads" "$
 fi
 
 #--------------------------------------
+# Ctrl-R: save, leave, run -- and come back to it.
+#
+# Needs BASIC.SYSTEM, so it runs against the dist image. Ctrl-R was chosen
+# over OA-R partly for this: a control key is one the harness can actually
+# send, where Open-Apple with anything but a letter cannot be produced from
+# Virtual ][ at all.
+#--------------------------------------
+if section "save and run"; then
+if [ ! -f "$DISTIMG" ]; then
+    bad "the dist image exists" "no $DISTIMG -- run: make dist"
+else
+"$VII" boot "$DISTIMG" >/dev/null || { echo "boot failed"; exit 1; }
+"$VII" await "ApplesIDE" 120 >/dev/null || bad "the dist image never booted"
+"$VII" text " " >/dev/null
+"$VII" await "UNTITLED" 60 >/dev/null || bad "the editor never opened"
+"$VII" caps true >/dev/null
+"$VII" text '10 PRINT "IT RAN"' >/dev/null; "$VII" settle 8 >/dev/null
+"$VII" line "" >/dev/null; "$VII" settle 6 >/dev/null
+"$VII" text 'END' >/dev/null; "$VII" settle 8 >/dev/null
+
+"$VII" ctrl R >/dev/null
+if "$VII" await "SAVE AS" 40 >/dev/null; then
+    ok "Ctrl-R asks for a name when the document has none"
+else
+    bad "Ctrl-R asks for a name when the document has none" "no prompt appeared"
+fi
+"$VII" text "RANTEST" >/dev/null; "$VII" settle 5 >/dev/null
+"$VII" line "" >/dev/null
+
+# THE PROGRAM ITSELF RUNS. Not "BASIC started" -- its output has to appear,
+# which is the only thing that proves the name reached BASIC.SYSTEM's
+# start-up field rather than being quietly ignored.
+if "$VII" await "IT RAN" 90 >/dev/null; then
+    ok "and the program runs, not just BASIC"
+else
+    bad "and the program runs, not just BASIC" "$("$VII" screen | tail -3)"
+fi
+
+# BYE lands in the selector with ASIDE.SYSTEM first, so BYE then Return
+"$VII" line "BYE" >/dev/null; "$VII" settle 18 >/dev/null
+"$VII" line "" >/dev/null
+if "$VII" await "ApplesIDE" 120 >/dev/null; then
+    ok "BYE and Return come back to the editor"
+else
+    bad "BYE and Return come back to the editor" "$("$VII" screen | head -4)"
+fi
+"$VII" text " " >/dev/null
+"$VII" settle 20 >/dev/null
+"$VII" caps false >/dev/null
+snapshot
+assert_row "and the program it ran is open again"    0 "10 PRINT"
+assert_row "under its own name"                     23 "RANTEST"
+
+# The note is spent: quitting and coming back gives an empty document, and
+# emphatically NOT one named after the note file itself.
+"$VII" caps true >/dev/null; "$VII" oa "Q" >/dev/null; "$VII" caps false >/dev/null
+"$VII" await "PRODOS BASIC" 90 >/dev/null || bad "OA-Q never reached BASIC"
+"$VII" line "BYE" >/dev/null; "$VII" settle 18 >/dev/null
+"$VII" line "" >/dev/null
+"$VII" await "ApplesIDE" 120 >/dev/null || bad "never came back the second time"
+"$VII" text " " >/dev/null
+"$VII" settle 20 >/dev/null
+snapshot
+assert_row "a later start is an empty document"     23 "UNTITLED"
+if grep -q "ASIDE.LAST" "$SCREEN"; then
+    bad "and is not named after the note file" "the document is called ASIDE.LAST"
+else
+    ok "and is not named after the note file"
+fi
+fi
+fi
+
+#--------------------------------------
 if section "quit and return"; then
 if [ ! -f "$DISTIMG" ]; then
     bad "the dist image exists" "no $DISTIMG -- run: make dist"

@@ -73,6 +73,8 @@ KEYTBL
              da    KBOLD            ; Ctrl-B
              dfb   $89,$00
              da    KTABITAL         ; Ctrl-I / Tab
+             dfb   $92,$00
+             da    KRUN             ; Ctrl-R -- save, leave, and run
              dfb   $99,$00
              da    KDELEOL          ; Ctrl-Y
              dfb   $88,$80

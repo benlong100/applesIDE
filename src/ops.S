@@ -74,10 +74,17 @@ KDELEOL      jsr   ATEND
 * THIS program is running, so the few instructions that do the reading are
 * copied to $300 first and run from there while $2000 is overwritten.
 *--------------------------------------
-KQUIT        jsr   ASKUNSAVED
+KQUIT        lda   #$00             ; OA-Q leaves; it does not run anything
+             sta   RUNNAME
+             jsr   ASKUNSAVED
              bcs   :go
              rts                    ; carry clear: stay put
-:go          ldx   #BASNEND-BASNAME-1
+:go
+*--------------------------------------
+* RUNGO -- load BASIC.SYSTEM and enter it. RUNFLAG says whether the document
+* is named to it on the way -- see the stub.
+*--------------------------------------
+RUNGO        ldx   #BASNEND-BASNAME-1
 :name        lda   BASNAME,x        ; FNAME is the document; we are leaving
              sta   FNAME,x
              dex
@@ -188,10 +195,45 @@ LAUNCH       jsr   MLI
              lda   $2000
              cmp   #$4c             ; JMP -- how a SYS file begins
              bne   :bad
+
+*--- NAME THE PROGRAM TO IT, if this was Ctrl-R rather than OA-Q.
+*
+*    FROM RUNNAME, NOT FNAME, and that is the whole reason RUNNAME exists:
+*    RUNGO's first act is to copy "BASIC.SYSTEM" into FNAME so that OPENF
+*    opens the interpreter. The document's name is gone by the time the stub
+*    runs, and reading FNAME there named BASIC.SYSTEM to itself -- which
+*    lands at the ] prompt having run nothing, looking exactly like the patch
+*    not working at all.
+*
+*    BASIC.SYSTEM keeps the name it runs at start-up inside its own image, at
+*    $2006: a length byte and up to fifteen characters, holding STARTUP as it
+*    comes off the disk. Overwrite that between loading it and entering it and
+*    it runs what you name instead. ProDOS 2.4's own selector does the same
+*    thing, and ZipFiler's launch.S documents the two ways that do NOT work --
+*    the pathname at $0280, which only sets a prefix, and hooking KSW, which
+*    BASIC.SYSTEM undoes as it starts.
+*
+*    FNAME is already a length byte and low ASCII, which is exactly the shape
+*    that field wants, and it lives at $0D00 -- far below the read, so it is
+*    still there to copy.
              jsr   MLI
              dfb   $cc              ; CLOSE
              da    CLOSEPARM
-             jmp   $2000
+
+*--- AFTER the close, matching ZipFiler's stub.
+*
+*    RUNNAME, at $13E0, and NOT a table inside this stub. The stub is
+*    relocated to $0300 but its absolute references are not, so a name
+*    assembled next to it here would be read from its address in the code --
+*    which BASIC.SYSTEM has just been read over. Tried, while trying to prove
+*    the patch worked, and it read garbage.
+             ldx   RUNNAME
+             beq   :enter
+:name        lda   RUNNAME,x
+             sta   $2006,x
+             dex
+             bpl   :name
+:enter       jmp   $2000
 :bad         jsr   MLI
              dfb   $cc
              da    CLOSEPARM
@@ -205,4 +247,13 @@ LAUNEND
 *    has landed on top of everything the editor was assembled into.
              dum   $13b0
 QPARM        ds    7                ; QUIT: count 4, then six reserved bytes
+             dend
+
+*--- Its own block: appended to QPARM's it ran into clip.S at $13c0, which
+*    tools/dumcheck.py said so before the assembler saw it.
+             dum   $13e0
+RUNNAME      ds    16               ; what BASIC.SYSTEM should run: a length
+                                    ; byte and up to fifteen characters, zero
+                                    ; length meaning run nothing. Kept clear
+                                    ; of FNAME, which RUNGO overwrites.
              dend
