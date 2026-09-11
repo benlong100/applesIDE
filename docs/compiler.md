@@ -1,0 +1,92 @@
+# The compiler — as decided, and what has been established
+
+A separate program on the same disk, so the editor stays what it is for
+somebody who only wants an editor. Native: it runs on the //e rather than on
+the Mac.
+
+## Why a compiler and not something smaller
+
+`make bench` measured it. On a realistically shaped program, 53% of the
+running time is Applesoft looking up addresses — 46% walking the program from
+the start to find a `GOTO`'s target, 7% scanning the variable table by name.
+`bench/README.md` has the numbers.
+
+I first proposed a much smaller program that would resolve line-number
+references to addresses and leave everything else alone. **That is not
+possible**, and the tokenised file says so plainly. Here is `IF I < 3000 THEN
+GOTO 30`:
+
+```
+AD 49 D1 33 30 30 30 C4 AB 33 30
+IF  I  <  "3 0 0 0"  THEN GOTO "3 0"
+```
+
+The branch target is **ASCII digits**. Applesoft parses them at run time and
+then searches. There is nowhere in the format to put an address and the parser
+expects digits, so no rewriting of the file can resolve a branch. Resolving
+addresses means either patching the interpreter or generating code. The claim
+that there was a cheap version of this was wrong, and it was wrong before any
+code was written, which is the only good time.
+
+## The shape
+
+**File to file, streaming.** The compiler reads the tokenised source a line at
+a time and writes output as it goes. Holding the whole program in memory would
+put the compiler, its input and its output in the same 48K, and only toy
+programs would fit.
+
+**Emit 6502 that calls the ROM for arithmetic.** Applesoft's floating point is
+not worth rewriting and would not be faster. What compiling wins is everything
+around it: branch targets resolved, variables at fixed addresses, constants
+converted once, no per-statement dispatch.
+
+## The first milestone
+
+Enough to compile the benchmark: scalar FP variables, `LET`, `+ - * /`,
+comparisons, `IF/THEN <line>`, `GOTO`, `GOSUB`/`RETURN`, `FOR`/`NEXT`,
+`PRINT`, `END`.
+
+That makes **`make bench` the acceptance test**: the same five programs, the
+same answers, and a measured speedup rather than a claimed one. Arrays,
+strings and `DATA`/`READ` come after.
+
+## Established on the machine, not recalled
+
+Everything here was read off a running //e rather than remembered, because the
+ROM interface is exactly where a wrong assumption would be expensive.
+
+### The variable table and the float format
+
+A probe that printed the bytes at `VARTAB` after `A = 2.5 : B = 1 : C = -1`:
+
+```
+65  0 | 130  32   0   0   0     A = 2.5
+66  0 | 129   0   0   0   0     B = 1
+67  0 | 129 128   0   0   0     C = -1
+```
+
+The first entry reading `65 0` — the name `A` — is what confirms both that
+`VARTAB` is at `$69/$6A` and that an entry is two name bytes followed by five
+of value. A probe that cannot check its own premise is not worth running.
+
+**The float is five bytes**: an exponent biased by 129, then four fraction
+bytes, with the **sign in bit 7 of the first fraction byte** and a leading 1
+implied rather than stored. An exponent of zero is the value zero.
+
+Checking it: 2.5 is 1.25 × 2¹, so the exponent is 130 and the fraction `.01`
+becomes `$20` once bit 7 is given to the sign. `1` is 1.0 × 2⁰ — exponent 129,
+fraction empty. `-1` is the same with bit 7 set. All three agree.
+
+**An earlier probe of this got nothing**, and the reason is worth keeping: it
+read `$9D` expecting the FP accumulator to still hold 2.5, but the `FOR` loop
+and the `PEEK` that did the reading are themselves floating-point evaluations
+and had overwritten it. The variable table holds still; the accumulator does
+not.
+
+### Still to establish
+
+The ROM entry points for load, store, add, subtract, multiply, divide,
+compare and printing a number. These will be **verified individually on the
+machine** before any of them is emitted, using `USR`, which is the documented
+way to hand a value to machine code in the accumulator and get control.
+Nothing here will be taken from memory of what the addresses usually are.
