@@ -149,6 +149,10 @@ GENPASS      lda   #$00
              beq   :end
              jsr   RDWORD           ; the line number, which pass 1 already has
              bcs   :end
+             lda   WORD
+             sta   CURLINE
+             lda   WORD+1
+             sta   CURLINE+1
              jsr   LTSETA           ; this line starts here
              jsr   GENLINE
              bcs   :fail
@@ -260,7 +264,7 @@ GENSTMT      lda   CH
              clc
              rts
 :unsup       lda   #$05
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 
@@ -310,7 +314,7 @@ GLET         jsr   GETVAR
 
 :bad2        pla
 :bad         lda   #$06
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 
@@ -336,7 +340,7 @@ GGOSUB       jsr   RDLNUM
              rts
 
 GOBAD        lda   #$07             ; no such line
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 
@@ -405,7 +409,7 @@ GIF          jsr   ECMPC
              beq   :done
              jmp   GENSTMT
 :nothen      lda   #$08
-             sta   BADFLG
+             jsr   SETBAD
 :bad         sec
              rts
 :done        clc
@@ -429,11 +433,11 @@ GIF          jsr   ECMPC
 *    whoever called GFOR. They sit in front of it because the routine is longer
 *    than a branch can reach across.
 FORBAD       lda   #$11             ; a FOR that does not read as one
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 FORDEEP      lda   #$10             ; nested deeper than the compiler's stack
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 
@@ -520,11 +524,11 @@ GFOR         jsr   NEXTB
 NEXTBAD      sec                    ; GETVAR has already said what was wrong
              rts
 NEXTNONE     lda   #$12             ; NEXT without a FOR
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 NEXTWRONG    lda   #$13             ; NEXT naming the wrong variable
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 
@@ -685,7 +689,7 @@ GPRINT       lda   #$00
 :done        clc
              rts
 :unsup       lda   #$09
-             sta   BADFLG
+             jsr   SETBAD
 :bad         sec
              rts
 
@@ -799,7 +803,7 @@ EMPRSTR      lda   #$4c             ; JMP past the text
              rts
 
 :unterm      lda   #$0a
-             sta   BADFLG
+             jsr   SETBAD
 :bad         sec
              rts
 
@@ -837,7 +841,7 @@ PATCHJ       lda   PASSNO
 :ok          clc
              rts
 :gone        lda   #$0b
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 
@@ -1036,7 +1040,7 @@ RDCMPOP      jsr   NEXTB
              cmp   #TEQ
              beq   :eq
 :bad         lda   #$0f
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 :lt          lda   #$01
@@ -1257,7 +1261,7 @@ EPRIM        lda   #$00
              jsr   ISALNUM
              bcc   :var
 :bad         lda   #$0c
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 
@@ -1274,20 +1278,10 @@ EPRIM        lda   #$00
 
 *--- a literal: converted the same way pass 1 did, then looked up rather than
 *    added, because pass 1 already put it in the table
-:num         lda   #$00
-             sta   NUMLEN
-             jsr   NUMPUT
-:nloop       jsr   NEXTB
-             bcs   :nend
-             sta   CH
-             jsr   ISDIGIT
-             bcc   :nput
-             cmp   #'.'
-             bne   :nback
-:nput        jsr   NUMPUT
-             jmp   :nloop
-:nback       jsr   PUTBACK
-:nend        jsr   NUMCONV
+:num         jsr   RDNUM
+             bcs   :bad
+             jsr   PUTBACK          ; what ended it is not ours
+             jsr   NUMCONV
              jsr   CFIND
              bcs   :bad
              jsr   CADDR
@@ -1340,7 +1334,7 @@ GETVAR       lda   #$00
              clc
              rts
 :bad         lda   #$0d
-             sta   BADFLG
+             jsr   SETBAD
              sec
              rts
 
@@ -1413,7 +1407,7 @@ PUSHFAC      lda   TEMPTOP
              inc   TEMPTOP
              rts
 :full        lda   #$0e
-             sta   BADFLG
+             jsr   SETBAD
              rts
 
 POPTMP       dec   TEMPTOP

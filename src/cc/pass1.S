@@ -61,6 +61,8 @@ PASS1        lda   #$00
              sta   NLINES+1
              sta   NFORS
              sta   BADFLG
+             sta   BADLINE
+             sta   BADLINE+1
 
 *--- ZERO AND ONE ARE ALWAYS THERE, whether the program mentions them or not.
 *    A comparison compiles to code that loads one of them, and negation is
@@ -85,10 +87,35 @@ PASS1        lda   #$00
              beq   :done            ; zero: the program ends here
              jsr   RDWORD           ; the line number
              bcs   :done
+             lda   WORD             ; what SETBAD will name if this line is bad
+             sta   CURLINE
+             lda   WORD+1
+             sta   CURLINE+1
              jsr   LTADD
              jsr   SCANBODY
              bcc   :line
 :done        rts
+
+*--------------------------------------
+* SETBAD -- raise a complaint, in A, naming the line it happened on
+*
+* THE FIRST ONE STICKS. Pass 1 carries on scanning after an unsupported name
+* so that it can count what else is there, and pass 2 can raise a second
+* complaint about the wreckage of the first. Reporting the last one names a
+* line that is fine and hides the one that is not.
+*--------------------------------------
+SETBAD       pha
+             lda   BADFLG
+             bne   :done
+             pla
+             sta   BADFLG
+             lda   CURLINE
+             sta   BADLINE
+             lda   CURLINE+1
+             sta   BADLINE+1
+             rts
+:done        pla
+             rts
 
 *--------------------------------------
 * SCANBODY -- one line's tokens, as far as its terminating zero
@@ -209,7 +236,7 @@ SCANBODY     lda   #$00
              jsr   VARADD
              jmp   :redo
 :unsup       lda   #$01
-             sta   BADFLG
+             jsr   SETBAD
              jmp   :next
 
 *--- A number. Either a branch target -- digits Applesoft parses at run time,
@@ -226,19 +253,9 @@ SCANBODY     lda   #$00
              bcc   :skip
              jmp   :redo
 
-:const       lda   #$00
-             sta   NUMLEN
-             jsr   NUMPUT
-:cloop       jsr   RDBYTE
+:const       jsr   RDNUM
              bcs   :eof
-             sta   CH
-             jsr   ISDIGIT
-             bcc   :cput
-             cmp   #'.'
-             bne   :cend
-:cput        jsr   NUMPUT
-             jmp   :cloop
-:cend        jsr   NUMCONV
+             jsr   NUMCONV
              jsr   CONSTADD
 *--- fall through
 
@@ -260,6 +277,83 @@ NUMPUT       ldx   NUMLEN
              sta   NUMBUF,x
              inc   NUMLEN
 :full        rts
+
+*--------------------------------------
+* RDNUM -- a numeric literal out of the source and into NUMBUF
+*
+* Its first character is already in CH. On return CH holds whatever ended it,
+* read but NOT consumed, for the caller to hand back.
+*
+* ONE COPY, used by pass 1 and by the code generator. There were two, and they
+* had already drifted over what to do at end of file. They must agree exactly:
+* pass 1 puts constants in the table and pass 3 looks them up, so a character
+* one of them counts and the other does not is a constant that cannot be
+* found.
+*
+* SCIENTIFIC NOTATION, because Applesoft reads 1E3 as one number and this used
+* to read it as the constant 1 followed by a variable called E3. That is not a
+* failure to support something -- it is scanning the program wrongly, and what
+* it compiled to depended on where the wreckage landed.
+*--------------------------------------
+RDNUM        lda   #$00
+             sta   NUMLEN
+             jsr   NUMPUT           ; the character already in CH
+:loop        jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+             jsr   ISDIGIT
+             bcc   :put
+             lda   CH
+             cmp   #'.'
+             beq   :put
+             cmp   #'E'
+             bne   :done
+
+*--- an exponent: E, an optional sign, then digits
+             jsr   NUMPUT
+             jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+
+*--- THE SIGN IS A TOKEN, not a character. Applesoft tokenises operators
+*    wherever it finds them, inside a number as anywhere else, so 2E-3 is
+*    stored as '2' 'E' <minus token> '3' -- read off a file, not remembered.
+*    Its own number parser accepts that, which is how PRINT 2E-3 works at all.
+*    Stored back as ASCII here so that NUMCONV has one thing to read.
+             cmp   #'+'
+             beq   :plus
+             cmp   #TPLUS
+             beq   :plus
+             cmp   #'-'
+             beq   :minus
+             cmp   #TMINUS
+             bne   :edig
+:minus       lda   #'-'
+             sta   CH
+             jmp   :sign
+:plus        lda   #'+'
+             sta   CH
+:sign        jsr   NUMPUT
+             jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+:edig        jsr   ISDIGIT
+             bcs   :done            ; E with nothing after it: Applesoft reads
+             jsr   NUMPUT           ; that as an exponent of zero, and so does
+:eloop       jsr   RDBYTE           ; NUMCONV, which finds no digits
+             bcs   :eof
+             sta   CH
+             jsr   ISDIGIT
+             bcs   :done
+             jsr   NUMPUT
+             jmp   :eloop
+
+:put         jsr   NUMPUT
+             jmp   :loop
+:done        clc
+             rts
+:eof         sec                    ; the file ended inside a number
+             rts
 
 *--------------------------------------
 * ISALNUM / ISDIGIT -- carry clear if CH is one
@@ -303,15 +397,21 @@ NUMCONV      lda   #$00
              sta   NUMDP
              sta   NUMDOT
              sta   NUMI
+             sta   NUMEXP
+             sta   NUMESGN
+             sta   INTDIG
              lda   #<CZERO
              ldy   #>CZERO
              jsr   MOVFM            ; FAC = 0
 
 :loop        lda   NUMI
              cmp   NUMLEN
-             bcs   :frac
-             tax
+             bcc   :more
+             jmp   :scale           ; :scale is past the digit loop's reach
+:more        tax
              lda   NUMBUF,x
+             cmp   #'E'
+             beq   :expo
              cmp   #'.'
              bne   :dig
              lda   #$01
@@ -321,9 +421,11 @@ NUMCONV      lda   #$00
              sbc   #'0'
              sta   NUMD
              lda   NUMDOT
-             beq   :nodp
-             inc   NUMDP
-:nodp        lda   #<CTEN
+             beq   :whole
+             inc   NUMDP            ; a place after the point
+             jmp   :mul
+:whole       inc   INTDIG           ; how big the number is, for the guard
+:mul         lda   #<CTEN
              ldy   #>CTEN
              jsr   FMUL             ; FAC = FAC * 10
 
@@ -344,13 +446,96 @@ NUMCONV      lda   #$00
 :step        inc   NUMI
              jmp   :loop
 
-*--- One division per decimal place. FDIV is memory over FAC, so the value has
-*    to be the MEMORY operand and ten the accumulator -- the other way round
+*--- the exponent, as a plain integer
+:expo        inc   NUMI
+             lda   NUMI
+             cmp   NUMLEN
+             bcs   :scale
+             tax
+             lda   NUMBUF,x
+             cmp   #'-'
+             bne   :notneg
+             inc   NUMESGN
+             inc   NUMI
+             jmp   :edig
+:notneg      cmp   #'+'
+             bne   :edig
+             inc   NUMI
+:edig        lda   NUMI
+             cmp   NUMLEN
+             bcs   :scale
+             tax
+             lda   NUMBUF,x
+             sec
+             sbc   #'0'
+             sta   TMPA
+             lda   NUMEXP           ; NUMEXP = NUMEXP * 10 + the digit
+             asl
+             asl
+             clc
+             adc   NUMEXP
+             asl
+             clc
+             adc   TMPA
+             sta   NUMEXP
+             inc   NUMI
+             jmp   :edig
+
+*--------------------------------------
+* Scaling. One direction only: the multiplications and the divisions are
+* netted off first, so the mantissa never goes up before coming back down and
+* there is nothing to overflow on the way.
+*
+* THE GUARD IS ON THE RESULT'S SIZE, not on the exponent as written. 1E38 is
+* a number Applesoft can hold and 9E38 is not, and an overflow raised inside
+* the ROM's arithmetic would land in Applesoft's error handler -- which is not
+* set up, because the compiler is a SYS file and BASIC.SYSTEM is not there.
+* A compiled program can afford that (it is BRUN, and the handler works: the
+* division by zero probe proved it). The compiler cannot.
+*--------------------------------------
+:scale       lda   NUMESGN
+             bne   :down            ; a negative exponent only ever shrinks it
+
+             lda   INTDIG           ; how many digits the result would have
+             clc
+             adc   NUMEXP
+             cmp   #$27             ; 39 is past what the format holds
+             bcc   :up
+             lda   #$14             ; EXPONENT TOO BIG
+             jsr   SETBAD
+             rts
+
+:up          lda   NUMEXP
+             cmp   NUMDP
+             bcc   :down            ; the point outweighs it: divide after all
+             sec
+             sbc   NUMDP
+             sta   ACCN
+             beq   :done
+:umul        lda   #<CTEN
+             ldy   #>CTEN
+             jsr   FMUL
+             dec   ACCN
+             bne   :umul
+             jmp   :done
+
+:down        lda   NUMDP
+             clc
+             adc   NUMEXP           ; both shrink it when the sign is negative
+             bcs   :zero
+             ldx   NUMESGN
+             bne   :havediv
+             lda   NUMDP            ; a positive exponent smaller than the
+             sec                    ; number of places
+             sbc   NUMEXP
+:havediv     sta   ACCN
+             beq   :done
+
+*--- One division per place. FDIV is memory over FAC, so the value has to be
+*    the MEMORY operand and ten the accumulator -- the other way round
 *    computes ten divided by the number, which for 2.5 would give 4 and look
 *    like a plausible answer.
-:frac        lda   NUMDP
-             beq   :done
-:fl          ldx   #<FTEMP
+:udiv        ldx   #<FTEMP
              ldy   #>FTEMP
              jsr   MOVMF
              lda   #<CTEN
@@ -359,8 +544,13 @@ NUMCONV      lda   #$00
              lda   #<FTEMP
              ldy   #>FTEMP
              jsr   FDIV
-             dec   NUMDP
-             bne   :fl
+             dec   ACCN
+             bne   :udiv
+             jmp   :done
+
+:zero        lda   #<CZERO          ; shrunk past anything the format holds
+             ldy   #>CZERO
+             jsr   MOVFM
 
 :done        ldx   #<TMPF
              ldy   #>TMPF
@@ -392,7 +582,7 @@ LTADD        lda   NLINES+1
              cmp   #<LTMAX
              bcc   :room
              lda   #$02             ; too many lines
-             sta   BADFLG
+             jsr   SETBAD
              rts
 :room        jsr   LTSLOT
              ldy   #$00
@@ -452,7 +642,7 @@ VARADD       lda   #$00
              cmp   #VMAX
              bcc   :room
              lda   #$03             ; too many variables
-             sta   BADFLG
+             jsr   SETBAD
              rts
 :room        asl
              tax
@@ -490,7 +680,7 @@ CONSTADD     lda   #$00
              cmp   #CMAX
              bcc   :room
              lda   #$04             ; too many constants
-             sta   BADFLG
+             jsr   SETBAD
              rts
 :room        jsr   CSLOT
              ldy   #$04
@@ -662,6 +852,9 @@ NUMI         ds    1
 NUMD         ds    1
 NUMDP        ds    1                ; places after the point
 NUMDOT       ds    1
+NUMEXP       ds    1                ; the E part, as a plain number
+NUMESGN      ds    1
+INTDIG       ds    1                ; digits before the point
 TMPF         ds    5                ; a packed float being built
 FTEMP        ds    5                ; and one the ROM divides
 TMPB         ds    2                ; LNMUL10 needs both bytes
@@ -682,6 +875,8 @@ SLOTB        ds    2
 ACCN         ds    1
 ACCSZ        ds    1
 NFORS        ds    1
+CURLINE      ds    2                ; the line being compiled
+BADLINE      ds    2                ; and the one the first complaint was on
              dend
 
 *--- The tables, well clear of the compiler, its buffers and ProDOS.

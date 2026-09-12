@@ -90,19 +90,13 @@ START        lda   #$00
 
 *--- Pass 2 sizes the code and records where every line begins; pass 3 writes
 *    it, resolving branches from what pass 2 left behind.
-             lda   #'2'
-             sta   STAGE
              lda   #$02
              sta   PASSNO
              jsr   GENPASS
              bcs   :stop
 
-             lda   #'O'
-             sta   STAGE
              jsr   OPENOUT
              bcs   :noout
-             lda   #'3'
-             sta   STAGE
              lda   #$03
              sta   PASSNO
              jsr   GENPASS
@@ -316,25 +310,124 @@ CLOSESRC     jsr   MLI
 *--------------------------------------
 * BADSAY -- name the objection, if there was one
 *--------------------------------------
-*--- ALWAYS SAYS SOMETHING. A stop with no code set printed nothing at all,
-*    which said only that generation had not happened and not one word about
-*    where -- so the stage letter is reported whether there is a code or not.
-BADSAY       lda   #<MSGSTOP
+*--------------------------------------
+* BADSAY -- what went wrong, where, in words
+*
+* ALWAYS SAYS SOMETHING. A stop with no code set once printed nothing at all,
+* which said only that generation had not happened and not one word about
+* where.
+*
+* AND IN WORDS, WITH A LINE NUMBER. It used to print a stage letter and a
+* number -- STOPPED AT 2 5 -- which was enough for me and useless to anybody
+* else, including me a fortnight later. The line is what you need to find it;
+* the words are what tell you whether it is your mistake or a thing the
+* compiler cannot do yet.
+*--------------------------------------
+BADSAY       lda   BADFLG
+             beq   :none
+
+             lda   #<MSGSTOP
              ldy   #>MSGSTOP
              jsr   PRSTR
-             lda   STAGE
-             jsr   PRCH
-             lda   #$a0
-             jsr   PRCH
+             lda   BADLINE
+             sta   WORD
+             lda   BADLINE+1
+             sta   WORD+1
+             jsr   PRWORD
+             lda   #<MSGCOLON
+             ldy   #>MSGCOLON
+             jsr   PRSTR
+
+*--- the message for this code, from the table
+             lda   BADFLG
+             cmp   #NMSG+1
+             bcs   :plain
+             sec
+             sbc   #$01
+             asl
+             tax
+             lda   MSGTAB,x
+             ldy   MSGTAB+1,x
+             jsr   PRSTR
+             jsr   PRCR
+             jmp   FINISH
+
+*--- a code with no message: say the number rather than nothing
+:plain       lda   #<MSGCODE
+             ldy   #>MSGCODE
+             jsr   PRSTR
              lda   BADFLG
              sta   WORD
              lda   #$00
              sta   WORD+1
-             lda   #$00
-             sta   WORD+1
              jsr   PRWORD
              jsr   PRCR
-             jmp   FINISH
+:none        jmp   FINISH
+
+*--- Indexed by the code, which is why the order matters and why each one is
+*    written next to the place that raises it in the source.
+MSGTAB       da    BADSUF           ; 1
+             da    BADLINES         ; 2
+             da    BADVARS          ; 3
+             da    BADCONS          ; 4
+             da    BADSTMT          ; 5
+             da    BADLET           ; 6
+             da    BADTGT           ; 7
+             da    BADTHEN          ; 8
+             da    BADCOMMA         ; 9
+             da    BADQUOTE         ; 10
+             da    BADLONG          ; 11
+             da    BADTERM          ; 12
+             da    BADNAME          ; 13
+             da    BADDEEP          ; 14
+             da    BADCMP           ; 15
+             da    BADFDEEP         ; 16
+             da    BADFOR           ; 17
+             da    BADNEXT          ; 18
+             da    BADWHICH         ; 19
+             da    BADEXP           ; 20
+NMSG         equ   20
+
+BADSUF       asc   "NO STRINGS OR ARRAYS"
+             dfb   $00
+BADLINES     asc   "TOO MANY LINES"
+             dfb   $00
+BADVARS      asc   "TOO MANY VARIABLES"
+             dfb   $00
+BADCONS      asc   "TOO MANY CONSTANTS"
+             dfb   $00
+BADSTMT      asc   "STATEMENT NOT YET"
+             dfb   $00
+BADLET       asc   "BAD ASSIGNMENT"
+             dfb   $00
+BADTGT       asc   "NO SUCH LINE"
+             dfb   $00
+BADTHEN      asc   "IF WITHOUT THEN"
+             dfb   $00
+BADCOMMA     asc   "NO COMMA IN PRINT YET"
+             dfb   $00
+BADQUOTE     asc   "STRING NOT CLOSED"
+             dfb   $00
+BADLONG      asc   "STRING TOO LONG"
+             dfb   $00
+BADTERM      asc   "CANNOT READ THAT"
+             dfb   $00
+BADNAME      asc   "UNKNOWN VARIABLE"
+             dfb   $00
+BADDEEP      asc   "EXPRESSION TOO DEEP"
+             dfb   $00
+BADCMP       asc   "BAD COMPARISON"
+             dfb   $00
+BADFDEEP     asc   "FOR NESTED TOO DEEP"
+             dfb   $00
+BADFOR       asc   "BAD FOR"
+             dfb   $00
+BADNEXT      asc   "NEXT WITHOUT FOR"
+             dfb   $00
+BADWHICH     asc   "NEXT: WRONG FOR"
+             dfb   $00
+BADEXP       asc   "EXPONENT TOO BIG"
+             dfb   $00
 
 *--------------------------------------
 * A low-ASCII string, length byte first: a ProDOS filename as it is stored
@@ -690,7 +783,11 @@ MSGBYTES     asc   ", "
              dfb   $00
 MSGNOOUT     asc   "CANNOT WRITE THE OUTPUT, CODE "
              dfb   $00
-MSGSTOP      asc   "STOPPED AT "
+MSGSTOP      asc   "STOPPED IN "
+             dfb   $00
+MSGCOLON     asc   ": "
+             dfb   $00
+MSGCODE      asc   "CODE "
              dfb   $00
 MSGSRC       asc   "COMPILE WHICH FILE? "
              dfb   $00
@@ -709,7 +806,6 @@ YSAVE        ds    1                ; Y across COUT, which does not keep it
 MLIERR       ds    1
 TMPA         ds    1
 LOWN         ds    1
-STAGE        ds    1
 OUTNAME      ds    17
              dend
 
