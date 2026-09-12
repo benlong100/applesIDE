@@ -208,3 +208,129 @@ rather than a bet.
 ### Still to establish
 
 Nothing, for the milestone. The next work is the compiler itself.
+
+## The compiler, built
+
+`src/cc/` — `ASIDECC.SYSTEM`, about 5.3K, running on the //e. It reads a
+tokenised Applesoft file and writes a BRUNnable binary.
+
+```
+]-ASIDECC.SYSTEM
+COMPILE WHICH FILE? BENCH1
+...
+WROTE CBENCH1, 289
+```
+
+and then drops into BASIC rather than the file selector, because what you want
+after compiling something is the `]` prompt to run it from.
+
+### Three passes, and why not two
+
+1. **Pass 1** — every line number, every variable, every constant, every
+   `FOR`. At the end the data area's size is known, so every variable and
+   constant has a fixed address.
+2. **Pass 2** — generate code with the output thrown away, recording where
+   each line begins.
+3. **Pass 3** — generate it again for real, resolving branches from the table
+   pass 2 built.
+
+Two passes look sufficient until you ask what the address of a forward `GOTO`
+is. Sizes do not depend on branch targets — a `JMP` is three bytes whatever it
+jumps to — so pass 2 can record every line's address before any target is
+known. Passes 2 and 3 are the same code with writing switched off, which is
+how every two-pass assembler has worked since before this machine existed.
+
+### What the compiled program looks like
+
+```
+$6000  JMP CODESTART      so BRUN enters at the front and still finds it
+$6003  the variables      five bytes each, zero as loaded
+       the constants      five bytes each, converted in pass 1
+       eight temporaries  for the middle of an expression
+       two slots per FOR  its limit and its step
+       one byte           the stack pointer as the program was entered
+CODESTART
+       TSX / STX          so END can get back to BASIC from inside a GOSUB
+       the code
+```
+
+Data first because pass 1 can size it and cannot size the code.
+
+### The measurement, at 1MHz
+
+`make ccbench` compiles all five benchmark programs on the machine and times
+each one interpreted and then compiled, in the same session on the same disk.
+
+| program | interpreted | compiled | speedup | answer |
+|---|---|---|---|---|
+| BENCH1 | 33.77s | 9.09s | 3.7× | 4501500 |
+| BENCH2 | 66.70s | 9.00s | 7.4× | 4501500 |
+| BENCH3 | 38.84s | 9.28s | 4.2× | 4501500 |
+| BENCH4 | 71.56s | 9.73s | 7.4× | 4501500 |
+| BENCH5 | 26.83s | 6.96s | 3.9× | 3000 |
+
+Every answer is the interpreter's own.
+
+**The compiled times barely move across the five**, and that is the whole
+claim made visible. What differs between those programs is the line search and
+the variable scan; compiling does not reduce them, it removes them. BENCH4 is
+the realistically shaped one, and it is the one that gains most.
+
+### Correctness, against the interpreter rather than against a table
+
+`make cctest` runs every program in `tests/cc` twice — `RUN`, then compiled
+and `BRUN` — and compares the screens. The interpreter is the specification. A
+hand-written table of expected output would only record what was believed at
+the time.
+
+Three programs agree: arithmetic including the reversed-operand subtract and
+divide, all six comparisons with `GOSUB` and `GOTO`, and loops with negative
+steps, nesting, a named `NEXT`, an expression limit, and the case where
+Applesoft runs a loop body once even though the start is already past the
+limit.
+
+### What it compiles
+
+`LET` (named or implied), `GOTO`, `GOSUB`, `RETURN`, `IF ... THEN`, `FOR` /
+`NEXT` with `STEP`, `PRINT` of numbers and string literals with `;`, `REM`,
+`END`, and expressions over `+ - * /`, unary minus, brackets and the six
+comparisons.
+
+Not yet: arrays, strings as values, `DATA`/`READ`, `INPUT`, `AND`/`OR`, the
+functions, `ON ... GOTO`, and `,` in a `PRINT`. Each is refused with a code
+rather than compiled wrongly — a compiler that carried on would write a
+program that ran and gave a wrong answer, which is the one outcome worse than
+refusing.
+
+### The gap to the hand-compiled model, and what closes it
+
+The model did BENCH1 in 7.25s; the compiler's output does it in 9.09s. The
+difference is one thing: `IF I < 3000` compiles the comparison into a proper
+Applesoft value — it materialises 1 or 0 in the accumulator — and then `IF`
+tests that value. The model branched straight off `FCOMP`'s answer.
+
+Producing a value is the right general behaviour, since Applesoft lets a
+comparison BE one. Closing the gap means recognising the common case, where an
+`IF`'s expression is a single top-level comparison, and branching directly.
+That is a peephole, not a redesign, and it is the obvious next piece of work
+on speed.
+
+### Three bugs worth keeping
+
+**A routine that ended in a JMP to the emitter returned the emitter's carry**,
+which its own `CMP` of the pass number leaves set in pass 3. Pass 2 succeeded
+and pass 3 reported failure, and the driver's silent stop printed nothing at
+all — indistinguishable from a program that never ran. Every exit now names
+the stage it stopped at.
+
+**`LDA #lo / LDY #hi / JSR` is seven bytes, not eight.** Counted as eight, a
+comparison's false branch landed one byte inside the load it was aiming at.
+The benchmark ran its loop exactly once and printed `1` — a believable number,
+which is the dangerous kind of wrong.
+
+**Two `dum` blocks on top of each other**, because `dumcheck.py` globbed
+`src/*.S` and the compiler lives in `src/cc`. It takes a directory now, one
+program at a time. It also sizes `VMAX*2` rather than silently calling it
+zero, and reads an equate that has a comment after it — so the editor's
+`SCRW`-sized blocks are being checked for the first time as well. The symptom
+was an output file named `CS300`.
