@@ -45,6 +45,7 @@ CODEORG      equ   $6000
 *    out of: END is $80 and they run in order from there.
 TFOR         equ   $81
 TDATA        equ   $83
+TDIM         equ   $86
 TGOTO        equ   $ab
 TGOSUB       equ   $b0
 TREM         equ   $b2
@@ -61,6 +62,7 @@ PASS1        lda   #$00
              sta   NLINES
              sta   NLINES+1
              sta   NFORS
+             sta   NARR
              sta   BADFLG
              sta   BADLINE
              sta   BADLINE+1
@@ -129,8 +131,10 @@ SCANBODY     lda   #$00
              sta   LINEREF
 
 :next        jsr   RDBYTE
-             bcs   :eof
-             sta   CH
+             bcc   :got
+             sec                    ; its own exit: the shared one is now too
+             rts                    ; far down the routine to branch to
+:got         sta   CH
              bne   :notend
              clc
              rts
@@ -148,6 +152,8 @@ SCANBODY     lda   #$00
              beq   :rem
              cmp   #TDATA
              beq   :dataj
+             cmp   #TDIM
+             beq   :dimj
              cmp   #$80
              bcs   :token
 
@@ -191,6 +197,7 @@ SCANBODY     lda   #$00
              sta   LINEREF
              jmp   :next
 :dataj       jmp   :data            ; the block sits at the end of the routine
+:dimj        jmp   :dim
 
 *--- REM, and the rest of the line is a comment
 :rem         jsr   RDBYTE
@@ -210,35 +217,38 @@ SCANBODY     lda   #$00
 *--------------------------------------
 :name        lda   #$00
              sta   LINEREF
-             sta   VN1
-             sta   NCH
-             lda   CH
-             sta   VN0
-:nloop       jsr   RDBYTE
-             bcs   :eof
-             sta   CH
-             jsr   ISALNUM
-             bcs   :nend
-             lda   NCH
-             bne   :nmore           ; past the second: not significant
-             lda   CH
-             sta   VN1
-:nmore       inc   NCH
-             jmp   :nloop
+             jsr   RDNAME
+             bcc   :nend
+             jmp   :eof
 
 *--- What ENDED the name says what kind it is. $ and % are string and integer
-*    variables and ( is an array; none are in this milestone, and compiling
-*    them as though they were plain floats would produce a program that ran
-*    and gave wrong answers, which is worse than refusing.
+*    variables, neither of which is compiled yet; ( makes it an array.
+*
+*    A AND A( ARE DIFFERENT VARIABLES to Applesoft -- a program can use both
+*    at once and they do not share a value -- so they go in different tables
+*    here for the same reason.
 :nend        lda   CH
              cmp   #'$'
              beq   :unsup
              cmp   #'%'
              beq   :unsup
              cmp   #'('
-             beq   :unsup
+             beq   :isarr
              jsr   VARADD
              jmp   :redo
+
+*--- An array used without a DIM. Applesoft gives it eleven elements, 0 to 10,
+*    and so does this; a DIM later in the program replaces that. The bracket
+*    is consumed: what is inside it is an ordinary expression and the scan
+*    goes on reading it as code.
+:isarr       lda   #$0b
+             sta   ASIZE
+             lda   #$00
+             sta   ASIZE+1
+             sta   ADIM             ; a guess, not a statement of size
+             jsr   ARRADD
+             jmp   :next
+
 :unsup       lda   #$01
              jsr   SETBAD
              jmp   :next
@@ -300,6 +310,199 @@ SCANBODY     lda   #$00
              jmp   :next            ; code again after the colon
 :dend        clc
              rts
+
+*--------------------------------------
+* DIM -- how big, said outright
+*
+* DIM A(20) is twenty-ONE elements, 0 to 20, which is the machine's rule and
+* not a spare one added for safety. A DIM anywhere in the program replaces the
+* eleven a bare use would have given it.
+*
+* One dimension. DIM A(3,4) is refused rather than compiled as though the
+* second number were not there.
+*--------------------------------------
+:dim         jsr   RDBYTE
+             bcs   :dimeof
+             sta   CH
+             jsr   ISALNUM
+             bcs   :dimbad
+             jsr   RDNAME           ; leaves what ended it in CH
+             bcs   :dimeof
+             lda   CH
+             cmp   #'('
+             bne   :dimbad
+
+             jsr   RDSIZE           ; the number inside the bracket
+             bcs   :dimeof
+             lda   CH
+             cmp   #')'
+             bne   :dimbad
+
+             inc   WORD             ; DIM A(20) holds twenty-one
+             bne   :dimset
+             inc   WORD+1
+:dimset      lda   WORD
+             sta   ASIZE
+             lda   WORD+1
+             sta   ASIZE+1
+             lda   #$01
+             sta   ADIM
+             jsr   ARRADD
+
+             jsr   RDBYTE           ; DIM A(5),B(6) -- another may follow
+             bcs   :dimdone
+             sta   CH
+             cmp   #$2c
+             beq   :dim
+             jmp   :redo
+
+:dimdone     clc
+             rts
+:dimeof      sec
+             rts
+:dimbad      lda   #$15             ; ONE DIMENSION ONLY
+             jsr   SETBAD
+             jmp   :next
+
+*--------------------------------------
+* RDNAME -- a name, from the character already in CH
+*
+* Two characters are significant to Applesoft, so S and SUM and SUMMARY are
+* one name. What ended it is left in CH, read but not used.
+*--------------------------------------
+RDNAME       lda   #$00
+             sta   VN1
+             sta   NCH
+             lda   CH
+             sta   VN0
+:loop        jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+             jsr   ISALNUM
+             bcs   :done
+             lda   NCH
+             bne   :more
+             lda   CH
+             sta   VN1
+:more        inc   NCH
+             jmp   :loop
+:done        clc
+             rts
+:eof         sec
+             rts
+
+*--- a plain decimal number into WORD, its terminator left in CH
+RDSIZE       lda   #$00
+             sta   WORD
+             sta   WORD+1
+             sta   NCH
+:loop        jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+             jsr   ISDIGIT
+             bcs   :done
+             jsr   SZMUL10
+             inc   NCH
+             jmp   :loop
+:done        clc
+             rts
+:eof         sec
+             rts
+
+*--- WORD = WORD * 10 + the digit in CH
+SZMUL10      lda   WORD
+             asl
+             sta   TMPB
+             lda   WORD+1
+             rol
+             sta   TMPB+1
+             asl   TMPB
+             rol   TMPB+1
+             asl   TMPB
+             rol   TMPB+1           ; eight times
+             lda   WORD
+             asl
+             sta   WORD
+             lda   WORD+1
+             rol
+             sta   WORD+1           ; and twice
+             lda   WORD
+             clc
+             adc   TMPB
+             sta   WORD
+             lda   WORD+1
+             adc   TMPB+1
+             sta   WORD+1
+             lda   CH
+             sec
+             sbc   #'0'
+             clc
+             adc   WORD
+             sta   WORD
+             bcc   :done
+             inc   WORD+1
+:done        rts
+
+*--------------------------------------
+* ARRADD -- VN0/VN1 into the array table, ASIZE elements
+*
+* A size given here replaces whatever was there: a use gives eleven and a DIM
+* gives the real figure, whichever order they come in.
+*--------------------------------------
+ARRADD       lda   #$00
+             sta   TMPA
+:find        lda   TMPA
+             cmp   NARR
+             bcs   :new
+             jsr   ASLOT
+             ldy   #$00
+             lda   (TMPP),y
+             cmp   VN0
+             bne   :step
+             iny
+             lda   (TMPP),y
+             cmp   VN1
+             beq   :have
+:step        inc   TMPA
+             jmp   :find
+
+:new         lda   NARR
+             cmp   #AMAX
+             bcc   :room
+             lda   #$16             ; TOO MANY ARRAYS
+             jsr   SETBAD
+             rts
+:room        jsr   ASLOT
+             ldy   #$00
+             lda   VN0
+             sta   (TMPP),y
+             iny
+             lda   VN1
+             sta   (TMPP),y
+             inc   NARR
+             jmp   :size
+
+*--- Already known. A DIM says how big it is and replaces whatever was there;
+*    a bare USE only guesses eleven, and must not overwrite a DIM that has
+*    already spoken -- which it did, so DIM A(20) followed by any use of A
+*    anywhere later gave A eleven elements again.
+:have        lda   ADIM
+             beq   :done
+:size        ldy   #$02
+             lda   ASIZE
+             sta   (TMPP),y
+             iny
+             lda   ASIZE+1
+             sta   (TMPP),y
+:done        rts
+
+*--- TMPP <- ARRTAB + 4 * TMPA
+ASLOT        lda   #<ARRTAB
+             sta   SLOTB
+             lda   #>ARRTAB
+             sta   SLOTB+1
+             lda   #$04
+             jmp   SLOTN
 
 *--- one character into NUMBUF, ignoring any past its length. A number long
 *    enough to overflow it cannot be represented anyway.
@@ -761,8 +964,9 @@ REPORT       lda   #<MSGVARS
              sta   TMPA
 :var         lda   TMPA
              cmp   NVARS
-             bcs   :consts
-             asl
+             bcc   :vshow
+             jmp   :arrs            ; the array report sits between here and
+:vshow       asl                    ; the constants now
              tax
              lda   VTAB,x
              ora   #$80
@@ -784,6 +988,52 @@ REPORT       lda   #<MSGVARS
              jsr   PRCR
              inc   TMPA
              jmp   :var
+
+:arrs
+*--- The arrays, with how many elements each ended up with: eleven from a
+*    bare use, or whatever a DIM said.
+             lda   NARR
+             beq   :consts
+             lda   #<MSGARRS
+             ldy   #>MSGARRS
+             jsr   PRSTR
+             lda   NARR
+             sta   WORD
+             lda   #$00
+             sta   WORD+1
+             jsr   PRWORD
+             jsr   PRCR
+
+             lda   #$00
+             sta   TMPA
+:arr         lda   TMPA
+             cmp   NARR
+             bcs   :consts
+             jsr   ASLOT
+             ldy   #$00
+             lda   (TMPP),y
+             ora   #$80
+             jsr   PRCH
+             iny
+             lda   (TMPP),y
+             beq   :asp
+             ora   #$80
+             jsr   PRCH
+             jmp   :asz
+:asp         lda   #$a0
+             jsr   PRCH
+:asz         lda   #$a0
+             jsr   PRCH
+             ldy   #$02
+             lda   (TMPP),y
+             sta   WORD
+             iny
+             lda   (TMPP),y
+             sta   WORD+1
+             jsr   PRWORD
+             jsr   PRCR
+             inc   TMPA
+             jmp   :arr
 
 *--- The constants, printed back through the ROM's own FOUT. If the digit
 *    conversion were wrong this is where it would say so, in the clearest
@@ -813,17 +1063,10 @@ REPORT       lda   #<MSGVARS
              inc   TMPA
              jmp   :con
 
-:bad         lda   BADFLG
-             beq   :ok
-             sta   WORD
-             lda   #$00
-             sta   WORD+1
-             lda   #<MSGBAD
-             ldy   #>MSGBAD
-             jsr   PRSTR
-             jsr   PRWORD
-             jsr   PRCR
-:ok          rts
+*--- No complaint is printed here. BADSAY does it at the end, with the line
+*    it happened on and in words; this printed a bare code as well, so a
+*    refused program said the same thing twice and neither time helpfully.
+:bad         rts
 
 *--- TMPP <- the address of variable TMPA in the compiled program
 VADDR        lda   VARBASE
@@ -862,13 +1105,14 @@ PRCR         lda   #$8d
 
 MSGVARS      asc   "VARIABLES: "
              dfb   $00
-MSGCONST     asc   "CONSTANTS: "
+MSGARRS      asc   "ARRAYS: "
              dfb   $00
-MSGBAD       asc   "UNSUPPORTED, CODE "
+MSGCONST     asc   "CONSTANTS: "
              dfb   $00
 
 NUMMAX       equ   24
 VMAX         equ   128
+AMAX         equ   32
 CMAX         equ   128
 LTMAX        equ   512
 
@@ -909,6 +1153,10 @@ SLOTB        ds    2
 ACCN         ds    1
 ACCSZ        ds    1
 NFORS        ds    1
+NARR         ds    1
+ASIZE        ds    2                ; elements, while one is being recorded
+ADIM         ds    1                ; ...said by a DIM rather than guessed
+ARRBASE      ds    2
 CURLINE      ds    2                ; the line being compiled
 BADLINE      ds    2                ; and the one the first complaint was on
              dend
@@ -916,6 +1164,7 @@ BADLINE      ds    2                ; and the one the first complaint was on
 *--- The tables, well clear of the compiler, its buffers and ProDOS.
              dum   $8000
 VTAB         ds    VMAX*2
+ARRTAB       ds    AMAX*4           ; two of name, two of element count
 CTAB         ds    CMAX*5
 LTAB         ds    LTMAX*4
              dend

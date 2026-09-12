@@ -93,22 +93,23 @@ Measured on the machine at 1MHz, the same five programs `make bench` uses:
 
 | program | interpreted | compiled | speedup |
 |---|---|---|---|
-| the loop alone | 33.70s | 7.08s | 4.8× |
-| 200 lines before the target | 66.74s | 7.08s | 9.4× |
-| 30 variables before its two | 38.79s | 7.76s | 5.0× |
-| both, as a real program is | 71.49s | 7.81s | 9.2× |
+| the loop alone | 33.74s | 7.04s | 4.8× |
+| 200 lines before the target | 66.73s | 7.09s | 9.4× |
+| 30 variables before its two | 38.76s | 7.84s | 4.9× |
+| both, as a real program is | 71.50s | 7.72s | 9.3× |
 
 Every answer identical to the interpreter's. **The compiled times barely move
 across the four**, which is the whole point: what differs between those
 programs is Applesoft searching for a line and scanning for a variable, and
 compiling does not reduce that work, it removes it.
 
-It compiles `LET`, `GOTO`, `GOSUB`, `RETURN`, `IF/THEN`, `FOR`/`NEXT` with
-`STEP`, `PRINT`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
-brackets, the six comparisons, `AND`/`OR`/`NOT`, and the eleven numeric
-functions (`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN`). Arrays, string
-variables, `DATA`/`READ`, `INPUT` and `PEEK`/`POKE` are refused by name and
-line number rather than compiled wrongly:
+It compiles `LET`, `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
+`RETURN`, `IF/THEN`, `FOR`/`NEXT` with `STEP`, `PRINT`, `REM`, `END`, and
+expressions over `+ - * /`, unary minus, brackets, the six comparisons,
+`AND`/`OR`/`NOT`, and the eleven numeric functions (`SGN INT ABS SQR RND LOG
+EXP COS SIN TAN ATN`). String variables, `DATA`/`READ`, `INPUT` and
+`PEEK`/`POKE` are refused by name and line number rather than compiled
+wrongly:
 
 ```
 STOPPED IN 30: NO STRINGS OR ARRAYS

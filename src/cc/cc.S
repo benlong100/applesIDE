@@ -406,7 +406,9 @@ MSGTAB       da    BADSUF           ; 1
              da    BADNEXT          ; 18
              da    BADWHICH         ; 19
              da    BADEXP           ; 20
-NMSG         equ   20
+             da    BADDIM           ; 21
+             da    BADARRS          ; 22
+NMSG         equ   22
 
 BADSUF       asc   "NO STRINGS OR ARRAYS"
              dfb   $00
@@ -447,6 +449,10 @@ BADNEXT      asc   "NEXT WITHOUT FOR"
 BADWHICH     asc   "NEXT: WRONG FOR"
              dfb   $00
 BADEXP       asc   "EXPONENT TOO BIG"
+             dfb   $00
+BADDIM       asc   "ONE DIMENSION ONLY"
+             dfb   $00
+BADARRS      asc   "TOO MANY ARRAYS"
              dfb   $00
 
 *--------------------------------------

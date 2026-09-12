@@ -41,6 +41,15 @@ GIVAYF       equ   $e2f2            ; A high, Y low -> FAC, signed
 FACHI        equ   $a0
 FACLO        equ   $a1
 FACEXP       equ   $9d              ; zero is the only way a float is zero
+
+*--- Six bytes of zero page for the COMPILED program -- four for the address
+*    helper below, two for an element address being held across an assignment.
+*    $1A-$1F belongs to the hires routines, which a compiled program does not
+*    call; it is clear of the floating point at $9D-$A5, of COUT's screen
+*    pointers at $24-$29, and of the MLI at $40-$4F. The compiler's own TMPP
+*    sits at $1A as well, which is harmless: the two never run at once.
+ZPB          equ   $1a
+ZPELEM       equ   $1e
 COUTA        equ   $fded
 
 NTEMPS       equ   8
@@ -65,8 +74,54 @@ TLT          equ   $d1
 TTO          equ   $c1
 TSTEP        equ   $c7
 TNOT         equ   $c6
+TDIMK        equ   $86
 TAND         equ   $cd
 TOR          equ   $ce
+
+*--------------------------------------
+* ARRBLOB -- base + 5 * index, the one piece of runtime a compiled program has
+*
+* Entered with the base in A and Y and the subscript already through AYINT, so
+* it is in FACHI/FACLO. Leaves the element's address in A and Y, which is what
+* MOVFM wants and one TAX short of what MOVMF wants.
+*
+* A SUBROUTINE, not code emitted at each subscript, and that is the only place
+* this compiler does that. Inline it costs about forty-five bytes a subscript
+* against thirteen; a program that walks an array in a loop has a dozen of
+* them. The float printer and the string printer stay inline because a PRINT
+* happens a handful of times in a program and a subscript happens everywhere.
+*
+* No branches and nothing absolute but the zero page, so it can be dropped
+* wherever the layout puts it without a single fixup.
+*--------------------------------------
+ARRBLOB      dfb   $85,ZPB          ; STA base lo
+             dfb   $84,ZPB+1        ; STY base hi
+             dfb   $a5,FACLO
+             dfb   $85,ZPB+2
+             dfb   $a5,FACHI
+             dfb   $85,ZPB+3
+             dfb   $06,ZPB+2        ; ASL, ROL: twice round is four times
+             dfb   $26,ZPB+3
+             dfb   $06,ZPB+2
+             dfb   $26,ZPB+3
+             dfb   $18              ; CLC -- and the index once more is five
+             dfb   $a5,ZPB+2
+             dfb   $65,FACLO
+             dfb   $85,ZPB+2
+             dfb   $a5,ZPB+3
+             dfb   $65,FACHI
+             dfb   $85,ZPB+3
+             dfb   $18              ; CLC -- then the base
+             dfb   $a5,ZPB+2
+             dfb   $65,ZPB
+             dfb   $85,ZPB+2
+             dfb   $a5,ZPB+3
+             dfb   $65,ZPB+1
+             dfb   $a8              ; TAY: the high byte
+             dfb   $a5,ZPB+2        ; and the low in A
+             dfb   $60
+ARRBEND
+HELPSZ       equ   ARRBEND-ARRBLOB
 
 *--------------------------------------
 * GENPASS -- run one pass over the source. PASSNO says which.
@@ -134,14 +189,25 @@ GENPASS      lda   #$00
 *    would not terminate, which is a louder failure than quietly starting the
 *    code one byte out.
 :temps       lda   PC
-             cmp   CODESTA
+             cmp   HELPA
              bne   :tz
              lda   PC+1
-             cmp   CODESTA+1
-             beq   :prologue
+             cmp   HELPA+1
+             beq   :helper
 :tz          lda   #$00
              jsr   EMIT
              jmp   :temps
+
+*--- the address helper, verbatim
+:helper      lda   #$00
+             sta   EMI
+:hb          ldy   EMI
+             lda   ARRBLOB,y
+             jsr   EMIT
+             inc   EMI
+             lda   EMI
+             cmp   #HELPSZ
+             bcc   :hb
 
 *--- remember where the stack was, so END can unwind a GOSUB
 :prologue    lda   #$ba             ; TSX
@@ -239,6 +305,8 @@ GENSTMT      lda   CH
              beq   :end
              cmp   #TREM
              beq   :rem
+             cmp   #TDIMK
+             beq   :dim
              cmp   #TFORK
              beq   :for
              cmp   #TNEXT
@@ -264,6 +332,20 @@ GENSTMT      lda   CH
 :end         jmp   GEND
 :for         jmp   GFOR
 :next        jmp   GNEXT
+
+*--- DIM generates nothing at all: pass 1 read the sizes and the space is
+*    already in the file. Its arguments are skipped rather than compiled --
+*    A(20) here is a declaration, and reading it as a subscript would send
+*    the generator looking for a constant 20 that pass 1 never made.
+:dim         jsr   NEXTB
+             bcs   :unsup
+             sta   CH
+             beq   :dimend
+             cmp   #':'
+             bne   :dim
+:dimend      jsr   PUTBACK
+             clc
+             rts
 
 *--- A REM generates nothing at all, which is most of what a compiler has to
 *    say about a comment. Everything to the end of the line goes with it --
@@ -309,11 +391,16 @@ EMEND        lda   #$ae             ; LDX abs
 *--------------------------------------
 * GLET -- name = expression
 *--------------------------------------
-GLET         jsr   GETVAR
+GLET         jsr   GETNAME
+             bcs   :bad
+             lda   CH
+             cmp   #'('
+             beq   GLETARR
+             jsr   GETVAR2
              bcs   :bad
              lda   VARI
              pha
-             lda   CH               ; GETVAR leaves what ended the name
+             lda   CH               ; GETNAME leaves what ended the name
              cmp   #TEQ
              bne   :bad2
              jsr   EXPR
@@ -327,6 +414,57 @@ GLET         jsr   GETVAR
                                     ; as a failure to compile
 
 :bad2        pla
+:bad         lda   #$06
+             jsr   SETBAD
+             sec
+             rts
+
+*--------------------------------------
+* GLETARR -- A(subscript) = expression
+*
+* THE ADDRESS IS WORKED OUT FIRST AND KEPT, because evaluating the right-hand
+* side runs the whole expression machinery over the accumulator and the
+* helper's zero page with it. Applesoft evaluates the subscript first too, so
+* A(I) = I + 1 with I changing inside the expression would agree -- not that
+* anything in this milestone can change it.
+*--------------------------------------
+GLETARR      jsr   GETARR
+             bcs   :bad
+             jsr   EMSUBS
+             bcs   :bad
+
+             lda   #$85             ; STA ZPELEM  -- keep the element address
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$84             ; STY ZPELEM+1
+             jsr   EMIT
+             lda   #ZPELEM+1
+             jsr   EMIT
+
+             jsr   NEXTB
+             bcs   :bad
+             cmp   #TEQ
+             bne   :bad
+             jsr   EXPR
+             bcs   :bad
+
+             lda   #$a6             ; LDX ZPELEM -- MOVMF wants X and Y
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$a4             ; LDY ZPELEM+1
+             jsr   EMIT
+             lda   #ZPELEM+1
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<MOVMF
+             jsr   EMIT
+             lda   #>MOVMF
+             jsr   EMIT
+             clc
+             rts
 :bad         lda   #$06
              jsr   SETBAD
              sec
@@ -1634,13 +1772,40 @@ EPRIM        lda   #$00
              jsr   CADDR
              jmp   DEFER
 
-:var         jsr   GETVAR
-             bcs   :bad
-             jsr   PUTBACK          ; what ended the name is not ours
+:var         jsr   GETNAME
+             bcc   :got
+             jmp   :bad             ; :bad is back past the whole of EPRIM
+:got         lda   CH
+             cmp   #'('
+             beq   :elem
+             jsr   GETVAR2          ; a plain variable
+             bcc   :plain
+             sec                    ; its own exit: this is a long way from
+             rts                    ; the top of EPRIM now
+:plain       jsr   PUTBACK          ; what ended the name is not ours
              lda   VARI
              sta   TMPA
              jsr   VADDR
-*--- fall through
+             jmp   DEFER
+
+*--- An element. Its address is not known until the program runs, so there is
+*    nothing to defer: the value goes straight into the accumulator.
+:elem        jsr   GETARR
+             bcs   :ebad
+             jsr   EMSUBS
+             bcs   :ebad
+             lda   #$20             ; JSR MOVFM, with the address in A and Y
+             jsr   EMIT
+             lda   #<MOVFM
+             jsr   EMIT
+             lda   #>MOVFM
+             jsr   EMIT
+             lda   #$00
+             sta   PENDOK
+             clc
+             rts
+:ebad        sec                    ; its own name: EPRIM already has a :bad2
+             rts                    ; and it is a long way up the routine
 
 *--- Remember where it is rather than loading it. See ESUM.
 DEFER        lda   TMPP
@@ -1720,7 +1885,7 @@ FNCOUNT      equ   11
 * It cannot be missing: pass 1 walked the same bytes. If it is, something has
 * gone wrong enough to stop rather than guess.
 *--------------------------------------
-GETVAR       lda   #$00
+GETNAME      lda   #$00
              sta   VN1
              sta   NCH
              lda   CH
@@ -1736,14 +1901,105 @@ GETVAR       lda   #$00
              sta   VN1
 :more        inc   NCH
              jmp   :loop
-:end         jsr   VFIND
-             bcs   :bad
+:end         clc
+             rts
+:bad         sec
+             rts
+
+*--- and then look it up. A name ending in ( is an array, and A and A( are
+*    different variables to Applesoft, so they are looked up in different
+*    tables here.
+*--- GETVAR2 is a global label, so it ends GETVAR's local scope and the two
+*    halves cannot share a :bad. One named exit for both.
+GETVAR       jsr   GETNAME
+             bcs   GVBAD
+GETVAR2      jsr   VFIND
+             bcs   GVBAD
              lda   TMPA
              sta   VARI
              clc
              rts
-:bad         lda   #$0d
+GVBAD        lda   #$0d
              jsr   SETBAD
+             sec
+             rts
+
+GETARR       jsr   AFIND
+             bcs   GVBAD
+             lda   TMPA
+             sta   VARI
+             clc
+             rts
+
+*--- the array table, which pass 1 filled
+AFIND        lda   #$00
+             sta   TMPA
+:loop        lda   TMPA
+             cmp   NARR
+             bcs   :no
+             jsr   ASLOT
+             ldy   #$00
+             lda   (TMPP),y
+             cmp   VN0
+             bne   :step
+             iny
+             lda   (TMPP),y
+             cmp   VN1
+             beq   :yes
+:step        inc   TMPA
+             jmp   :loop
+:yes         clc
+             rts
+:no          sec
+             rts
+
+*--------------------------------------
+* EMSUBS -- a subscript: the expression, then the element's address in A and Y
+*
+* Entered after the opening bracket. Leaves the closing one consumed.
+*--------------------------------------
+EMSUBS       lda   VARI
+             pha
+             jsr   EXPR
+             bcs   :drop
+             jsr   NEXTB
+             bcs   :drop
+             cmp   #')'
+             bne   :dropbad
+
+             lda   #$20             ; JSR AYINT -- the subscript as an integer
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+
+             pla                    ; which array, and where it starts
+             sta   TMPA
+             jsr   AADDR
+             lda   #$a9             ; LDA #lo
+             jsr   EMIT
+             lda   TMPP
+             jsr   EMIT
+             lda   #$a0             ; LDY #hi
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+             lda   #$20             ; JSR the address helper
+             jsr   EMIT
+             lda   HELPA
+             jsr   EMIT
+             lda   HELPA+1
+             jsr   EMIT
+             clc
+             rts
+
+:dropbad     pla
+             lda   #$0c
+             jsr   SETBAD
+             sec
+             rts
+:drop        pla
              sec
              rts
 
@@ -2219,13 +2475,81 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              lda   TMPP+1
              sta   SPSAVEA+1
 
-             lda   TMPP             ; and the code, one byte past it
+             lda   TMPP             ; the arrays begin past SPSAVE
              clc
              adc   #$01
-             sta   CODESTA
+             sta   ARRBASE
              lda   TMPP+1
              adc   #$00
+             sta   ARRBASE+1
+
+             lda   NARR             ; ...and run for five bytes an element
+             sta   TMPA
+             jsr   ASUM
+             lda   ARRBASE
+             clc
+             adc   ATOT
+             sta   HELPA
+             lda   ARRBASE+1
+             adc   ATOT+1
+             sta   HELPA+1
+
+             lda   HELPA            ; then the address helper, then the code
+             clc
+             adc   #HELPSZ
+             sta   CODESTA
+             lda   HELPA+1
+             adc   #$00
              sta   CODESTA+1
+             rts
+
+*--------------------------------------
+* ASUM -- ATOT = the bytes taken by arrays 0 to TMPA-1
+*
+* Five a time round rather than a multiply: a count is sixteen bits and five
+* additions are shorter than the shifting would be, and this runs once per
+* array per pass rather than once per subscript.
+*--------------------------------------
+ASUM         lda   #$00
+             sta   ATOT
+             sta   ATOT+1
+             sta   AIDX
+             lda   TMPA
+             sta   AEND
+:loop        lda   AIDX
+             cmp   AEND
+             bcs   :done
+             sta   TMPA
+             jsr   ASLOT
+             ldy   #$02
+             lda   (TMPP),y
+             sta   ACNT
+             iny
+             lda   (TMPP),y
+             sta   ACNT+1
+             ldx   #$05
+:five        lda   ATOT
+             clc
+             adc   ACNT
+             sta   ATOT
+             lda   ATOT+1
+             adc   ACNT+1
+             sta   ATOT+1
+             dex
+             bne   :five
+             inc   AIDX
+             jmp   :loop
+:done        rts
+
+*--- TMPP = the base of array TMPA
+AADDR        jsr   ASUM
+             lda   ATOT
+             clc
+             adc   ARRBASE
+             sta   TMPP
+             lda   ATOT+1
+             adc   ARRBASE+1
+             sta   TMPP+1
              rts
 
 *--------------------------------------
@@ -2285,5 +2609,10 @@ PENDA        ds    2                ; and where it lives
 LEFTA        ds    2                ; a bitwise operator's left side
 LOGBR        ds    1                ; which way a logical operator branches
 LOGFALL      ds    1                ; and which constant goes where
-LOGTGT       ds    1                ; an index EMIT cannot clobber
+LOGTGT       ds    1
+HELPA        ds    2                ; where the address helper landed
+ATOT         ds    2
+ACNT         ds    2
+AIDX         ds    1
+AEND         ds    1                ; an index EMIT cannot clobber
              dend

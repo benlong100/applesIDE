@@ -263,11 +263,11 @@ each one interpreted and then compiled, in the same session on the same disk.
 
 | program | interpreted | compiled | speedup | answer |
 |---|---|---|---|---|
-| BENCH1 | 33.70s | 7.08s | 4.8× | 4501500 |
-| BENCH2 | 66.74s | 7.08s | 9.4× | 4501500 |
-| BENCH3 | 38.79s | 7.76s | 5.0× | 4501500 |
-| BENCH4 | 71.49s | 7.81s | 9.2× | 4501500 |
-| BENCH5 | 26.86s | 5.84s | 4.6× | 3000 |
+| BENCH1 | 33.74s | 7.04s | 4.8× | 4501500 |
+| BENCH2 | 66.73s | 7.09s | 9.4× | 4501500 |
+| BENCH3 | 38.76s | 7.84s | 4.9× | 4501500 |
+| BENCH4 | 71.50s | 7.72s | 9.3× | 4501500 |
+| BENCH5 | 26.83s | 5.96s | 4.5× | 3000 |
 
 Every answer is the interpreter's own.
 
@@ -327,16 +327,63 @@ emitted and there is nothing to patch. That removes the coupling between a
 string literal and the size of the write buffer, rather than making the buffer
 bigger, which would only have moved the boundary.
 
+### Arrays
+
+`DIM A(20)`, `A(I)`, `A(I) = x`. One dimension; `DIM A(3,4)` is refused.
+
+`DIM A(20)` is twenty-**one** elements, 0 to 20, which is the machine's rule
+rather than a spare one added for safety. An array used without a `DIM` gets
+eleven, as Applesoft gives it, and a `DIM` anywhere in the program replaces
+that — which took a fix, because a bare use later in the text was overwriting
+the size the `DIM` had set and `DIM A(20)` came out as eleven again.
+
+`A` and `A(` are **different variables** to Applesoft — a program can use both
+at once and they do not share a value — so they live in different tables here
+for the same reason.
+
+**The one piece of runtime a compiled program has.** An element's address is
+`base + 5 × index`, and that is forty-five bytes emitted inline against
+thirteen through a subroutine. A `PRINT` happens a handful of times in a
+program and a subscript happens everywhere, so the float printer and the
+string printer stay inline and this does not:
+
+```
+JSR AYINT              the subscript, as an integer
+LDA #<base / LDY #>base
+JSR ARRADDR            leaves the element's address in A and Y
+JSR MOVFM              which is exactly what MOVFM wants
+```
+
+`ARRADDR` is forty-eight bytes with no branches and nothing absolute but the
+zero page, so the layout can drop it wherever it likes without a fixup. Its
+scratch is `$1A-$1F` — the hires routines' bytes, which a compiled program
+never calls, clear of the floating point at `$9D-$A5`, of `COUT` at
+`$24-$29`, and of the MLI at `$40-$4F`.
+
+Assigning to an element works out the address **first** and keeps it, because
+evaluating the right-hand side runs the whole expression machinery over the
+accumulator and the helper's zero page with it.
+
+**No bounds check, and that is a real difference from the interpreter.**
+Applesoft raises `?BAD SUBSCRIPT ERROR`; a compiled program writes wherever
+the arithmetic points, which for a subscript past the end is the program's own
+code. Every correct program is unaffected, and an incorrect one is diagnosed
+by running it interpreted first — which is what `make cctest` does anyway. The
+fix, when it comes, is a count stored in front of each array and a test in
+`ARRADDR`; it is not done yet because the helper would then need an error exit
+and stop being the position-independent blob that makes it free to place.
+
 ### What it compiles
 
-`LET` (named or implied), `GOTO`, `GOSUB`, `RETURN`, `IF ... THEN` and
-`IF ... GOTO`, `FOR` / `NEXT` with `STEP`, `PRINT` of numbers and string
-literals with `;`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
+`LET` (named or implied), `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
+`RETURN`, `IF ... THEN` and `IF ... GOTO`, `FOR` / `NEXT` with `STEP`,
+`PRINT` of numbers and string literals with `;`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
 brackets, the six comparisons, `AND` / `OR` / `NOT`, and the eleven numeric
 functions.
 
-Not yet: arrays, strings as values, `DATA`/`READ`, `INPUT`, `ON ... GOTO`,
-`PEEK`/`POKE`, `DEF FN`, the graphics statements, and `,` in a `PRINT`. Each
+Not yet: strings as values, `DATA`/`READ`, `INPUT`, `ON ... GOTO`,
+`PEEK`/`POKE`, `DEF FN`, the graphics statements, arrays of more than one
+dimension, and `,` in a `PRINT`. Each
 is refused **by name and line number** rather than compiled wrongly:
 
 ```
