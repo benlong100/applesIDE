@@ -162,6 +162,49 @@ and printing a number. Every one of them confirmed on a running machine, and
 two of them — subtract and divide — are the opposite way round from the
 obvious guess.
 
+## The model, proved before building the thing that produces it
+
+`src/cc/emit.py` is a small 6502 emitter and BENCH1 compiled through it by
+hand. **It is not the compiler.** It is the compiler's intended output,
+produced on the Mac so the shape of the generated code could be run on the
+machine before anything was written to generate it. If the output were not
+faster, nothing built on top of it would have been either.
+
+```
+]BRUN CBENCH1
+4501500
+```
+
+**7.25s, against 33.79s interpreted.** The same answer, which matters as much
+as the time — `4501500` is what the interpreter printed too.
+
+- **4.7× on the same program.**
+- **9.9× against BENCH4**, the realistically shaped one at 71.52s, because the
+  compiled form has no line to search for and no variable table to scan.
+
+That is far better than the 2.1× the benchmark predicted, and the reason is
+that 2.1× was only ever the win from resolving addresses. Compiling also
+removes the per-statement dispatch, the re-parsing of `3000` on every pass,
+and the token walking.
+
+**It has reached the floor.** One statement was measured at 2.29ms, mostly the
+ROM's floating point; three thousand iterations of about three floating-point
+operations is around 7.2 seconds, which is what it took. The compiled code is
+now almost entirely arithmetic, and the interpretation overhead is not reduced
+but gone. Beating this would mean replacing Applesoft's floating point, which
+is a different project and probably a slower one.
+
+### What this does and does not settle
+
+It settles the **code generation model**: ROM calls with variables and
+constants at fixed addresses, branches resolved, is correct and fast. The
+generated code is the shape the native compiler must produce.
+
+It does not settle the compiler. Reading tokenised source on the machine,
+allocating variables, converting constants and emitting this automatically is
+the work that remains — but it is now engineering against a known target
+rather than a bet.
+
 ### Still to establish
 
 Nothing, for the milestone. The next work is the compiler itself.
