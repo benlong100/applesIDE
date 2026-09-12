@@ -34,7 +34,10 @@ FCOMP        equ   $ebb2            ; 1 greater, 255 less, 0 equal
 COUTA        equ   $fded
 
 NTEMPS       equ   8
+FDEPTH       equ   8                ; nested FOR loops
 
+TFORK        equ   $81
+TNEXT        equ   $82
 TLET         equ   $aa
 TGOTOK       equ   $ab
 TIF          equ   $ad
@@ -49,6 +52,8 @@ TSLASH       equ   $cb
 TGT          equ   $cf
 TEQ          equ   $d0
 TLT          equ   $d1
+TTO          equ   $c1
+TSTEP        equ   $c7
 
 *--------------------------------------
 * GENPASS -- run one pass over the source. PASSNO says which.
@@ -57,6 +62,8 @@ GENPASS      lda   #$00
              sta   LINEI
              sta   LINEI+1
              sta   TEMPTOP
+             sta   FORN
+             sta   FSTKTOP
              sta   OUTLEN
              jsr   REWIND
              bcc   :ready
@@ -108,15 +115,22 @@ GENPASS      lda   #$00
              inc   TMPA
              jmp   :con
 
-:temps       lda   #NTEMPS*5+1      ; the temporaries, and SPSAVE after them
-             sta   TMPB
+*--- The temporaries, the FOR slots and SPSAVE, filled to the address LAYOUT
+*    named rather than counted again here. If the two ever disagreed this
+*    would not terminate, which is a louder failure than quietly starting the
+*    code one byte out.
+:temps       lda   PC
+             cmp   CODESTA
+             bne   :tz
+             lda   PC+1
+             cmp   CODESTA+1
+             beq   :prologue
 :tz          lda   #$00
              jsr   EMIT
-             dec   TMPB
-             bne   :tz
+             jmp   :temps
 
-*--- the prologue: remember where the stack was, so END can unwind a GOSUB
-             lda   #$ba             ; TSX
+*--- remember where the stack was, so END can unwind a GOSUB
+:prologue    lda   #$ba             ; TSX
              jsr   EMIT
              lda   #$8e             ; STX abs
              jsr   EMIT
@@ -154,42 +168,18 @@ GENPASS      lda   #$00
 :fail        sec
              rts
 
-*--- CODESTART, which pass 1's numbers decide
-CODEST       lda   #NTEMPS*5+1
-             sta   TMPA
-             lda   CONSTBASE
+*--- what LAYOUT decided, into TMPP
+CODEST       lda   CODESTA
              sta   TMPP
-             lda   CONSTBASE+1
+             lda   CODESTA+1
              sta   TMPP+1
-             lda   NCONST
-             sta   TMPB
-:mul         lda   TMPB
-             beq   :add
-             lda   TMPP
-             clc
-             adc   #$05
-             sta   TMPP
-             bcc   :nc
-             inc   TMPP+1
-:nc          dec   TMPB
-             jmp   :mul
-:add         lda   TMPP
-             clc
-             adc   TMPA
-             sta   TMPP
-             bcc   :done
-             inc   TMPP+1
-:done        rts
+             rts
 
-*--- SPSAVE sits immediately below the code
-SPADDR       jsr   CODEST
-             lda   TMPP
-             sec
-             sbc   #$01
+SPADDR       lda   SPSAVEA
              sta   TMPP
-             bcs   :done
-             dec   TMPP+1
-:done        rts
+             lda   SPSAVEA+1
+             sta   TMPP+1
+             rts
 
 *--------------------------------------
 * GENLINE -- the statements on one line, separated by colons
@@ -230,6 +220,10 @@ GENSTMT      lda   CH
              beq   :end
              cmp   #TREM
              beq   :rem
+             cmp   #TFORK
+             beq   :for
+             cmp   #TNEXT
+             beq   :next
              cmp   #$80
              bcs   :unsup           ; some other keyword: not this milestone
              jsr   ISALNUM
@@ -249,6 +243,8 @@ GENSTMT      lda   CH
              rts
 :print       jmp   GPRINT
 :end         jmp   GEND
+:for         jmp   GFOR
+:next        jmp   GNEXT
 
 *--- A REM generates nothing at all, which is most of what a compiler has to
 *    say about a comment. Everything to the end of the line goes with it --
@@ -389,6 +385,231 @@ GIF          jsr   EXPR
 :bad         sec
              rts
 :done        clc
+             rts
+
+*--------------------------------------
+* GFOR -- FOR v = start TO limit [STEP step]
+*
+* The limit and the step go into two slots of the loop's own, which is what
+* pass 1 counted the FORs for. Applesoft evaluates all three once, on entry,
+* and so does this -- a limit that is an expression is not re-evaluated every
+* time round, and a program that relies on it being re-evaluated is relying on
+* something Applesoft does not do either.
+*
+* The loop's top is remembered at compile time, on a stack of open FORs, so
+* NEXT needs no run-time bookkeeping at all: no frame to push, nothing to
+* search for, just a JMP to an address decided while compiling. That is most
+* of what makes a compiled loop quicker than an interpreted one.
+*--------------------------------------
+*--- Reached by BRANCH, not by call: these end in RTS, so control returns to
+*    whoever called GFOR. They sit in front of it because the routine is longer
+*    than a branch can reach across.
+FORBAD       lda   #$11             ; a FOR that does not read as one
+             sta   BADFLG
+             sec
+             rts
+FORDEEP      lda   #$10             ; nested deeper than the compiler's stack
+             sta   BADFLG
+             sec
+             rts
+
+GFOR         jsr   NEXTB
+             bcs   FORBAD
+             sta   CH
+             jsr   GETVAR
+             bcs   FORBAD
+             lda   VARI
+             sta   FVAR
+             lda   CH
+             cmp   #TEQ
+             bne   FORBAD
+             jsr   EXPR             ; where it starts
+             bcs   FORBAD
+             lda   FVAR
+             sta   TMPA
+             jsr   VADDR
+             jsr   EMSTP
+
+             jsr   NEXTB
+             bcs   FORBAD
+             cmp   #TTO
+             bne   FORBAD
+             jsr   EXPR             ; and where it stops
+             bcs   FORBAD
+             lda   FORN
+             sta   TMPA
+             jsr   FLADDR
+             jsr   EMSTP
+
+*--- STEP, or one
+             jsr   PEEK
+             bcs   :one
+             cmp   #TSTEP
+             bne   :one
+             jsr   NEXTB
+             jsr   EXPR
+             bcs   FORBAD
+             jmp   :setstep
+:one         lda   #$01             ; constant one is always in the table
+             sta   TMPA
+             jsr   CADDR
+             jsr   EMLOAD
+:setstep     lda   FORN
+             sta   TMPA
+             jsr   FSADDR
+             jsr   EMSTP
+
+*--- open it: the next byte emitted is the top of the loop
+             ldx   FSTKTOP
+             cpx   #FDEPTH
+             bcs   FORDEEP
+             lda   FVAR
+             sta   FSTKV,x
+             lda   FORN
+             sta   FSTKN,x
+             lda   PC
+             sta   FSTKAL,x
+             lda   PC+1
+             sta   FSTKAH,x
+             inc   FSTKTOP
+             inc   FORN
+             clc
+             rts
+
+*--------------------------------------
+* GNEXT -- NEXT [v]
+*
+*   v = v + step ; reload v ; compare with the limit ; go round unless past it
+*
+* RELOADED rather than compared straight out of the accumulator, because what
+* the loop is about is the value the variable now HOLDS, and storing it packs
+* it into five bytes and rounds it. Comparing the unrounded accumulator
+* against the limit would let a loop run one extra time on values where the
+* two differ.
+*
+* WHICH WAY "PAST IT" LIES DEPENDS ON THE STEP, and the step is not known
+* until the program runs -- it can be an expression. So the sign is tested at
+* run time. FCOMP answers 1 when the variable is the greater; for a negative
+* step the loop ends when it is the LESSER, so the two answers are swapped
+* with an EOR and one test serves both.
+*--------------------------------------
+NEXTBAD      sec                    ; GETVAR has already said what was wrong
+             rts
+NEXTNONE     lda   #$12             ; NEXT without a FOR
+             sta   BADFLG
+             sec
+             rts
+NEXTWRONG    lda   #$13             ; NEXT naming the wrong variable
+             sta   BADFLG
+             sec
+             rts
+
+GNEXT        lda   #$ff             ; no name given: the innermost loop
+             sta   VARI
+             jsr   PEEK
+             bcs   :pop
+             sta   CH
+             beq   :pop
+             cmp   #':'
+             beq   :pop
+             jsr   ISALNUM
+             bcs   :pop
+             jsr   NEXTB
+             sta   CH
+             jsr   GETVAR
+             bcs   NEXTBAD
+             jsr   PUTBACK
+
+:pop         lda   FSTKTOP
+             beq   NEXTNONE
+             dec   FSTKTOP
+             ldx   FSTKTOP
+             lda   VARI
+             cmp   #$ff
+             beq   :ok
+             cmp   FSTKV,x
+             bne   NEXTWRONG
+:ok          lda   FSTKV,x
+             sta   FVAR
+             lda   FSTKN,x
+             sta   FSLOT
+             lda   FSTKAL,x
+             sta   FTOP
+             lda   FSTKAH,x
+             sta   FTOP+1
+
+*--- v = v + step, and back into v
+             lda   FVAR
+             sta   TMPA
+             jsr   VADDR
+             jsr   EMLOAD
+             lda   FSLOT
+             sta   TMPA
+             jsr   FSADDR
+             lda   #<FADD
+             sta   ROMA
+             lda   #>FADD
+             sta   ROMA+1
+             jsr   EMOPA
+             lda   FVAR
+             sta   TMPA
+             jsr   VADDR
+             jsr   EMSTP
+
+*--- read it back and compare it with the limit
+             lda   FVAR
+             sta   TMPA
+             jsr   VADDR
+             jsr   EMLOAD
+             lda   FSLOT
+             sta   TMPA
+             jsr   FLADDR
+             lda   #<FCOMP
+             sta   ROMA
+             lda   #>FCOMP
+             sta   ROMA+1
+             jsr   EMOPA
+
+*--- LDX step+1 -- the sign is bit 7 of the first fraction byte
+             lda   #$ae
+             jsr   EMIT
+             lda   FSLOT
+             sta   TMPA
+             jsr   FSADDR
+             lda   TMPP
+             clc
+             adc   #$01
+             sta   TMPP
+             bcc   :nc
+             inc   TMPP+1
+:nc          lda   TMPP
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+
+             lda   #$10             ; BPL over the EOR: a positive step leaves
+             jsr   EMIT             ; FCOMP's answer as it is
+             lda   #$02
+             jsr   EMIT
+             lda   #$49             ; EOR #$FE: swaps 1 and $FF, so "past the
+             jsr   EMIT             ; limit" reads as 1 for either sign
+             lda   #$fe
+             jsr   EMIT
+             lda   #$c9             ; CMP #$01
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$f0             ; BEQ over the jump: the loop is done
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   FTOP
+             sta   TMPP
+             lda   FTOP+1
+             sta   TMPP+1
+             lda   #$4c
+             jsr   EMJ2
+             clc
              rts
 
 *--------------------------------------
@@ -1300,56 +1521,125 @@ CFIND        lda   #$00
 :no          sec
              rts
 
-*--- TMPP = the address of constant TMPA in the compiled program
-CADDR        lda   TMPA
-             sta   TMPB
-             asl
-             asl
-             clc
-             adc   TMPB
+*--------------------------------------
+* SLOTN -- TMPP = SLOTB + TMPA * A
+*
+* One routine rather than one per table. There were four copies of this
+* multiply and they had already drifted: one tested the wrong byte for its
+* loop counter and would have handed back the base address for every
+* temporary.
+*--------------------------------------
+SLOTN        sta   ACCSZ
+             lda   SLOTB
              sta   TMPP
-             lda   #$00
-             adc   #$00
+             lda   SLOTB+1
              sta   TMPP+1
+             lda   TMPA
+             sta   ACCN
+             jmp   BUMP
+
+*--- TMPP += ACCSZ, ACCN times
+BUMP         lda   ACCN
+             beq   :done
              lda   TMPP
              clc
-             adc   CONSTBASE
+             adc   ACCSZ
              sta   TMPP
-             lda   TMPP+1
-             adc   CONSTBASE+1
-             sta   TMPP+1
-             rts
+             bcc   :nc
+             inc   TMPP+1
+:nc          dec   ACCN
+             jmp   BUMP
+:done        rts
 
-*--- and of temporary TMPA, which follow the constants
-TADDR        lda   TMPA
-             sta   TMPB
-             asl
-             asl
-             clc
-             adc   TMPB
-             sta   TMPP
-             lda   #$00
-             adc   #$00
-             sta   TMPP+1
-             lda   NCONST           ; past all the constants
-             sta   TMPB
-:mul         lda   TMPB
-             beq   :add
+*--- TMPP = the address of constant TMPA in the compiled program
+CADDR        lda   CONSTBASE
+             sta   SLOTB
+             lda   CONSTBASE+1
+             sta   SLOTB+1
+             lda   #$05
+             jmp   SLOTN
+
+*--- and of temporary TMPA
+TADDR        lda   TEMPBASE
+             sta   SLOTB
+             lda   TEMPBASE+1
+             sta   SLOTB+1
+             lda   #$05
+             jmp   SLOTN
+
+*--- a FOR's pair: the limit, then the step five bytes after it
+FLADDR       lda   FORBASE
+             sta   SLOTB
+             lda   FORBASE+1
+             sta   SLOTB+1
+             lda   #$0a
+             jmp   SLOTN
+
+FSADDR       jsr   FLADDR
              lda   TMPP
              clc
              adc   #$05
              sta   TMPP
-             bcc   :nc
+             bcc   :done
              inc   TMPP+1
-:nc          dec   TMPB
-             jmp   :mul
-:add         lda   TMPP
-             clc
-             adc   CONSTBASE
+:done        rts
+
+*--------------------------------------
+* LAYOUT -- where everything in the compiled program lives
+*
+* All of it decided here, after pass 1 has counted and before a byte is
+* generated, so the two generating passes cannot disagree about an address.
+*--------------------------------------
+LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
+             sta   VARBASE
              sta   TMPP
-             lda   TMPP+1
-             adc   CONSTBASE+1
+             lda   #>CODEORG+3
+             sta   VARBASE+1
              sta   TMPP+1
+
+             lda   #$05
+             sta   ACCSZ
+             lda   NVARS
+             sta   ACCN
+             jsr   BUMP
+             lda   TMPP
+             sta   CONSTBASE
+             lda   TMPP+1
+             sta   CONSTBASE+1
+
+             lda   NCONST
+             sta   ACCN
+             jsr   BUMP
+             lda   TMPP
+             sta   TEMPBASE
+             lda   TMPP+1
+             sta   TEMPBASE+1
+
+             lda   #NTEMPS
+             sta   ACCN
+             jsr   BUMP
+             lda   TMPP
+             sta   FORBASE
+             lda   TMPP+1
+             sta   FORBASE+1
+
+             lda   #$0a             ; a limit and a step for each FOR
+             sta   ACCSZ
+             lda   NFORS
+             sta   ACCN
+             jsr   BUMP
+             lda   TMPP
+             sta   SPSAVEA
+             lda   TMPP+1
+             sta   SPSAVEA+1
+
+             lda   TMPP             ; and the code, one byte past it
+             clc
+             adc   #$01
+             sta   CODESTA
+             lda   TMPP+1
+             adc   #$00
+             sta   CODESTA+1
              rts
 
 *--------------------------------------
@@ -1375,7 +1665,7 @@ PUTBACK      lda   CH
              sta   PBFLAG
              rts
 
-             dum   $1480
+             dum   $14a0
 PASSNO       ds    1
 PC           ds    2                ; where the next emitted byte will live
 ENDPC        ds    2
@@ -1393,5 +1683,14 @@ CMPA         ds    1
 CMPB         ds    1
 CMPWANT      ds    1
 CMPSENS      ds    1
-EMI          ds    1                ; an index EMIT cannot clobber
+EMI          ds    1
+FVAR         ds    1
+FORN         ds    1                ; which FOR is being compiled
+FSTKTOP      ds    1
+FSTKV        ds    FDEPTH           ; its variable
+FSTKN        ds    FDEPTH           ; its pair of slots
+FSTKAL       ds    FDEPTH           ; and where its loop begins
+FSTKAH       ds    FDEPTH
+FSLOT        ds    1
+FTOP         ds    2                ; an index EMIT cannot clobber
              dend

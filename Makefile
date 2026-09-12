@@ -56,7 +56,7 @@ BIN     := $(BUILD)/$(LANGUP)-$(NAME)
 IMAGE   ?= $(BUILD)/APPLESIDE-$(LANGUP).po
 endif
 
-.PHONY: ccbench cc bench all disk run screen clean tools eject help card test dist
+.PHONY: cctest ccbench cc bench all disk run screen clean tools eject help card test dist
 
 all: $(BIN)
 
@@ -142,6 +142,11 @@ bench: dist
 
 # The acceptance test: the same five programs compiled on the machine, same
 # answers, measured speedup rather than a claimed one.
+# Every program in tests/cc, run and then compiled and run, with the two
+# screens compared. The interpreter is the specification.
+cctest: dist cc
+	@tests/cc.sh
+
 ccbench: dist cc
 	@bench/ccbench.sh
 

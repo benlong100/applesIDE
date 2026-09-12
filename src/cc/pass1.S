@@ -43,6 +43,7 @@ CODEORG      equ   $6000
 
 *--- Applesoft's tokens, by value. tools/gentokens.py has the table these come
 *    out of: END is $80 and they run in order from there.
+TFOR         equ   $81
 TGOTO        equ   $ab
 TGOSUB       equ   $b0
 TREM         equ   $b2
@@ -58,6 +59,7 @@ PASS1        lda   #$00
              sta   NCONST
              sta   NLINES
              sta   NLINES+1
+             sta   NFORS
              sta   BADFLG
 
 *--- ZERO AND ONE ARE ALWAYS THERE, whether the program mentions them or not.
@@ -143,6 +145,12 @@ SCANBODY     lda   #$00
 :token       lda   #$00
              sta   LINEREF
              lda   CH
+*--- Each FOR wants two slots of its own in the compiled program, for the
+*    limit and the step, and pass 1 is where they get counted.
+             cmp   #TFOR
+             bne   :nofor
+             inc   NFORS
+:nofor       lda   CH
              cmp   #TGOTO
              beq   :branch
              cmp   #TGOSUB
@@ -595,44 +603,12 @@ REPORT       lda   #<MSGVARS
 :ok          rts
 
 *--- TMPP <- the address of variable TMPA in the compiled program
-VADDR        lda   TMPA
-             sta   TMPB
-             asl
-             asl
-             clc
-             adc   TMPB
-             sta   TMPP
-             lda   #$00
-             adc   #$00
-             sta   TMPP+1
-             lda   TMPP
-             clc
-             adc   VARBASE
-             sta   TMPP
-             lda   TMPP+1
-             adc   VARBASE+1
-             sta   TMPP+1
-             rts
-
-*--- CONSTBASE <- VARBASE + 5 * NVARS
-CONSTBS      lda   NVARS
-             sta   TMPB
-             asl
-             asl
-             clc
-             adc   TMPB
-             sta   CONSTBASE
-             lda   #$00
-             adc   #$00
-             sta   CONSTBASE+1
-             lda   CONSTBASE
-             clc
-             adc   VARBASE
-             sta   CONSTBASE
-             lda   CONSTBASE+1
-             adc   VARBASE+1
-             sta   CONSTBASE+1
-             rts
+VADDR        lda   VARBASE
+             sta   SLOTB
+             lda   VARBASE+1
+             sta   SLOTB+1
+             lda   #$05
+             jmp   SLOTN
 
 *--------------------------------------
 * PRFAC -- the accumulator as a decimal number, the way Applesoft would
@@ -698,6 +674,14 @@ NLINES       ds    2
 BADFLG       ds    1
 VARBASE      ds    2                ; where the compiled program keeps them
 CONSTBASE    ds    2
+TEMPBASE     ds    2
+FORBASE      ds    2
+SPSAVEA      ds    2                ; where the entry stack pointer is kept
+CODESTA      ds    2
+SLOTB        ds    2
+ACCN         ds    1
+ACCSZ        ds    1
+NFORS        ds    1
              dend
 
 *--- The tables, well clear of the compiler, its buffers and ProDOS.

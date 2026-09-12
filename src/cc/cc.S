@@ -314,18 +314,6 @@ CLOSESRC     jsr   MLI
              rts
 
 *--------------------------------------
-* LAYOUT -- where the compiled program keeps its data
-*
-* Pass 1 has counted everything, so all of it can be decided before a byte of
-* code is generated: variables past the JMP at the front, then the constants.
-*--------------------------------------
-LAYOUT       lda   #<CODEORG+3
-             sta   VARBASE
-             lda   #>CODEORG+3
-             sta   VARBASE+1
-             jmp   CONSTBS
-
-*--------------------------------------
 * BADSAY -- name the objection, if there was one
 *--------------------------------------
 *--- ALWAYS SAYS SOMETHING. A stop with no code set printed nothing at all,
