@@ -29,6 +29,12 @@ MLI          equ   $BF00
 *    MLI and are not free.
 SRCPTR       equ   $06              ; 2 bytes, into the window
 STRPTR       equ   $08              ; 2 bytes, a message being printed
+*--- A third pointer, and $0A was not free enough to be sure of: $06-$09 is
+*    the documented spare, and beyond it the safe ground is $19-$1D, which
+*    belongs to the hires routines this program never calls. Clear of the MLI
+*    at $40-$4F, of COUT's screen pointers at $24-$29, and of the floating
+*    point up at $93-$AA.
+TMPP         equ   $1a              ; 2 bytes, a table entry being reached
 COUT         equ   $FDED
 HOME         equ   $FC58
 
@@ -36,7 +42,9 @@ HOME         equ   $FC58
 *    two bytes of next-line address, two of line number, the body, a zero.
 *    A next-line address of zero ends the program.
 
-START        jsr   HOME
+START        lda   #$00
+             sta   PBFLAG
+             jsr   HOME
              lda   #<MSGOPEN
              ldy   #>MSGOPEN
              jsr   PRSTR
@@ -47,6 +55,7 @@ START        jsr   HOME
 *    and ZipEdit both had this; it is the third time.
              jsr   SETPFX
 
+             jsr   ASKNAME
              jsr   OPENSRC
              bcc   :ok
              lda   #<MSGNOFILE
@@ -59,40 +68,19 @@ START        jsr   HOME
              jmp   FINISH
 :ok
 
-*--- walk the lines
-:line        jsr   RDWORD           ; the next-line address
-             bcs   :done
-             lda   WORD
-             ora   WORD+1
-             beq   :done            ; zero: the program ends here
+             jsr   PASS1
+             jsr   CLOSESRC
 
-             jsr   RDWORD           ; the line number
-             bcs   :done
-             jsr   PRWORD
-             lda   #$8d
-             jsr   COUT
-             inc   COUNT
-             bne   :body
-             inc   COUNT+1
-
-*--- and step over the body, which ends at its zero
-:body        jsr   RDBYTE
-             bcs   :done
-             cmp   #$00
-             bne   :body
-             jmp   :line
-
-:done        jsr   CLOSESRC
              lda   #<MSGLINES
              ldy   #>MSGLINES
              jsr   PRSTR
-             lda   COUNT
+             lda   NLINES
              sta   WORD
-             lda   COUNT+1
+             lda   NLINES+1
              sta   WORD+1
              jsr   PRWORD
-             lda   #$8d
-             jsr   COUT
+             jsr   PRCR
+             jsr   REPORT
 
 *--- Wait before leaving. QUIT goes to the selector, which clears the screen,
 *    so without this the compiler's own report is gone before it can be read.
@@ -111,13 +99,22 @@ FINISH       lda   #<MSGKEY
              sta   $c010
              jmp   QUIT
 
+             put   pass1
+
 *--------------------------------------
 * The source, read through a window rather than all at once.
 *
 * RDBYTE hands back the next byte of the file, refilling from disk when the
 * window runs dry. Carry set at end of file.
 *--------------------------------------
-RDBYTE       lda   SRCLEFT
+RDBYTE       lda   PBFLAG
+             beq   :fresh
+             lda   #$00
+             sta   PBFLAG
+             lda   PBACK
+             clc
+             rts
+:fresh       lda   SRCLEFT
              ora   SRCLEFT+1
              bne   :have
              jsr   REFILL
@@ -258,6 +255,37 @@ CLOSESRC     jsr   MLI
              rts
 
 *--------------------------------------
+* ASKNAME -- which file to compile
+*
+* GETLN, in the monitor at $FD6A: it hands back the line at $0200 with its
+* length in X and the high bits set, and brings backspace and Ctrl-X with it
+* for nothing. ProDOS wants the name in LOW ascii, so the high bit comes off
+* on the way into SRCNAME.
+*
+* An empty line keeps whatever SRCNAME already holds, which is BENCH1 -- the
+* benchmark is what this is aimed at, so it is worth a bare Return.
+*--------------------------------------
+ASKNAME      lda   #<MSGSRC
+             ldy   #>MSGSRC
+             jsr   PRSTR
+             lda   #$a0             ; GETLN echoes this as the prompt
+             sta   $33
+             jsr   $fd6a
+             cpx   #$00
+             beq   :keep
+             cpx   #$10             ; a ProDOS name is fifteen at the most
+             bcs   :keep
+             stx   SRCNAME
+             ldy   #$00
+:copy        lda   $0200,y
+             and   #$7f
+             sta   SRCNAME+1,y
+             iny
+             dex
+             bne   :copy
+:keep        rts
+
+*--------------------------------------
 * SETPFX -- make sure there is a prefix, deriving one from the last device
 * ProDOS touched if nobody left one behind.
 *--------------------------------------
@@ -354,11 +382,14 @@ QUITPARM     dfb   $04
 *    it over the way Ctrl-R hands a name to BASIC.
 SRCNAME      dfb   6
              asc   'BENCH1'
+             ds    9                ; ASKNAME writes up to fifteen here
 
 MSGOPEN      asc   "APPLESOFT COMPILER"
              dfb   $8d,$8d,$00
 MSGNOFILE    asc   "CANNOT OPEN THE SOURCE"
              dfb   $8d,$00
+MSGSRC       asc   "COMPILE WHICH FILE? "
+             dfb   $00
 MSGKEY       asc   "PRESS A KEY"
              dfb   $8d,$00
 MSGLINES     asc   "LINES: "
