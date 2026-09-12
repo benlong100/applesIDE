@@ -10,7 +10,7 @@ stays light for somebody who only wants an editor.
     make          assemble src/aside.S
     make disk     bootable ProDOS 8 image at build/APPLESIDE.po
     make run      build and boot it in Virtual ][
-    make test     run the regression suite (73 assertions)
+    make test     run the regression suite (141 assertions)
     make dist     an image to give away: adds BASIC.SYSTEM, the compiler
                   and a README
     make card VOL=NAME   copy the image to an SD card
@@ -93,10 +93,10 @@ Measured on the machine at 1MHz, the same five programs `make bench` uses:
 
 | program | interpreted | compiled | speedup |
 |---|---|---|---|
-| the loop alone | 33.77s | 9.09s | 3.7× |
-| 200 lines before the target | 66.70s | 9.00s | 7.4× |
-| 30 variables before its two | 38.84s | 9.28s | 4.2× |
-| both, as a real program is | 71.56s | 9.73s | 7.4× |
+| the loop alone | 33.70s | 7.11s | 4.7× |
+| 200 lines before the target | 66.75s | 7.20s | 9.3× |
+| 30 variables before its two | 38.88s | 7.65s | 5.1× |
+| both, as a real program is | 71.46s | 7.90s | 9.0× |
 
 Every answer identical to the interpreter's. **The compiled times barely move
 across the four**, which is the whole point: what differs between those

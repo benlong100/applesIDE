@@ -64,6 +64,7 @@ GENPASS      lda   #$00
              sta   TEMPTOP
              sta   FORN
              sta   FSTKTOP
+             sta   PENDOK
              sta   OUTLEN
              jsr   REWIND
              bcc   :ready
@@ -342,13 +343,33 @@ GOBAD        lda   #$07             ; no such line
 *--------------------------------------
 * GIF -- IF expression THEN ...
 *
-* The test is on the accumulator's exponent: zero is the only way an Applesoft
-* float is zero, so a single LDA and BNE decides it. False jumps to the NEXT
-* LINE, which is right even when the line has more statements after a colon --
-* THEN covers the rest of the line, not just the next statement.
+* Two shapes, because the common one is worth generating well: a single
+* comparison branches straight off FCOMP, and anything else is tested as a
+* value.
 *--------------------------------------
-GIF          jsr   EXPR
+*--- ECMPC, NOT EXPR: it stops at the CMP and says whether there was one, so
+*    the common IF -- a single comparison -- branches straight off FCOMP's
+*    answer instead of building a 1 or a 0 in the accumulator and then asking
+*    whether it is zero. That is a ROM call and twenty-two bytes saved on
+*    every pass of every loop, and it is the whole of the gap between the
+*    generated code and the hand-compiled model.
+GIF          jsr   ECMPC
              bcs   :bad
+             lda   GOTCMP
+             beq   :value
+
+*--- The branch is the OPPOSITE of the one the value form uses: this one skips
+*    the jump when the test is TRUE. $d0 and $f0 differ by one bit.
+             lda   CMPSENS
+             eor   #$20
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             jmp   :jump
+
+*--- Anything else leaves a value, and an Applesoft float is zero only when
+*    its exponent is, so a single LDA and BNE decides it.
+:value       jsr   OPFLUSH
              lda   #$ad             ; LDA abs
              jsr   EMIT
              lda   #$9d             ; the exponent byte of the accumulator
@@ -359,7 +380,10 @@ GIF          jsr   EXPR
              jsr   EMIT
              lda   #$03
              jsr   EMIT
-             jsr   LTNEXT
+
+*--- False goes to the NEXT LINE, which is right even when the line has more
+*    statements after a colon -- THEN covers the rest of the line.
+:jump        jsr   LTNEXT
              lda   #$4c
              jsr   EMJ2
 
@@ -824,44 +848,112 @@ PATCHJ       lda   PASSNO
 EXPR         jmp   ECMP
 
 *--------------------------------------
-* ECMP -- a sum, optionally compared with another
+* ECMPC -- a sum, optionally compared with another, stopping at the CMP
 *
 * FCOMP answers about the accumulator against memory: 1 if the accumulator is
-* the greater. The left side is the one in memory here, so the answer is the
-* other way round from the operator as written -- A < B asks whether the
+* the greater. The left side is the one in memory here, so the answer reads
+* the other way round from the operator as written -- A < B asks whether the
 * accumulator, holding B, is the greater, and that is 1.
 *
-* The result is left as a proper 1 or 0 in the accumulator rather than as a
-* processor flag, so a comparison can be used as a value the way Applesoft
-* allows.
+* This stops after emitting the CMP, with GOTCMP saying whether there was a
+* comparison at all. Two callers want different things from that point: ECMP
+* turns it into a value, and an IF turns it straight into a branch.
+*
+* GOTCMP IS SET LAST, on both paths, because the nested ESUM below can itself
+* contain a comparison in brackets and would leave the flag set on its way
+* out. Anything read before that returns is the inner expression's answer, not
+* this one's.
 *--------------------------------------
-ECMP         jsr   ESUM
-             bcs   :bad
-             jsr   PEEK
-             bcs   :done
+ECMPC        jsr   ESUM
+             bcc   :ok
+             jmp   :bad             ; the tail of this routine is out of reach
+:ok          jsr   PEEK
+             bcs   :none
              cmp   #TLT
              beq   :cmp
              cmp   #TEQ
              beq   :cmp
              cmp   #TGT
-             bne   :done
+             bne   :none
 :cmp         jsr   RDCMPOP
              bcs   :bad
-             jsr   PUSHFAC
+
+*--- ACROSS THE RIGHT-HAND SIDE, on the stack. It may hold a comparison of its
+*    own in brackets, and RDCMPOP would then have written this one's answer
+*    over with the inner one's -- so A < (B < C) would have compiled the outer
+*    test against the inner operator's expectation.
+             lda   CMPWANT
+             pha
+             lda   CMPSENS
+             pha
+             lda   PENDOK
+             beq   :infac
+
+             lda   PENDA
+             pha
+             lda   PENDA+1
+             pha
+             lda   #$00
+             sta   PENDOK
              jsr   ESUM
-             bcs   :bad
+             bcs   :drop4
+             jsr   OPFLUSH
+             pla
+             sta   TMPP+1
+             pla
+             sta   TMPP
+             jmp   :have
+
+:infac       jsr   PUSHFAC
+             jsr   ESUM
+             bcs   :drop
+             jsr   OPFLUSH
              jsr   POPTMP           ; TMPP = the left side's temporary
+:have        pla
+             sta   CMPSENS
+             pla
+             sta   CMPWANT
+
              lda   #<FCOMP
              sta   ROMA
              lda   #>FCOMP
              sta   ROMA+1
              jsr   EMOPA
-
-*--- CMP #want / BNE or BEQ / FAC = 1 / JMP over / FAC = 0
              lda   #$c9             ; CMP immediate
              jsr   EMIT
              lda   CMPWANT
              jsr   EMIT
+             lda   #$01
+             sta   GOTCMP
+             clc
+             rts
+
+:none        lda   #$00
+             sta   GOTCMP
+             clc
+             rts
+:drop4       pla
+             pla
+:drop        pla
+             pla
+:bad         sec
+             rts
+
+*--------------------------------------
+* ECMP -- and the same thing as a value
+*
+* Applesoft lets a comparison BE a value, so this materialises a proper 1 or 0
+* in the accumulator. An IF does not go through here: see GIF.
+*--------------------------------------
+ECMP         jsr   ECMPC
+             bcs   :bad
+             lda   GOTCMP
+             bne   :cmp
+             jsr   OPFLUSH          ; a plain value, deferred until now
+             clc
+             rts
+:cmp
+
              lda   CMPSENS          ; $d0 BNE, or $f0 BEQ for a negated test
              jsr   EMIT
 *--- TEN. Loading the accumulator from an address is LDA #lo, LDY #hi, JSR --
@@ -971,6 +1063,21 @@ RDCMPOP      jsr   NEXTB
 
 *--------------------------------------
 * ESUM / ETERM -- + and -, then * and /
+*
+* A LEAF IS NOT EMITTED WHEN IT IS PARSED. A plain variable or constant only
+* records its address, in PENDA, and whoever wants it decides what to do with
+* it. That one deferral is worth two ROM calls on every binary operator in
+* every program.
+*
+* Because when the left side is still just an address, the RIGHT side can go
+* into the accumulator and the operation can name the left -- which is what
+* FSUB and FDIV want anyway, since they compute memory minus accumulator and
+* memory over accumulator. So I + 1 compiles to a load and an add, where
+* storing the left into a temporary first and reloading it made it a load, a
+* store, a load and an add.
+*
+* When the left is already a value in the accumulator -- because it was itself
+* an expression -- the temporary is still needed, and that is what it is for.
 *--------------------------------------
 ESUM         jsr   ETERM
              bcs   :bad
@@ -981,26 +1088,51 @@ ESUM         jsr   ETERM
              cmp   #TMINUS
              bne   :done
 :op          jsr   NEXTB
+             pha                    ; the operator, across the right side
+             lda   PENDOK
+             beq   :infac
+
+             lda   PENDA            ; and the left side's address with it
              pha
-             jsr   PUSHFAC
+             lda   PENDA+1
+             pha
+             lda   #$00
+             sta   PENDOK
              jsr   ETERM
-             bcs   :drop
-             jsr   POPTMP
+             bcs   :drop3
+             jsr   OPFLUSH
              pla
+             sta   TMPP+1
+             pla
+             sta   TMPP
+             jmp   :emit
+
+:infac       jsr   PUSHFAC
+             jsr   ETERM
+             bcs   :drop1
+             jsr   OPFLUSH
+             jsr   POPTMP
+
+:emit        pla
              cmp   #TPLUS
              bne   :sub
              lda   #<FADD
              sta   ROMA
              lda   #>FADD
              sta   ROMA+1
-             jmp   :emit
+             jmp   :go
 :sub         lda   #<FSUB           ; memory MINUS accumulator: the left side
-             sta   ROMA             ; is the one in memory, which is why it
-             lda   #>FSUB           ; went into the temporary
+             sta   ROMA             ; is the one named here
+             lda   #>FSUB
              sta   ROMA+1
-:emit        jsr   EMOPA
+:go          jsr   EMOPA
+             lda   #$00
+             sta   PENDOK
              jmp   :loop
-:drop        pla
+
+:drop3       pla
+             pla
+:drop1       pla
 :bad         sec
              rts
 :done        clc
@@ -1016,29 +1148,71 @@ ETERM        jsr   EFACT
              bne   :done
 :op          jsr   NEXTB
              pha
-             jsr   PUSHFAC
+             lda   PENDOK
+             beq   :infac
+
+             lda   PENDA
+             pha
+             lda   PENDA+1
+             pha
+             lda   #$00
+             sta   PENDOK
              jsr   EFACT
-             bcs   :drop
-             jsr   POPTMP
+             bcs   :drop3
+             jsr   OPFLUSH
              pla
+             sta   TMPP+1
+             pla
+             sta   TMPP
+             jmp   :emit
+
+:infac       jsr   PUSHFAC
+             jsr   EFACT
+             bcs   :drop1
+             jsr   OPFLUSH
+             jsr   POPTMP
+
+:emit        pla
              cmp   #TSTAR
              bne   :div
              lda   #<FMUL
              sta   ROMA
              lda   #>FMUL
              sta   ROMA+1
-             jmp   :emit
+             jmp   :go
 :div         lda   #<FDIV           ; memory OVER accumulator, the same way
              sta   ROMA
              lda   #>FDIV
              sta   ROMA+1
-:emit        jsr   EMOPA
+:go          jsr   EMOPA
+             lda   #$00
+             sta   PENDOK
              jmp   :loop
-:drop        pla
+
+:drop3       pla
+             pla
+:drop1       pla
 :bad         sec
              rts
 :done        clc
              rts
+
+*--------------------------------------
+* OPFLUSH -- put a deferred leaf into the accumulator after all
+*
+* Called by everything that actually needs the value there rather than an
+* address: the end of an expression, and the right-hand side of any operator.
+*--------------------------------------
+OPFLUSH      lda   PENDOK
+             beq   :done
+             lda   #$00
+             sta   PENDOK
+             lda   PENDA
+             sta   TMPP
+             lda   PENDA+1
+             sta   TMPP+1
+             jmp   EMLOAD
+:done        rts
 
 *--------------------------------------
 * EFACT -- a negation, a number, a variable, or a bracketed expression
@@ -1054,6 +1228,7 @@ EFACT        jsr   PEEK
              jsr   NEXTB
              jsr   EPRIM
              bcs   :bad
+             jsr   OPFLUSH
              lda   #$00
              sta   TMPA
              jsr   CADDR
@@ -1067,7 +1242,9 @@ EFACT        jsr   PEEK
 :bad         sec
              rts
 
-EPRIM        jsr   NEXTB
+EPRIM        lda   #$00
+             sta   PENDOK
+             jsr   NEXTB
              bcs   :bad
              sta   CH
              cmp   #'('
@@ -1114,9 +1291,7 @@ EPRIM        jsr   NEXTB
              jsr   CFIND
              bcs   :bad
              jsr   CADDR
-             jsr   EMLOAD
-             clc
-             rts
+             jmp   DEFER
 
 :var         jsr   GETVAR
              bcs   :bad
@@ -1124,7 +1299,15 @@ EPRIM        jsr   NEXTB
              lda   VARI
              sta   TMPA
              jsr   VADDR
-             jsr   EMLOAD
+*--- fall through
+
+*--- Remember where it is rather than loading it. See ESUM.
+DEFER        lda   TMPP
+             sta   PENDA
+             lda   TMPP+1
+             sta   PENDA+1
+             lda   #$01
+             sta   PENDOK
              clc
              rts
 
@@ -1692,5 +1875,8 @@ FSTKN        ds    FDEPTH           ; its pair of slots
 FSTKAL       ds    FDEPTH           ; and where its loop begins
 FSTKAH       ds    FDEPTH
 FSLOT        ds    1
-FTOP         ds    2                ; an index EMIT cannot clobber
+FTOP         ds    2
+GOTCMP       ds    1                ; the expression ended in a comparison
+PENDOK       ds    1                ; a leaf parsed but not yet emitted
+PENDA        ds    2                ; and where it lives                ; an index EMIT cannot clobber
              dend

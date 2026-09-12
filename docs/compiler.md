@@ -263,11 +263,11 @@ each one interpreted and then compiled, in the same session on the same disk.
 
 | program | interpreted | compiled | speedup | answer |
 |---|---|---|---|---|
-| BENCH1 | 33.77s | 9.09s | 3.7× | 4501500 |
-| BENCH2 | 66.70s | 9.00s | 7.4× | 4501500 |
-| BENCH3 | 38.84s | 9.28s | 4.2× | 4501500 |
-| BENCH4 | 71.56s | 9.73s | 7.4× | 4501500 |
-| BENCH5 | 26.83s | 6.96s | 3.9× | 3000 |
+| BENCH1 | 33.70s | 7.11s | 4.7× | 4501500 |
+| BENCH2 | 66.75s | 7.20s | 9.3× | 4501500 |
+| BENCH3 | 38.88s | 7.65s | 5.1× | 4501500 |
+| BENCH4 | 71.46s | 7.90s | 9.0× | 4501500 |
+| BENCH5 | 26.81s | 5.76s | 4.7× | 3000 |
 
 Every answer is the interpreter's own.
 
@@ -302,18 +302,47 @@ rather than compiled wrongly — a compiler that carried on would write a
 program that ran and gave a wrong answer, which is the one outcome worse than
 refusing.
 
-### The gap to the hand-compiled model, and what closes it
+### Closing the gap to the hand-compiled model
 
-The model did BENCH1 in 7.25s; the compiler's output does it in 9.09s. The
-difference is one thing: `IF I < 3000` compiles the comparison into a proper
-Applesoft value — it materialises 1 or 0 in the accumulator — and then `IF`
-tests that value. The model branched straight off `FCOMP`'s answer.
+The model did BENCH1 in 7.25s. The first working compiler did it in 9.09s, and
+two changes closed the gap and then went past it, to **7.11s**.
 
-Producing a value is the right general behaviour, since Applesoft lets a
-comparison BE one. Closing the gap means recognising the common case, where an
-`IF`'s expression is a single top-level comparison, and branching directly.
-That is a peephole, not a redesign, and it is the obvious next piece of work
-on speed.
+**The first was the smaller one, and I expected it to be the larger.** `IF I <
+3000` was compiling the comparison into a proper Applesoft value — materialising
+1 or 0 in the accumulator — and then testing whether that value was zero.
+Producing a value is right in general, since Applesoft lets a comparison BE
+one, so the fix was to recognise the common case: an `IF` whose expression is a
+single top-level comparison branches straight off `FCOMP`. Twenty-two bytes and
+a ROM call per iteration. It bought 0.25s.
+
+**The second was the real cost, and it was in every expression in every
+program.** A binary operator was storing its left side into a temporary and
+loading it back:
+
+```
+MOVFM I ; MOVMF temp ; MOVFM C1 ; FADD temp ; MOVMF I      five ROM calls
+```
+
+where the model wrote
+
+```
+MOVFM I ; FADD C1 ; MOVMF I                                three
+```
+
+The fix is one deferral: **a leaf is not emitted when it is parsed.** A plain
+variable or constant only records its address, and the operator decides what to
+do with it. When the left side is still just an address, the right side can go
+into the accumulator and the operation can name the left — which is what `FSUB`
+and `FDIV` want anyway. The temporary is still there for when the left side is
+itself an expression, which is what it was always for.
+
+That is worth two ROM calls on every binary operator in the program, and it
+took BENCH1 from 8.84s to 7.11s.
+
+Both changes were checked against the interpreter before being measured, which
+matters more than usual here: a faster wrong answer is not an improvement, and
+the deferral touches the operand order of exactly the two operations that are
+already the other way round from the obvious guess.
 
 ### Three bugs worth keeping
 
