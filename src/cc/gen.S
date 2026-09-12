@@ -228,6 +228,8 @@ GENSTMT      lda   CH
              beq   :print
              cmp   #TEND
              beq   :end
+             cmp   #TREM
+             beq   :rem
              cmp   #$80
              bcs   :unsup           ; some other keyword: not this milestone
              jsr   ISALNUM
@@ -247,6 +249,19 @@ GENSTMT      lda   CH
              rts
 :print       jmp   GPRINT
 :end         jmp   GEND
+
+*--- A REM generates nothing at all, which is most of what a compiler has to
+*    say about a comment. Everything to the end of the line goes with it --
+*    including any colon, since a REM swallows the rest of the line in
+*    Applesoft too. The terminating zero is handed back so the line ends the
+*    ordinary way rather than by reading into the next one's link.
+:rem         jsr   NEXTB
+             bcs   :unsup
+             sta   CH
+             bne   :rem
+             jsr   PUTBACK
+             clc
+             rts
 :unsup       lda   #$05
              sta   BADFLG
              sec

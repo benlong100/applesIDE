@@ -155,7 +155,7 @@ FINISH       lda   #<MSGKEY
 :key         lda   $c000
              bpl   :key
              sta   $c010
-             jmp   QUIT
+             jmp   TOBASIC
 
              put   pass1
              put   gen
@@ -525,6 +525,105 @@ PRHEX        pha
 :out         ora   #$80
              jmp   COUT
 
+*--------------------------------------
+* TOBASIC -- leave into BASIC, where the thing just compiled can be run
+*
+* MLI QUIT lands at the dispatcher, which on 2.4 is a file picker, and from
+* there BASIC.SYSTEM is another choice away. What you want after compiling is
+* the ] prompt, so this loads BASIC.SYSTEM and enters it, exactly as the
+* editor's OA-Q does, and falls back to the dispatcher on a disk without one.
+*
+* A SYS file loads at $2000 and is entered there -- which is where THIS
+* program is running -- so the few instructions that do the reading are copied
+* to $300 and run from there while $2000 is overwritten. Everything they touch
+* lives at $15xx, below the read, because an absolute reference to a parameter
+* block assembled next to the code would be read from an address BASIC.SYSTEM
+* had just landed on.
+*
+* AND IT CHECKS ITS WORK: BASIC.SYSTEM's first act is to relocate thirty-five
+* pages of itself, so a short read leaves it copying whatever is still lying
+* at $2400 into high memory and then entering it. The editor's tester saw
+* exactly that. So the read must not fail, must have delivered at least 8K --
+* ProDOS stops at end of file without complaining -- and $2000 must hold the
+* JMP every SYS file starts with.
+*--------------------------------------
+TOBASIC      jsr   MLI
+             dfb   $c8              ; OPEN BASIC.SYSTEM
+             da    BOPENPARM
+             bcs   PLAINQUIT
+             lda   BOPENPARM+5
+             sta   BREADPARM+1
+
+             lda   #$04             ; the READ block, where the read cannot
+             sta   BREADPARM        ; reach it
+             lda   #$00
+             sta   BREADPARM+2
+             sta   BREADPARM+4
+             lda   #$20
+             sta   BREADPARM+3
+             lda   #$50
+             sta   BREADPARM+5
+
+*--- CLOSE EVERY FILE, not just this one: a ref_num of zero means all of them,
+*    and it is what releases the ProDOS buffers and the pages they hold in the
+*    system bitmap. Jumping to another SYS file with a buffer still allocated
+*    leaves BASIC.SYSTEM relocating itself around memory ProDOS believes is
+*    spoken for.
+             lda   #$01
+             sta   BCLOSPARM
+             lda   #$00
+             sta   BCLOSPARM+1
+
+             lda   #$04
+             sta   BQPARM
+             ldx   #$05
+             lda   #$00
+:qz          sta   BQPARM+1,x
+             dex
+             bpl   :qz
+
+             ldx   #LAUNEND-LAUNCH-1
+:copy        lda   LAUNCH,x
+             sta   $0300,x
+             dex
+             bpl   :copy
+             jmp   $0300
+
+PLAINQUIT    lda   #$01
+             sta   CLOSEPARM
+             lda   #$00
+             sta   CLOSEPARM+1
+             jsr   MLI
+             dfb   $cc
+             da    CLOSEPARM
+             jmp   QUIT
+
+*--- Copied to $300 and run there, because it is about to overwrite the code
+*    it was assembled next to. Only branches inside, and absolute references
+*    only to $BF00, $2000 and the blocks at $15xx.
+LAUNCH       jsr   MLI
+             dfb   $ca              ; READ
+             da    BREADPARM
+             bcs   :bad
+             lda   BREADPARM+7      ; how much actually arrived, high byte
+             cmp   #$20             ; under 8K is not a BASIC.SYSTEM
+             bcc   :bad
+             lda   $2000
+             cmp   #$4c             ; JMP -- how a SYS file begins
+             bne   :bad
+             jsr   MLI
+             dfb   $cc
+             da    BCLOSPARM
+             jmp   $2000
+:bad         jsr   MLI
+             dfb   $cc
+             da    BCLOSPARM
+             jsr   MLI
+             dfb   $65
+             da    BQPARM
+             rts
+LAUNEND
+
 QUIT         jsr   MLI
              dfb   $65
              da    QUITPARM
@@ -551,6 +650,12 @@ SETPPARM     dfb   $01
 ONLPARM      dfb   $02
              dfb   $00
              da    ONLBUF
+BOPENPARM    dfb   $03
+             da    BASNAME
+             da    IOBUF
+             dfb   $00
+BASNAME      dfb   12
+             asc   'BASIC.SYSTEM'   ; single quotes: ProDOS wants LOW ascii
 DESTPARM     dfb   $01
              da    OUTNAME
 CREPARM      dfb   $07
@@ -618,6 +723,14 @@ TMPA         ds    1
 LOWN         ds    1
 STAGE        ds    1
 OUTNAME      ds    17
+             dend
+
+*--- The stub at $300 reads these AFTER BASIC.SYSTEM has landed on top of
+*    everything this program was assembled into, so they cannot live with it.
+             dum   $1500
+BREADPARM    ds    8
+BCLOSPARM    ds    2
+BQPARM       ds    7
              dend
 
 *--- Two ProDOS buffers, a window into the source and one out to the output
