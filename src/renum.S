@@ -90,8 +90,9 @@ RNPASS       lda   #$00
              bpl   :clr
 
 :scan        jsr   RNAT             ; what is under the cursor?
-             bcs   :done            ; end of buffer
-             cmp   #TEXTLO
+             bcc   :have
+             jmp   :done            ; end of buffer. A jump, because the DATA
+:have        cmp   #TEXTLO           ; dispatch above put :done out of reach
              bcs   :text
              jsr   GAPRIGHT         ; a break: step over it, next line
              jmp   :line
@@ -118,8 +119,25 @@ RNPASS       lda   #$00
              plp
              bcc   :scan            ; no keyword completed
 
-             lda   RFKWR,x          ; X is which one: does it take a number?
+*--- X AGAIN. GAPRIGHT just above uses X as scratch -- it holds the byte it
+*    stepped over -- so the index RNMATCH left there is long gone, and
+*    RFKWR,x was being read at an offset equal to a character code.
+*
+*    It looked like it worked because the only test was `bne :target`, and a
+*    garbage byte is almost never zero, so keywords that DO take a line number
+*    took the right path by accident. REM did not: it fell into :target, found
+*    no digits after it, and carried on scanning the comment -- so a line
+*    number mentioned in one was renumbered. The suite missed it because its
+*    REM test used 999, which maps to nothing whatever you do.
+             ldx   RFWH
+             lda   RFKWR,x          ; X is which one: 1 takes a number, 0 ends
+             beq   :rem             ; the line, 2 ends the statement
+             cmp   #$02
+             beq   :dataj
              bne   :target
+:dataj       jmp   :data            ; the block sits after this routine's exit:
+                                    ; put in the middle of the walk it pushed
+                                    ; half the loop's branches out of range
 
 *--- REM. Nothing after it is code, so run to the break without looking.
 :rem         jsr   RNAT
@@ -148,11 +166,46 @@ RNPASS       lda   #$00
              jsr   RNAT             ; a comma means another one follows
              bcs   :done
              cmp   #$ac
-             bne   :scan
-             jsr   GAPRIGHT
+             beq   :comma
+             jmp   :scan            ; the routine is long enough now that the
+:comma       jsr   GAPRIGHT         ; top of the walk needs a jump
              jmp   :target
 
 :done        rts
+
+*--- DATA. Its contents are values, so a number among them is not a reference
+*    and MUST NOT BE REWRITTEN. Demonstrated before it was fixed:
+*    100 DATA GOTO 500 renumbered to 10 DATA GOTO 30, quietly changing the
+*    program's data rather than a reference to a line.
+*
+*    Unlike REM it ends at a COLON rather than at the break, so the GOTO in
+*    10 DATA 1,2:GOTO 888 is still followed. A colon inside quotes does not
+*    end it, which is why the string state is tracked here too.
+*
+*    Jumps rather than branches back to the walk: this sits past the end of
+*    the routine, well outside branch range of either.
+:data        jsr   RNAT
+             bcc   :dchk
+             jmp   :done
+:dchk        cmp   #TEXTLO
+             bcs   :dtext
+             jmp   :scan            ; the break; :scan will handle it
+:dtext       cmp   #$a2
+             bne   :dnq
+             lda   RFSTR
+             eor   #$01
+             sta   RFSTR
+             jsr   GAPRIGHT
+             jmp   :data
+:dnq         lda   RFSTR
+             bne   :dstep
+             jsr   RNAT
+             cmp   #':'+$80
+             beq   :dout
+:dstep       jsr   GAPRIGHT
+             jmp   :data
+:dout        jsr   GAPRIGHT         ; over the colon: code again after it
+             jmp   :scan
 
 *--------------------------------------
 * RNAT -- the character under the cursor, without moving it

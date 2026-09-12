@@ -310,6 +310,7 @@ TKONE        lda   #$00
              sta   TKBL
              sta   TKSTR
              sta   TKREM2
+             sta   TKDATA
              sta   LNUM
              sta   LNUM+1
              sta   TKANY2
@@ -351,7 +352,9 @@ TKONE        lda   #$00
 
              ldy   TKREM2           ; after REM everything is literal
              bne   :litj
-             ldy   TKSTR            ; and so is the inside of a string
+             ldy   TKDATA
+             bne   :indata          ; and so is everything in a DATA
+             ldy   TKSTR            ; and the inside of a string
              beq   :code
              cmp   #$a2             ; ...up to the closing quote
              bne   :litj
@@ -359,6 +362,46 @@ TKONE        lda   #$00
              sta   TKSTR
 :litj        jmp   :lit             ; a trampoline: :lit is past every test
                                     ; below it
+
+*--------------------------------------
+* Inside a DATA.
+*
+* APPLESOFT DOES NOT TOKENISE HERE AND NEITHER MUST THIS. Read off a file it
+* wrote: 10 DATA 144,-4,BOSTON is stored as <83> and then the characters, with
+* the minus as a plain $2D and BOSTON untouched -- no ON token inside it. This
+* editor was tokenising both, so a program with DATA -4 saved to a file that
+* gave ?SYNTAX ERROR on READ, and DATA BOSTON came back as BOST and a stray
+* token. It round-tripped through the editor unharmed, because the reader
+* expanded the same tokens again; only Applesoft ever saw the damage.
+*
+* THE SPACES STAY TOO. Everywhere else a space outside a string is dropped,
+* because Applesoft drops it. In a DATA it keeps it -- DATA HELLO WORLD is
+* stored with the space, and it is part of the value.
+*
+* A COLON ENDS IT, and what follows is code again: DATA A:PRINT 1 stores the
+* colon and then the PRINT token. A colon inside quotes does not -- DATA
+* "A:B",C:PRINT 2 ends at the second one. All four rules read off the bytes of
+* a file Applesoft saved, not recalled.
+*--------------------------------------
+:indata      ldy   TKSTR
+             beq   :dopen
+             cmp   #$a2             ; the closing quote
+             bne   :litj
+             lda   #$00
+             sta   TKSTR
+             jmp   :litj
+:dopen       cmp   #$a2             ; an opening quote
+             bne   :dcolon
+             lda   #$01
+             sta   TKSTR
+             lda   LNBUF,x
+             jmp   :litj
+:dcolon      cmp   #':'+$80
+             bne   :litj
+             lda   #$00             ; the DATA ends here; the colon itself is
+             sta   TKDATA           ; stored and the rest is code again
+             lda   LNBUF,x
+             jmp   :litj
 
 :code        cmp   #$a2             ; an opening quote
              bne   :nq
@@ -379,9 +422,14 @@ TKONE        lda   #$00
              jsr   TKEMIT
              lda   TZKW
              cmp   #TKREMI
-             bne   :adv
+             bne   :nrem
              lda   #$01             ; REM: the rest of the line is a comment
              sta   TKREM2
+             jmp   :adv
+:nrem        cmp   #TKDATAI
+             bne   :adv
+             lda   #$01             ; DATA: the rest is values, up to a colon
+             sta   TKDATA
 :adv         lda   TKI2
              clc
              adc   TKL2
@@ -802,6 +850,7 @@ TKLL         ds    1                ; length of the source line in LNBUF
 TKEOF        ds    1                ; why TKREAD stopped
 TKI2         ds    1                ; index into LNBUF
 TKSTR        ds    1                ; inside a string
+TKDATA       ds    1                ; inside a DATA, writing
 TKREM2       ds    1                ; after a REM, writing
 TKREM3       ds    1                ; after a REM, reading
 TKANY2       ds    1                ; digits in the line number

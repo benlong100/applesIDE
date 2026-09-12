@@ -303,6 +303,7 @@ RFSCAN       jsr   RFRESET
 
              lda   #$00
              sta   RFSTR            ; a string cannot span a line
+             sta   RFDATA           ; nor can a DATA
              ldx   #RFNKW-1
 :clr0        sta   RFHIT,x          ; nor can a half-matched keyword
              dex
@@ -373,8 +374,20 @@ RFCLASS      sta   RFCH
              clc
              rts
 :nq          lda   RFSTR
-             beq   :code
+             beq   :notstr
              clc                    ; inside a string: nothing else counts
+             rts
+
+*--- inside a DATA the same applies, up to the colon that ends it. The quote
+*    test above still runs, so a colon inside quotes does not end it either.
+:notstr      lda   RFDATA
+             beq   :code
+             lda   RFCH
+             cmp   #':'+$80
+             bne   :still
+             lda   #$00
+             sta   RFDATA
+:still       clc
              rts
 
 *--- outside a string. Match the keywords one character at a time: RFKW is how
@@ -439,12 +452,28 @@ RFMATCH      ldx   #$00
              sec
              rts
 :act         lda   RFKWR,x          ; does this one take a line number?
-             bne   :takes
-             sec                    ; REM: the line is over as far as meaning
+             beq   :rem
+             cmp   #$02
+             beq   :data
+             jmp   RFTARGET
+
+*--- DATA. Its contents are values, not code, so the letters G-O-T-O in them
+*    are four letters and the number after them is a number. Without this,
+*    DATA GOTO 10 read as a reference: OA-K reported line 10 missing and OA-R
+*    RENUMBERED IT, silently changing a value in the program's data.
+*
+*    It ends at a colon rather than at the end of the line, so DATA 1,2:GOTO 50
+*    still has its GOTO followed -- the rule Applesoft's own tokeniser uses,
+*    and the one tok.S now writes with.
+:data        lda   #$01
+             sta   RFDATA
+             clc
+             rts
+
+:rem         sec                    ; REM: the line is over as far as meaning
              lda   #$03             ; goes -- but NOT as far as the buffer is
              sta   RFEOL2           ; concerned. 3 tells RFSCAN to run on to
              rts                    ; the real break first.
-:takes       jmp   RFTARGET
 
 *--------------------------------------
 * RFTARGET -- read the line number after a keyword and look it up
@@ -568,18 +597,22 @@ RFLOOK       lda   LNUM
 * that one X indexes both; RFKWL is each one's length, RFKWR whether it takes
 * a line number after it.
 *--------------------------------------
-RFNKW        equ   5
+RFNKW        equ   6
 
-RFKWT        dfb   <KWGOTO,<KWGOSUB,<KWTHEN,<KWRUN,<KWREM,0,0,0
-             dfb   >KWGOTO,>KWGOSUB,>KWTHEN,>KWRUN,>KWREM,0,0,0
-RFKWL        dfb   4,5,4,3,3
-RFKWR        dfb   1,1,1,1,0        ; REM is the one that takes nothing
+RFKWT        dfb   <KWGOTO,<KWGOSUB,<KWTHEN,<KWRUN,<KWREM,<KWDATA,0,0
+             dfb   >KWGOTO,>KWGOSUB,>KWTHEN,>KWRUN,>KWREM,>KWDATA,0,0
+RFKWL        dfb   4,5,4,3,3,4
+*--- What each one does with what follows: 1 takes a line number, 0 ends the
+*    line (REM), 2 ends the STATEMENT (DATA) -- up to a colon, after which the
+*    rest of the line is code again.
+RFKWR        dfb   1,1,1,1,0,2
 
 KWGOTO       asc   "GOTO"
 KWGOSUB      asc   "GOSUB"
 KWTHEN       asc   "THEN"
 KWRUN        asc   "RUN"
 KWREM        asc   "REM"
+KWDATA       asc   "DATA"
 
 *--- file.S's block at $0800 ends around $11EA and the editor's own variables
 *    start at $1420, so $1200 is free and has room for the message buffer.
@@ -602,6 +635,7 @@ RFWANT       ds    2                ; and what it asked for
 RFANY        ds    1
 RFEOL        ds    1                ; why RFNUMBER stopped
 RFEOL2       ds    1                ; why RFCLASS stopped
+RFDATA       ds    1                ; inside a DATA statement
 RFCH         ds    1
 RFCH2        ds    1                ; a character to be looked at again
 RFAGAIN      ds    1                ; ...and whether there is one

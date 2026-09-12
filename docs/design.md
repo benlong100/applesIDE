@@ -908,6 +908,78 @@ level whatever its nesting — right by luck at depth one, wrong everywhere
 else. It is written down in the notes of both projects and was walked into
 again anyway. The count lives in memory now.
 
+### DATA is not tokenised, and neither was this
+
+Applesoft tokenises reserved words wherever the letters fall — except inside a
+string, after a `REM`, and **inside a `DATA`**. The editor knew the first two
+and not the third, so it tokenised the contents of every `DATA` statement it
+saved.
+
+The cost was a file that Applesoft could not read back. `DATA -4` stored the
+minus as the operator token and gave `?SYNTAX ERROR` on `READ`. `DATA BOSTON`
+gave up an `ON` and came back as `BOST` and a stray byte. `DATA HELLO WORLD`
+lost its space, because spaces outside strings are dropped everywhere else and
+Applesoft keeps them here.
+
+**It round-tripped through the editor unharmed**, which is why it lasted: the
+reader expanded the same tokens again, so opening the file showed exactly what
+had been typed. Only Applesoft ever saw the damage.
+
+The four rules were read off the bytes of a file Applesoft saved, not recalled:
+
+```
+10 DATA 144,-4,BOSTON      83 20 31 34 34 2C 2D 34 2C 42 4F 53 54 4F 4E
+20 DATA A:PRINT 1          83 20 41 3A BA 31
+30 DATA "A:B",C:PRINT 2    83 20 22 41 3A 42 22 2C 43 3A BA 32
+40 DATA HELLO WORLD        83 20 48 45 4C 4C 4F 20 57 4F 52 4C 44
+```
+
+The contents are literal; **the space after the token is kept**; a colon ends
+the statement and what follows is code again; and a colon inside quotes does
+not. `TKDATA` in `tok.S` carries the state, exactly as `TKREM2` does for a
+comment, and the suite asserts all four byte-for-byte.
+
+The compiler's own scanner had the same blind spot — it read `DATA BOSTON` as
+a variable called `BO` — and `pass1.S` now carries the same four rules. Nothing
+was compiled wrongly from it, because a `DATA` statement is refused outright,
+but a program full of them would have run out of variables and complained
+about that instead of about the `DATA`.
+
+### The same rule for OA-K and OA-R, and an older bug underneath it
+
+`refs.S` honoured strings and `REM` but not `DATA`, so `DATA GOTO 10` read as
+a reference: `OA-K` reported line 10 missing, and `OA-R` **renumbered it** —
+changing a value in the program's data rather than a reference to a line.
+`DATA` is now a sixth keyword there, with `RFKWR` carrying three answers
+instead of two: 1 takes a line number, 0 ends the line (`REM`), 2 ends the
+statement (`DATA`, up to a colon).
+
+Fixing it in `renum.S` turned up something older. Renumber reads the matched
+keyword's index out of X:
+
+```
+             jsr   RNMATCH          ; leaves the index in X
+             php
+             jsr   GAPRIGHT         ; ...which uses X as scratch
+             plp
+             bcc   :scan
+             lda   RFKWR,x          ; so this indexes by a character code
+```
+
+**It looked like it worked**, because the only test was `bne :target` and a
+garbage byte is almost never zero — so every keyword that does take a line
+number took the right path by accident. `REM` did not. It fell into `:target`,
+found no digits immediately after it, and carried on scanning the comment, so
+a line number mentioned in one was renumbered.
+
+The suite had a test for exactly this and it passed, because the comment it
+used was `REM GOTO 999` and 999 maps to nothing whatever you do. The test now
+uses a number that does map.
+
+**What this still does not cover**: the highlighter and the hint row read a
+`DATA`'s contents as code, so `DATA BOSTON` draws an inverse `ON`. That is
+cosmetic, and the file on disk is right.
+
 ### And live, from the line above alone
 
 `LIEMIT` runs on Return. It reads the ONE line the cursor just left — the

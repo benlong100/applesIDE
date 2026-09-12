@@ -429,6 +429,24 @@ numbered 3 '20 ON X GOTO 10,20,777'
 oa "K"
 snapshot
 assert_row "every element of a list is checked"     23 "NO SUCH LINE: 20 -> 777"
+
+# A DATA's contents are values. The letters G-O-T-O in them are four letters,
+# and the number after them is a number -- this used to report 999 missing,
+# and OA-R renumbered it, silently changing a value in the program's data.
+reboot
+t '10 DATA GOTO 999'
+numbered 3 '20 END'
+oa "K"
+snapshot
+assert_row "a GOTO inside a DATA is not a reference" 23 "ALL LINE REFERENCES OK"
+
+# ...but a DATA ends at a colon, and what follows it is code again.
+reboot
+t '10 DATA 1,2:GOTO 888'
+numbered 3 '20 END'
+oa "K"
+snapshot
+assert_row "and a GOTO after its colon still is"     23 "NO SUCH LINE: 10 -> 888"
 fi
 
 #--------------------------------------
@@ -445,6 +463,17 @@ assert_row "a GOSUB follows its line"               1 "20 GOSUB 40"
 assert_row "and so does a THEN"                     2 "30 IF X THEN 10"
 assert_row "the last line lands on 40"              3 "40 RETURN"
 
+# The same rule on the way out: a DATA's contents are values, and renumbering
+# must not rewrite one. RENUM goes through RFMATCH by a different door from
+# OA-K, so passing that one proves nothing about this.
+reboot
+t '100 DATA GOTO 500'
+numbered 4 '200 END'
+numbered 4 '500 REM'
+oa "R"
+snapshot
+assert_row "a number inside a DATA is left alone"   0 "10 DATA GOTO 500"
+
 # numbers that GROW, plus a comment and a string that must not move
 reboot
 t '1 REM GOTO 999'
@@ -457,6 +486,18 @@ assert_row "one digit grows to two"                 0 "10 REM"
 assert_row "a comment keeps its number"             0 "GOTO 999"
 assert_row "so does a string"                       1 "20 PRINT \"GOTO 3\""
 assert_row "and a whole list is remapped"           2 "30 ON X GOTO 10,20,30"
+
+# ...and with a number that DOES map, which the 999 above never could. This
+# is what caught renumber reading its keyword index out of a register
+# GAPRIGHT had already used.
+reboot
+t '1 REM GOTO 3'
+numbered 3 '2 END'
+numbered 3 '3 END'
+oa "R"
+snapshot
+assert_row "a REAL line number in a comment too"    0 "10 REM"
+assert_row "and it is not rewritten"                0 "GOTO 3"
 
 # and it refuses a program it would silently corrupt
 reboot
@@ -483,6 +524,12 @@ tl ''
 t 'A = ATN(1) + 2'
 tl ''
 t 'GOTO 10'
+tl ''
+t 'DATA 144,-4,BOSTON'
+tl ''
+t 'DATA A:PRINT 1'
+tl ''
+t 'DATA "A:B",C:PRINT 2'
 oa "S"
 "$VII" await "SAVE AS" 30 >/dev/null || bad "the save prompt never appeared"
 "$VII" text "TOKTEST" >/dev/null; "$VII" line "" >/dev/null; "$VII" settle 10 >/dev/null
@@ -523,7 +570,17 @@ tokline() { grep "^$1:" "$TMP/tok.txt" | cut -d: -f2- | sed 's/^ //'; }
 [ "$(tokline 10)" = "97" ]     && ok "HOME is the single token \$97"     || bad "HOME is the single token \$97" "got: $(tokline 10)"
 [ "$(tokline 20)" = "BA 22 48 49 22 3A B2 20 58" ]     && ok "a string and a REM keep their text, spaces and all"     || bad "a string and a REM keep their text, spaces and all" "got: $(tokline 20)"
 [ "$(tokline 30)" = "41 D0 E1 28 31 29 C8 32" ]     && ok "spaces are dropped and = and + are tokens"     || bad "spaces are dropped and = and + are tokens" "got: $(tokline 30)"
-[ -n "$(tokline 40)" ]     && ok "the LAST line is written, having no break after it"     || bad "the LAST line is written, having no break after it" "line 40 is missing"
+[ -n "$(tokline 70)" ]     && ok "the LAST line is written, having no break after it"     || bad "the LAST line is written, having no break after it" "line 70 is missing"
+
+# DATA IS NOT TOKENISED, and these four bytes-for-bytes came off a file
+# Applesoft saved rather than out of anybody's head. The editor used to
+# tokenise here: the minus became an operator token and BOSTON gave up an ON,
+# so DATA -4 saved to a file that gave ?SYNTAX ERROR on READ. It round-tripped
+# through the editor unharmed, because the reader expanded the same tokens
+# again -- only Applesoft ever saw the damage, which is why it lasted.
+[ "$(tokline 50)" = "83 20 31 34 34 2C 2D 34 2C 42 4F 53 54 4F 4E" ]     && ok "a DATA keeps its minus, its ON and its space"     || bad "a DATA keeps its minus, its ON and its space" "got: $(tokline 50)"
+[ "$(tokline 60)" = "83 20 41 3A BA 31" ]     && ok "a colon ends it and what follows is code again"     || bad "a colon ends it and what follows is code again" "got: $(tokline 60)"
+[ "$(tokline 70)" = "83 20 22 41 3A 42 22 2C 43 3A BA 32" ]     && ok "but a colon inside quotes does not"     || bad "but a colon inside quotes does not" "got: $(tokline 70)"
 
 # and back again
 reboot
@@ -536,6 +593,9 @@ assert_row "and the cursor lands at the TOP"    23 "L:1 "
 assert_row "a string and comment survive"        1 "20 PRINT\"HI\":REM X"
 assert_row "and the spacing Applesoft stores"    2 "30 A=ATN(1)+2"
 assert_row "a keyword gets a space before a digit" 3 "40 GOTO 10"
+assert_row "and a DATA comes back as it went in"   4 "50 DATA 144,-4,BOSTON"
+assert_row "with its colon and the code after it"  5 "60 DATA A:PRINT 1"
+assert_row "and its quoted colon left alone"       6 '70 DATA "A:B",C:PRINT 2'
 
 # a line with no number cannot become an Applesoft line
 reboot

@@ -193,6 +193,7 @@ def main():
         "",
         f"TKN          equ   {len(order)}",
         f"TKREMI       equ   {order.index('REM')}"  + "        ; REM ends the line for highlighting",
+        f"TKDATAI      equ   {order.index('DATA')}" + "       ; and DATA ends it for tokenising",
         "",
         "*--- for each letter A-Z: where its group starts, and how many",
         "TKFIRST      dfb   " + ",".join(str(index.get(chr(c), (0, 0))[0]) for c in range(ord("A"), ord("N"))),

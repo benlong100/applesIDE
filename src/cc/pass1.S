@@ -44,6 +44,7 @@ CODEORG      equ   $6000
 *--- Applesoft's tokens, by value. tools/gentokens.py has the table these come
 *    out of: END is $80 and they run in order from there.
 TFOR         equ   $81
+TDATA        equ   $83
 TGOTO        equ   $ab
 TGOSUB       equ   $b0
 TREM         equ   $b2
@@ -145,6 +146,8 @@ SCANBODY     lda   #$00
              lda   CH
              cmp   #TREM
              beq   :rem
+             cmp   #TDATA
+             beq   :dataj
              cmp   #$80
              bcs   :token
 
@@ -187,6 +190,7 @@ SCANBODY     lda   #$00
 :branch      lda   #$01
              sta   LINEREF
              jmp   :next
+:dataj       jmp   :data            ; the block sits at the end of the routine
 
 *--- REM, and the rest of the line is a comment
 :rem         jsr   RDBYTE
@@ -267,6 +271,35 @@ SCANBODY     lda   #$00
              lda   #$01
              sta   PBFLAG
              jmp   :next
+
+*--- DATA, and the rest of it is values rather than code, up to a colon that
+*    is not inside quotes. Without this the scanner reads DATA BOSTON as a
+*    variable called BO and DATA 144 as a constant -- neither of which the
+*    program has. Nothing is compiled from them today, because a DATA
+*    statement is refused outright, but a program full of them would run out
+*    of variables and complain about that instead of about the DATA.
+:data        lda   #$00
+             sta   DINSTR
+:dloop       jsr   RDBYTE
+             bcc   :dgot
+             sec                    ; its own exit: the routine's own is now
+             rts                    ; too far back to branch to
+:dgot        sta   CH
+             beq   :dend
+             cmp   #'"'
+             bne   :dnq
+             lda   DINSTR
+             eor   #$01
+             sta   DINSTR
+             jmp   :dloop
+:dnq         lda   DINSTR
+             bne   :dloop
+             lda   CH
+             cmp   #':'
+             bne   :dloop
+             jmp   :next            ; code again after the colon
+:dend        clc
+             rts
 
 *--- one character into NUMBUF, ignoring any past its length. A number long
 *    enough to overflow it cannot be represented anyway.
@@ -842,6 +875,7 @@ LTMAX        equ   512
              dum   $1440
 CH           ds    1                ; the byte being looked at
 INSTR        ds    1                ; inside a string literal
+DINSTR       ds    1                ; and inside one within a DATA
 LINEREF      ds    1                ; the next number is a branch target
 VN0          ds    1                ; the two significant characters of a name
 VN1          ds    1
