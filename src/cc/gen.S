@@ -31,6 +31,16 @@
 *--------------------------------------
 
 FCOMP        equ   $ebb2            ; 1 greater, 255 less, 0 equal
+
+*--- FAC to a signed 16-bit integer and back. Both read off a running machine:
+*    a round trip of -1234 through the pair comes back as -1234 with the high
+*    byte in $A0, and as 12027 with the bytes the other way round -- which is
+*    the sort of wrong that looks like a number.
+AYINT        equ   $e10c            ; FAC -> signed integer in FACHI/FACLO
+GIVAYF       equ   $e2f2            ; A high, Y low -> FAC, signed
+FACHI        equ   $a0
+FACLO        equ   $a1
+FACEXP       equ   $9d              ; zero is the only way a float is zero
 COUTA        equ   $fded
 
 NTEMPS       equ   8
@@ -54,6 +64,9 @@ TEQ          equ   $d0
 TLT          equ   $d1
 TTO          equ   $c1
 TSTEP        equ   $c7
+TNOT         equ   $c6
+TAND         equ   $cd
+TOR          equ   $ce
 
 *--------------------------------------
 * GENPASS -- run one pass over the source. PASSNO says which.
@@ -185,6 +198,7 @@ SPADDR       lda   SPSAVEA
              lda   SPSAVEA+1
              sta   TMPP+1
              rts
+
 
 *--------------------------------------
 * GENLINE -- the statements on one line, separated by colons
@@ -357,7 +371,7 @@ GOBAD        lda   #$07             ; no such line
 *    whether it is zero. That is a ROM call and twenty-two bytes saved on
 *    every pass of every loop, and it is the whole of the gap between the
 *    generated code and the hand-compiled model.
-GIF          jsr   ECMPC
+GIF          jsr   ECONDC
              bcs   :bad
              lda   GOTCMP
              beq   :value
@@ -391,10 +405,15 @@ GIF          jsr   ECMPC
              lda   #$4c
              jsr   EMJ2
 
-*--- what follows THEN: a line number means GOTO
+*--- What follows the test. THEN and a line number, THEN and a statement, or
+*    GOTO and a line number -- Applesoft accepts all three, and IF X GOTO 30
+*    was being refused for want of a THEN that Applesoft does not require
+*    either.
              jsr   NEXTB
              bcs   :bad
              sta   CH
+             cmp   #TGOTOK
+             beq   :isgoto
              cmp   #TTHEN
              bne   :nothen
              jsr   PEEK
@@ -402,7 +421,7 @@ GIF          jsr   ECMPC
              sta   CH
              jsr   ISDIGIT
              bcs   :stmt
-             jmp   GGOTO
+:isgoto      jmp   GGOTO
 :stmt        jsr   NEXTB            ; a statement instead
              bcs   :bad
              sta   CH
@@ -742,40 +761,76 @@ PRFACE
 * compiler already knows the address of -- no pool, no second pass over the
 * output, no fixups.
 *--------------------------------------
-EMPRSTR      lda   #$4c             ; JMP past the text
-             jsr   EMIT
-             lda   PC               ; where the text will end, filled in below
-             sta   STRJMP           ; -- but the length is not known yet, so
-             lda   PC+1             ; the two bytes are emitted now and the
-             sta   STRJMP+1         ; count is kept
+EMPRSTR      lda   #$00
+             sta   STRLEN
+:read        jsr   NEXTB
+             bcs   :badj
+             sta   CH
+             bne   :notend
+:unterm2     jmp   :unterm          ; the failures are past the whole routine
+:badj        jmp   :bad
+:notend      cmp   #'"'
+             beq   :have
+             ldx   STRLEN
+             cpx   #$ff
+             bcc   :put
+             jmp   :toolong
+:put
+             lda   CH
+             ora   #$80             ; high bits set, as COUT wants them
+             sta   STRBUF,x
+             inc   STRLEN
+             jmp   :read
+
+*--- Now the length is known, so the jump over the text can be emitted with
+*    its real target the first time.
+*
+*    IT USED TO BE PATCHED, reaching back into the output window after the
+*    text had gone by -- which worked until a program grew enough for a
+*    string to straddle a window boundary, and then failed on programs that
+*    had compiled the week before. Collecting the string first removes the
+*    coupling between a literal and the size of the write buffer rather than
+*    making the buffer bigger, which would only move the boundary.
+:have        ldx   STRLEN
              lda   #$00
+             sta   STRBUF,x         ; terminate it
+
+             lda   #$4c             ; JMP
              jsr   EMIT
-             jsr   EMIT
-             lda   PC
+             lda   PC               ; the text starts past the two address
+             clc                    ; bytes that follow
+             adc   #$02
              sta   STRAT
              lda   PC+1
+             adc   #$00
              sta   STRAT+1
 
-*--- the text itself, high bits set, as COUT wants it
-:text        jsr   NEXTB
-             bcs   :bad
-             sta   CH
-             beq   :unterm          ; the line ended inside the string
-             cmp   #'"'
-             beq   :close
-             ora   #$80
+             lda   STRAT            ; and the jump lands past the text and
+             clc                    ; its terminator
+             adc   STRLEN
+             sta   TMPP
+             lda   STRAT+1
+             adc   #$00
+             sta   TMPP+1
+             inc   TMPP
+             bne   :nc
+             inc   TMPP+1
+:nc          lda   TMPP
              jsr   EMIT
-             jmp   :text
-:close       lda   #$00
+             lda   TMPP+1
              jsr   EMIT
 
-*--- Now the JMP's target is known. In pass 3 it has already been written as
-*    two zeroes, so it is patched in the output window -- which is why the
-*    window is a whole page and flushed only when it fills: a string longer
-*    than the window would have had its JMP written to disk already. Guarded
-*    below rather than assumed.
-             jsr   PATCHJ
-             bcs   :bad
+             lda   #$00
+             sta   EMI
+:text        ldx   EMI
+             cpx   STRLEN
+             bcs   :done
+             lda   STRBUF,x
+             jsr   EMIT
+             inc   EMI
+             jmp   :text
+:done        lda   #$00
+             jsr   EMIT
 
              lda   #$00
              sta   EMI
@@ -802,6 +857,10 @@ EMPRSTR      lda   #$4c             ; JMP past the text
              clc
              rts
 
+:toolong     lda   #$0b
+             jsr   SETBAD
+             sec
+             rts
 :unterm      lda   #$0a
              jsr   SETBAD
 :bad         sec
@@ -816,40 +875,329 @@ PRSTRA       dfb   $f0,$06          ; BEQ past the loop
 PRSTRE
 
 *--------------------------------------
-* PATCHJ -- fill in the JMP that steps over a string literal
+* The precedence chain, loosest first:
 *
-* Pass 2 has nothing to patch. Pass 3 reaches back into the output window; if
-* the string was long enough that the window has been flushed since, the two
-* bytes are already on disk and the compiler says so instead of writing to the
-* wrong place.
+*   EXPR   := ECONDC, as a value
+*   ECONDC := EANDC { OR EANDC }
+*   EANDC  := ENOTC { AND ENOTC }
+*   ENOTC  := [NOT] ECMPC
+*   ECMPC  := ESUM [ < = > ESUM ]
+*   ESUM   := ETERM { + - ETERM }
+*   ETERM  := EFACT { * / EFACT }
+*
+* That is Applesoft's own order: OR below AND below NOT below the relational
+* operators. NOT binds looser than a comparison, so NOT A = B is NOT (A = B).
+*
+* AND, OR AND NOT ARE LOGICAL, and give 1 or 0. I had them down as bitwise on
+* sixteen-bit integers, wrote that in this comment, implemented it, and the
+* interpreter said otherwise: 3 AND 5 is 1 and not 7, NOT 0 is 1 and not -1,
+* NOT NOT 5 is 1 and not 5. tests/cc/logic is what asked it. Being confidently
+* wrong about this in a comment is exactly how it would have survived.
+*
+* So the test is on the accumulator's exponent, which is zero only when the
+* value is -- no integer conversion, and therefore no way to raise ILLEGAL
+* QUANTITY on an operand too big to be one.
 *--------------------------------------
-PATCHJ       lda   PASSNO
-             cmp   #$03
-             bne   :ok
-             lda   STRJMP+1         ; is the JMP still in this window?
-             cmp   OUTBASE+1
-             bne   :gone
-             lda   STRJMP
-             sec
-             sbc   OUTBASE
-             tax
-             lda   PC
-             sta   OUTBUF,x
-             inx
-             lda   PC+1
-             sta   OUTBUF,x
-:ok          clc
-             rts
-:gone        lda   #$0b
-             jsr   SETBAD
-             sec
+EXPR         jsr   ECONDC
+             bcs   :bad
+             lda   GOTCMP
+             beq   :plain
+             jmp   MATCMP           ; a comparison, wanted as a value
+:plain       jmp   OPFLUSH
+:bad         sec
              rts
 
 *--------------------------------------
-* The expression parser: recursive descent, with the operator on the hardware
-* stack across the recursive call and the temporary depth in a counter.
+* VALNOW -- whatever the last operand was, have it as a value
 *--------------------------------------
-EXPR         jmp   ECMP
+VALNOW       lda   GOTCMP
+             beq   :done
+             jsr   MATCMP
+:done        clc
+             rts
+
+*--------------------------------------
+* ECONDC / EANDC -- OR, then AND
+*--------------------------------------
+ECONDC       jsr   EANDC
+             bcs   :bad
+:loop        jsr   PEEK
+             bcs   :done
+             cmp   #TOR
+             bne   :done
+             jsr   NEXTB
+             jsr   VALNOW
+             lda   PENDOK
+             beq   :infac
+
+             lda   PENDA
+             pha
+             lda   PENDA+1
+             pha
+             lda   #$00
+             sta   PENDOK
+             jsr   EANDC
+             bcs   :drop2
+             jsr   VALNOW
+             jsr   OPFLUSH
+             pla
+             sta   LEFTA+1
+             pla
+             sta   LEFTA
+             jmp   :emit
+
+:infac       jsr   PUSHFAC
+             jsr   EANDC
+             bcs   :bad
+             jsr   VALNOW
+             jsr   OPFLUSH
+             jsr   POPTMP
+             lda   TMPP
+             sta   LEFTA
+             lda   TMPP+1
+             sta   LEFTA+1
+
+:emit        lda   #$d0             ; BNE: either side true gives one
+             sta   LOGBR
+             lda   #$00
+             sta   LOGFALL
+             lda   #$01
+             sta   LOGTGT
+             jsr   EMLOGOP
+             jmp   :loop
+
+:drop2       pla
+             pla
+:bad         sec
+             rts
+:done        clc
+             rts
+
+EANDC        jsr   ENOTC
+             bcs   :bad
+:loop        jsr   PEEK
+             bcs   :done
+             cmp   #TAND
+             bne   :done
+             jsr   NEXTB
+             jsr   VALNOW
+             lda   PENDOK
+             beq   :infac
+
+             lda   PENDA
+             pha
+             lda   PENDA+1
+             pha
+             lda   #$00
+             sta   PENDOK
+             jsr   ENOTC
+             bcs   :drop2
+             jsr   VALNOW
+             jsr   OPFLUSH
+             pla
+             sta   LEFTA+1
+             pla
+             sta   LEFTA
+             jmp   :emit
+
+:infac       jsr   PUSHFAC
+             jsr   ENOTC
+             bcs   :bad
+             jsr   VALNOW
+             jsr   OPFLUSH
+             jsr   POPTMP
+             lda   TMPP
+             sta   LEFTA
+             lda   TMPP+1
+             sta   LEFTA+1
+
+:emit        lda   #$f0             ; BEQ: either side false gives zero
+             sta   LOGBR
+             lda   #$01
+             sta   LOGFALL
+             lda   #$00
+             sta   LOGTGT
+             jsr   EMLOGOP
+             jmp   :loop
+
+:drop2       pla
+             pla
+:bad         sec
+             rts
+:done        clc
+             rts
+
+*--------------------------------------
+* ENOTC -- NOT, which is also bitwise: NOT 0 is -1 and NOT 1 is -2
+*--------------------------------------
+ENOTC        jsr   PEEK
+             bcs   :plain
+             cmp   #TNOT
+             bne   :plain
+             jsr   NEXTB
+             jsr   ENOTC            ; NOT NOT A is allowed
+             bcs   :bad
+             jsr   VALNOW
+             jsr   OPFLUSH
+             jsr   EMNOT
+             lda   #$00
+             sta   GOTCMP
+             clc
+             rts
+:plain       jmp   ECMPC
+:bad         sec
+             rts
+
+*--------------------------------------
+* MATCMP -- a comparison's answer as a proper 1 or 0 in the accumulator
+*--------------------------------------
+MATCMP       lda   CMPSENS          ; $d0 BNE, or $f0 BEQ for a negated test
+             jsr   EMIT
+             lda   #$0a             ; past the seven that load one and the
+             jsr   EMIT             ; three of the jump over the zero
+             lda   #$01
+             sta   TMPA
+             jsr   CADDR
+             jsr   EMLOAD
+             lda   #$4c             ; JMP over the other one
+             jsr   EMIT
+             lda   PC               ; two bytes of address, then seven more
+             clc
+             adc   #$09
+             sta   TMPP
+             lda   PC+1
+             adc   #$00
+             sta   TMPP+1
+             lda   TMPP
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+             lda   #$00
+             sta   TMPA
+             jsr   CADDR
+             jsr   EMLOAD
+             lda   #$00
+             sta   GOTCMP
+             clc
+             rts
+
+*--------------------------------------
+* EMNOT -- zero becomes one, anything else becomes zero
+*
+*   LDA FACEXP ; BEQ +10 ; FAC = 0 ; JMP +7 ; FAC = 1
+*
+* The distances are counted from the layout below, not guessed: a load of the
+* accumulator from an address is LDA #lo, LDY #hi, JSR -- seven bytes.
+*
+*    0  LDA FACEXP     2
+*    2  BEQ  +10       2   -> 14
+*    4  load zero      7
+*   11  JMP  21        3
+*   14  load one       7
+*   21
+*--------------------------------------
+EMNOT        lda   #$a5             ; LDA FACEXP, in the direct page
+             jsr   EMIT
+             lda   #FACEXP
+             jsr   EMIT
+             lda   #$f0             ; BEQ past the zero and the jump
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMIT
+             lda   #$00
+             sta   TMPA
+             jsr   CADDR
+             jsr   EMLOAD
+             lda   #$4c
+             jsr   EMIT
+             lda   PC               ; two address bytes, then seven
+             clc
+             adc   #$09
+             sta   TMPP
+             lda   PC+1
+             adc   #$00
+             sta   TMPP+1
+             lda   TMPP
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+             lda   #$01
+             sta   TMPA
+             jsr   CADDR
+             jmp   EMLOAD
+
+*--------------------------------------
+* EMLOGOP -- AND or OR, on the truth of both sides
+*
+* The right side is already in the accumulator and the left is at LEFTA.
+* LOGBR says which way the test jumps, LOGTGT which constant sits at the far
+* end and LOGFALL which one falls through:
+*
+*   AND   BEQ to zero    right false -> 0, else test left
+*   OR    BNE to one     right true  -> 1, else test left
+*
+*    0  LDA FACEXP     2
+*    2  branch +21     2   -> 25
+*    4  load left      7
+*   11  LDA FACEXP     2
+*   13  branch +10     2   -> 25
+*   15  load LOGFALL   7
+*   22  JMP 32         3
+*   25  load LOGTGT    7
+*   32
+*--------------------------------------
+EMLOGOP      lda   #$a5
+             jsr   EMIT
+             lda   #FACEXP
+             jsr   EMIT
+             lda   LOGBR
+             jsr   EMIT
+             lda   #$15             ; past everything but the far constant
+             jsr   EMIT
+
+             lda   LEFTA
+             sta   TMPP
+             lda   LEFTA+1
+             sta   TMPP+1
+             jsr   EMLOAD
+
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACEXP
+             jsr   EMIT
+             lda   LOGBR
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMIT
+
+             lda   LOGFALL
+             sta   TMPA
+             jsr   CADDR
+             jsr   EMLOAD
+
+             lda   #$4c
+             jsr   EMIT
+             lda   PC
+             clc
+             adc   #$09
+             sta   TMPP
+             lda   PC+1
+             adc   #$00
+             sta   TMPP+1
+             lda   TMPP
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+
+             lda   LOGTGT
+             sta   TMPA
+             jsr   CADDR
+             jsr   EMLOAD
+             lda   #$00
+             sta   PENDOK
+             sta   GOTCMP
+             clc
+             rts
 
 *--------------------------------------
 * ECMPC -- a sum, optionally compared with another, stopping at the CMP
@@ -940,56 +1288,6 @@ ECMPC        jsr   ESUM
              pla
 :drop        pla
              pla
-:bad         sec
-             rts
-
-*--------------------------------------
-* ECMP -- and the same thing as a value
-*
-* Applesoft lets a comparison BE a value, so this materialises a proper 1 or 0
-* in the accumulator. An IF does not go through here: see GIF.
-*--------------------------------------
-ECMP         jsr   ECMPC
-             bcs   :bad
-             lda   GOTCMP
-             bne   :cmp
-             jsr   OPFLUSH          ; a plain value, deferred until now
-             clc
-             rts
-:cmp
-
-             lda   CMPSENS          ; $d0 BNE, or $f0 BEQ for a negated test
-             jsr   EMIT
-*--- TEN. Loading the accumulator from an address is LDA #lo, LDY #hi, JSR --
-*    two, two and three, which is SEVEN bytes and not eight. Counted as eight,
-*    the false branch landed one byte inside the load it was aiming at and the
-*    true one jumped a byte past the end of the other; the benchmark ran its
-*    loop exactly once and printed 1, which is a believable number.
-             lda   #$0a             ; past the seven that load one and the
-             jsr   EMIT             ; three of the jump over the zero
-             lda   #$01
-             sta   TMPA
-             jsr   CADDR
-             jsr   EMLOAD
-             lda   #$4c             ; JMP over the other one
-             jsr   EMIT
-             lda   PC               ; two bytes of address, then seven more
-             clc
-             adc   #$09
-             sta   TMPP
-             lda   PC+1
-             adc   #$00
-             sta   TMPP+1
-             lda   TMPP
-             jsr   EMIT
-             lda   TMPP+1
-             jsr   EMIT
-             lda   #$00
-             sta   TMPA
-             jsr   CADDR
-             jsr   EMLOAD
-:done        clc
-             rts
 :bad         sec
              rts
 
@@ -1215,8 +1513,9 @@ OPFLUSH      lda   PENDOK
              sta   TMPP
              lda   PENDA+1
              sta   TMPP+1
-             jmp   EMLOAD
-:done        rts
+             jsr   EMLOAD
+:done        clc                    ; NOT the emitter's carry, which its own
+             rts                    ; test of the pass number leaves set
 
 *--------------------------------------
 * EFACT -- a negation, a number, a variable, or a bracketed expression
@@ -1251,6 +1550,8 @@ EPRIM        lda   #$00
              jsr   NEXTB
              bcs   :bad
              sta   CH
+             cmp   #$80
+             bcs   :fn
              cmp   #'('
              beq   :paren
              jsr   ISDIGIT
@@ -1274,6 +1575,52 @@ EPRIM        lda   #$00
              clc
              rts
 :bad2        sec
+             rts
+
+*--- A function: its token says which, and each is a single call once the
+*    argument is in the accumulator. Brackets are required, as Applesoft
+*    requires them.
+:fn          jsr   FNFIND
+             bcs   :bad
+             jsr   NEXTB
+             bcs   :bad2
+             cmp   #'('
+             bne   :bad3
+
+*--- ACROSS THE ARGUMENT, on the stack. Generating the argument emits loads
+*    and adds, and every one of those sets ROMA on its way through -- so the
+*    call that came out was to whatever the last load had used, not to the
+*    function. INT(2.7) compiled into a call to MOVFM and printed 2.7.
+             lda   ROMA
+             pha
+             lda   ROMA+1
+             pha
+             jsr   EXPR
+             bcs   :drop2
+             jsr   NEXTB
+             bcs   :drop2
+             cmp   #')'
+             bne   :drop3
+             jsr   OPFLUSH
+             pla
+             sta   ROMA+1
+             pla
+             sta   ROMA
+             jsr   EMJSR
+             lda   #$00
+             sta   PENDOK
+             clc
+             rts
+:drop3       pla
+             pla
+             jmp   :bad3
+:drop2       pla
+             pla
+             sec
+             rts
+:bad3        lda   #$0c
+             jsr   SETBAD
+             sec
              rts
 
 *--- a literal: converted the same way pass 1 did, then looked up rather than
@@ -1304,6 +1651,68 @@ DEFER        lda   TMPP
              sta   PENDOK
              clc
              rts
+
+*--------------------------------------
+* FNFIND -- a function token to the ROM routine that does it, into ROMA
+*
+* THE ELEVEN THAT TAKE THE ACCUMULATOR AND LEAVE IT THERE. Every address was
+* confirmed by pointing Applesoft's own USR vector straight at it and printing
+* what came back -- SGN(-4) is -1, SQR(9) is 3, ATN(1) is .785398163. None of
+* it is from memory, which is the rule here: two of the arithmetic routines
+* this compiler already depends on turned out to take their operands the
+* opposite way round from the obvious guess.
+*
+* PEEK, LEN, STR$ and the rest are not here. PEEK needs the integer
+* conversion and a POKE to go with it; the others are string work.
+*--------------------------------------
+FNFIND       lda   #$00
+             sta   TMPB
+:loop        lda   TMPB
+             cmp   #FNCOUNT
+             bcs   :no
+             asl                    ; three bytes to an entry
+             clc
+             adc   TMPB
+             tax
+             lda   FNTAB,x
+             cmp   CH
+             beq   :yes
+             inc   TMPB
+             jmp   :loop
+:yes         lda   FNTAB+1,x
+             sta   ROMA
+             lda   FNTAB+2,x
+             sta   ROMA+1
+             clc
+             rts
+:no          lda   #$05             ; a keyword, but not one that compiles
+             jsr   SETBAD
+             sec
+             rts
+
+FNTAB        dfb   $d2
+             da    $eb90            ; SGN
+             dfb   $d3
+             da    $ec23            ; INT
+             dfb   $d4
+             da    $ebaf            ; ABS
+             dfb   $da
+             da    $ee8d            ; SQR
+             dfb   $db
+             da    $efae            ; RND
+             dfb   $dc
+             da    $e941            ; LOG
+             dfb   $dd
+             da    $ef09            ; EXP
+             dfb   $de
+             da    $efea            ; COS
+             dfb   $df
+             da    $eff1            ; SIN
+             dfb   $e0
+             da    $f03a            ; TAN
+             dfb   $e1
+             da    $f09e            ; ATN
+FNCOUNT      equ   11
 
 *--------------------------------------
 * GETVAR -- read a name and find it in pass 1's table
@@ -1853,8 +2262,8 @@ TEMPTOP      ds    1
 ROMA         ds    2
 OUTLEN       ds    1
 OUTBASE      ds    2                ; the address the output window starts at
-STRJMP       ds    2
 STRAT        ds    2
+STRLEN       ds    1
 NONL         ds    1
 CMPA         ds    1
 CMPB         ds    1
@@ -1872,5 +2281,9 @@ FSLOT        ds    1
 FTOP         ds    2
 GOTCMP       ds    1                ; the expression ended in a comparison
 PENDOK       ds    1                ; a leaf parsed but not yet emitted
-PENDA        ds    2                ; and where it lives                ; an index EMIT cannot clobber
+PENDA        ds    2                ; and where it lives
+LEFTA        ds    2                ; a bitwise operator's left side
+LOGBR        ds    1                ; which way a logical operator branches
+LOGFALL      ds    1                ; and which constant goes where
+LOGTGT       ds    1                ; an index EMIT cannot clobber
              dend

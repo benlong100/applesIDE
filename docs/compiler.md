@@ -263,11 +263,11 @@ each one interpreted and then compiled, in the same session on the same disk.
 
 | program | interpreted | compiled | speedup | answer |
 |---|---|---|---|---|
-| BENCH1 | 33.70s | 7.11s | 4.7× | 4501500 |
-| BENCH2 | 66.75s | 7.20s | 9.3× | 4501500 |
-| BENCH3 | 38.88s | 7.65s | 5.1× | 4501500 |
-| BENCH4 | 71.46s | 7.90s | 9.0× | 4501500 |
-| BENCH5 | 26.81s | 5.76s | 4.7× | 3000 |
+| BENCH1 | 33.70s | 7.08s | 4.8× | 4501500 |
+| BENCH2 | 66.74s | 7.08s | 9.4× | 4501500 |
+| BENCH3 | 38.79s | 7.76s | 5.0× | 4501500 |
+| BENCH4 | 71.49s | 7.81s | 9.2× | 4501500 |
+| BENCH5 | 26.86s | 5.84s | 4.6× | 3000 |
 
 Every answer is the interpreter's own.
 
@@ -289,18 +289,86 @@ steps, nesting, a named `NEXT`, an expression limit, and the case where
 Applesoft runs a loop body once even though the start is already past the
 limit.
 
+### The functions, and what the interpreter had to correct
+
+`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN` — each one a single ROM call
+once the argument is in the accumulator. Every address was confirmed by
+pointing Applesoft's own `USR` vector straight at it and printing what came
+back: `SGN(-4)` is −1, `SQR(9)` is 3, `ATN(1)` is `.785398163`. Nothing from
+memory, which is the rule here — two of the arithmetic routines this compiler
+already depends on take their operands the opposite way round from the obvious
+guess.
+
+`AND`, `OR` and `NOT` came with a correction. **I had them down as bitwise on
+sixteen-bit integers**, wrote that in a comment, implemented it with the
+integer-conversion routines, and `tests/cc/logic` reported that the
+interpreter disagreed: `3 AND 5` is 1 and not 7, `NOT 0` is 1 and not −1, `NOT
+NOT 5` is 1 and not 5. They are **logical**, giving 1 or 0. The test on the
+accumulator's exponent that replaced it is smaller, needs no integer
+conversion, and cannot raise `ILLEGAL QUANTITY` on an operand too big to be
+one.
+
+Being confidently wrong about that in a comment is exactly how it would have
+survived to the next person reading the file.
+
+### Two bugs the new code brought with it
+
+**A function's address did not survive its own argument.** `EMJSR` emits a
+call to whatever is in `ROMA`, and generating the argument emits loads and
+adds, every one of which sets `ROMA` on its way through. `INT(2.7)` compiled
+into a call to `MOVFM` and printed `2.7`.
+
+**String literals were patched in place after the fact**, reaching back into
+the 256-byte output window to fill in the jump over the text. That worked
+until programs grew enough for a string to straddle a window boundary — and
+then programs that had compiled the week before stopped. The literal is now
+collected into a buffer first, so its length is known before anything is
+emitted and there is nothing to patch. That removes the coupling between a
+string literal and the size of the write buffer, rather than making the buffer
+bigger, which would only have moved the boundary.
+
 ### What it compiles
 
-`LET` (named or implied), `GOTO`, `GOSUB`, `RETURN`, `IF ... THEN`, `FOR` /
-`NEXT` with `STEP`, `PRINT` of numbers and string literals with `;`, `REM`,
-`END`, and expressions over `+ - * /`, unary minus, brackets and the six
-comparisons.
+`LET` (named or implied), `GOTO`, `GOSUB`, `RETURN`, `IF ... THEN` and
+`IF ... GOTO`, `FOR` / `NEXT` with `STEP`, `PRINT` of numbers and string
+literals with `;`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
+brackets, the six comparisons, `AND` / `OR` / `NOT`, and the eleven numeric
+functions.
 
-Not yet: arrays, strings as values, `DATA`/`READ`, `INPUT`, `AND`/`OR`, the
-functions, `ON ... GOTO`, and `,` in a `PRINT`. Each is refused with a code
-rather than compiled wrongly — a compiler that carried on would write a
-program that ran and gave a wrong answer, which is the one outcome worse than
-refusing.
+Not yet: arrays, strings as values, `DATA`/`READ`, `INPUT`, `ON ... GOTO`,
+`PEEK`/`POKE`, `DEF FN`, the graphics statements, and `,` in a `PRINT`. Each
+is refused **by name and line number** rather than compiled wrongly:
+
+```
+STOPPED IN 30: NO STRINGS OR ARRAYS
+STOPPED IN 20: NO SUCH LINE
+STOPPED IN 30: NEXT: WRONG FOR
+STOPPED IN 10: EXPONENT TOO BIG
+```
+
+A compiler that carried on would write a program that ran and gave a wrong
+answer, which is the one outcome worse than refusing.
+
+### What happens when a compiled program goes wrong
+
+Established rather than assumed, because the ROM's arithmetic raises errors
+through Applesoft's own handler and a compiled program has not set that up.
+A compiled `1/0`:
+
+```
+]BRUN CDIVZ
+BEFORE
+?DIVISION BY ZERO ERROR
+]
+```
+
+It prints and returns cleanly to the prompt. The only difference from the
+interpreter is the `IN 40`, which a compiled program genuinely cannot know.
+
+**The compiler itself cannot afford the same thing**, being a SYS file with
+BASIC.SYSTEM gone from memory — so the constant converter guards on the size
+of the *result* rather than on the exponent as written, and refuses `9E38`
+instead of raising an overflow inside the ROM.
 
 ### Closing the gap to the hand-compiled model
 

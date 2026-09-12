@@ -93,10 +93,10 @@ Measured on the machine at 1MHz, the same five programs `make bench` uses:
 
 | program | interpreted | compiled | speedup |
 |---|---|---|---|
-| the loop alone | 33.70s | 7.11s | 4.7× |
-| 200 lines before the target | 66.75s | 7.20s | 9.3× |
-| 30 variables before its two | 38.88s | 7.65s | 5.1× |
-| both, as a real program is | 71.46s | 7.90s | 9.0× |
+| the loop alone | 33.70s | 7.08s | 4.8× |
+| 200 lines before the target | 66.74s | 7.08s | 9.4× |
+| 30 variables before its two | 38.79s | 7.76s | 5.0× |
+| both, as a real program is | 71.49s | 7.81s | 9.2× |
 
 Every answer identical to the interpreter's. **The compiled times barely move
 across the four**, which is the whole point: what differs between those
@@ -105,9 +105,14 @@ compiling does not reduce that work, it removes it.
 
 It compiles `LET`, `GOTO`, `GOSUB`, `RETURN`, `IF/THEN`, `FOR`/`NEXT` with
 `STEP`, `PRINT`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
-brackets and the six comparisons. Arrays, string variables, `DATA`/`READ`,
-`INPUT`, `AND`/`OR` and the functions are refused with a code rather than
-compiled wrongly.
+brackets, the six comparisons, `AND`/`OR`/`NOT`, and the eleven numeric
+functions (`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN`). Arrays, string
+variables, `DATA`/`READ`, `INPUT` and `PEEK`/`POKE` are refused by name and
+line number rather than compiled wrongly:
+
+```
+STOPPED IN 30: NO STRINGS OR ARRAYS
+```
 
 `docs/compiler.md` has the design, what was established on the machine rather
 than recalled, and the measurements.

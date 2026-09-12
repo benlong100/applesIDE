@@ -86,8 +86,9 @@ START        lda   #$00
 *    compiler that carried on would write a file that ran and gave a wrong
 *    answer, which is the one outcome worse than refusing.
              lda   BADFLG
-             bne   :stop
-
+             beq   :go
+             jmp   :stop            ; :stop is past the whole driver now
+:go
 *--- Pass 2 sizes the code and records where every line begins; pass 3 writes
 *    it, resolving branches from what pass 2 left behind.
              lda   #$02
@@ -95,6 +96,25 @@ START        lda   #$00
              jsr   GENPASS
              bcs   :stop
 
+*--- WILL IT FIT? A BRUN file lands at $6000 and BASIC.SYSTEM's workspace
+*    starts a little under $9600 on a //e with one file buffer open. Nothing
+*    checked, so a large enough program compiled quietly into a binary that
+*    loaded over the top of the interpreter that was loading it. Checked
+*    BEFORE the output file is created, so a program too big does not also
+*    leave half of itself on the disk.
+             lda   ENDPC+1
+             cmp   #$96
+             bcc   :fits
+             lda   #<MSGBIG
+             ldy   #>MSGBIG
+             jsr   PRSTR
+             lda   ENDPC+1
+             jsr   PRHEX
+             lda   ENDPC
+             jsr   PRHEX
+             jsr   PRCR
+             jmp   :stop
+:fits
              jsr   OPENOUT
              bcs   :noout
              lda   #$03
@@ -777,6 +797,8 @@ MSGOPEN      asc   "APPLESOFT COMPILER"
              dfb   $8d,$8d,$00
 MSGNOFILE    asc   "CANNOT OPEN THE SOURCE"
              dfb   $8d,$00
+MSGBIG       asc   "TOO BIG: IT WOULD REACH $"
+             dfb   $00
 MSGWROTE     asc   "WROTE "
              dfb   $00
 MSGBYTES     asc   ", "
@@ -827,4 +849,5 @@ DATBUF       ds    512
 OUTBUF       ds    256              ; a whole page, so a string literal's JMP
 PFXBUF       ds    64               ; is still reachable to patch
 ONLBUF       ds    16
+STRBUF       ds    256              ; a literal, collected before it is emitted
              dend
