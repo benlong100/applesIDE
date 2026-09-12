@@ -116,6 +116,9 @@ would have produced numbers wrong by a factor of two and a sign.
 | `$E7A7` | FAC ← **memory − FAC** | 4 in FAC, 2 in memory, result −2 |
 | `$E97F` | FAC ← FAC × memory | 4 × 2 giving 8 |
 | `$EA66` | FAC ← **memory ÷ FAC** | 4 in FAC, 2 in memory, result 0.5 |
+| `$EBB2` | compare FAC with memory, answer in A | 1 greater, 255 less, 0 equal |
+| `$ED34` | FAC → string at `$0100` | `USR(2.5)` printing `2.5` unaided |
+| `$FDED` | put one character on the screen | the same |
 
 The pack test is conclusive rather than suggestive because the packed byte
 (`32`) differs from the accumulator's (`160`): a routine that merely copied
@@ -132,6 +135,33 @@ So the code generator's rule for `A - B` and `A / B` is: **evaluate the RIGHT
 operand into FAC, then apply the operation naming the LEFT one's address.**
 For `+` and `×` the order does not matter.
 
+The comparison was tested three ways — greater, less and equal — because two
+of the three would have left the convention ambiguous. Each case reloads the
+accumulator first rather than assuming the compare leaves it alone; that
+assumption is the sort that surfaces as a wrong answer three bugs later.
+
+### Turning a decimal constant into a float
+
+The compiler runs on the //e, so it has to convert `3000` in the source into
+five packed bytes itself. There is a ROM routine for reading a number out of
+program text, but it works through the interpreter's own text pointer and
+would be **another unverified dependency** — and it is not needed, because the
+routines above are already enough:
+
+    value = 0; for each digit: value = value × 10 + digit
+
+which is `$E97F` against a packed ten and `$E7BE` against a packed digit.
+Eleven constants — ten digits and a ten — computed once and built into the
+compiler. Nothing new to establish, and the arithmetic is the machine's own,
+so a compiled constant is bit-for-bit what Applesoft would have produced.
+
+### What is now known
+
+Everything the first milestone needs: load, store, four operations, compare,
+and printing a number. Every one of them confirmed on a running machine, and
+two of them — subtract and divide — are the opposite way round from the
+obvious guess.
+
 ### Still to establish
 
-Comparison, and printing a number. Same method.
+Nothing, for the milestone. The next work is the compiler itself.
