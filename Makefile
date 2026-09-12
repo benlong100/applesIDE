@@ -56,7 +56,7 @@ BIN     := $(BUILD)/$(LANGUP)-$(NAME)
 IMAGE   ?= $(BUILD)/APPLESIDE-$(LANGUP).po
 endif
 
-.PHONY: bench all disk run screen clean tools eject help card test dist
+.PHONY: cc bench all disk run screen clean tools eject help card test dist
 
 all: $(BIN)
 
@@ -118,6 +118,22 @@ screen:
 
 # Virtual ][ buffers image writes until eject, so anything reading the image
 # back on the Mac needs a flush first.
+# --- the compiler -------------------------------------------------------
+# A separate program on the same disk, so the editor stays what it is for
+# somebody who only wants an editor. Built from its own source; nothing in
+# src/cc is put into the editor.
+CCBIN  := $(BUILD)/ASIDECC.SYSTEM
+
+$(CCBIN): $(wildcard src/cc/*.S) | $(BUILD)
+	@$(MERLIN) $(ASMINC) src/cc/cc.S > $(BUILD)/cc-merlin32.log 2>&1 || \
+		{ echo "--- Merlin32 failed ---"; cat $(BUILD)/cc-merlin32.log; exit 1; }
+	@grep -iE '^\s+(Error|Warning)' $(BUILD)/cc-merlin32.log && exit 1 || true
+	@mv src/cc/ASIDECC.SYSTEM $(CCBIN)
+	@rm -f src/cc/_FileInformation.txt
+	@echo "assembled src/cc/cc.S -> $(CCBIN) ($$(stat -f%z $(CCBIN)) bytes)"
+
+cc: $(CCBIN)
+
 # What Applesoft spends its time on, and how much of it a compiler could take
 # away. Needs the dist image, and runs the machine at 1MHz for several minutes.
 bench: dist
