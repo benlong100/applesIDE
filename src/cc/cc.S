@@ -69,7 +69,7 @@ START        lda   #$00
 :ok
 
              jsr   PASS1
-             jsr   CLOSESRC
+             jsr   LAYOUT
 
              lda   #<MSGLINES
              ldy   #>MSGLINES
@@ -82,6 +82,64 @@ START        lda   #$00
              jsr   PRCR
              jsr   REPORT
 
+*--- Nothing is generated from a program pass 1 already objected to. A
+*    compiler that carried on would write a file that ran and gave a wrong
+*    answer, which is the one outcome worse than refusing.
+             lda   BADFLG
+             bne   :stop
+
+*--- Pass 2 sizes the code and records where every line begins; pass 3 writes
+*    it, resolving branches from what pass 2 left behind.
+             lda   #'2'
+             sta   STAGE
+             lda   #$02
+             sta   PASSNO
+             jsr   GENPASS
+             bcs   :stop
+
+             lda   #'O'
+             sta   STAGE
+             jsr   OPENOUT
+             bcs   :noout
+             lda   #'3'
+             sta   STAGE
+             lda   #$03
+             sta   PASSNO
+             jsr   GENPASS
+             php
+             jsr   CLOSEOUT
+             plp
+             bcs   :stop
+
+             jsr   CLOSESRC
+             lda   #<MSGWROTE
+             ldy   #>MSGWROTE
+             jsr   PRSTR
+             lda   #<OUTNAME        ; the length byte first: PRLOW reads it
+             ldy   #>OUTNAME
+             jsr   PRLOW
+             lda   #<MSGBYTES
+             ldy   #>MSGBYTES
+             jsr   PRSTR
+             lda   ENDPC            ; the size is where it stopped, less $6000
+             sec
+             sbc   #<CODEORG
+             sta   WORD
+             lda   ENDPC+1
+             sbc   #>CODEORG
+             sta   WORD+1
+             jsr   PRWORD
+             jsr   PRCR
+             jmp   FINISH
+
+:noout       lda   #<MSGNOOUT
+             ldy   #>MSGNOOUT
+             jsr   PRSTR
+             lda   MLIERR
+             jsr   PRHEX
+             jsr   PRCR
+:stop        jsr   CLOSESRC
+             jsr   BADSAY
 *--- Wait before leaving. QUIT goes to the selector, which clears the screen,
 *    so without this the compiler's own report is gone before it can be read.
 *    EVERY exit comes through here, including the failures: an error path that
@@ -100,6 +158,7 @@ FINISH       lda   #<MSGKEY
              jmp   QUIT
 
              put   pass1
+             put   gen
 
 *--------------------------------------
 * The source, read through a window rather than all at once.
@@ -255,6 +314,126 @@ CLOSESRC     jsr   MLI
              rts
 
 *--------------------------------------
+* LAYOUT -- where the compiled program keeps its data
+*
+* Pass 1 has counted everything, so all of it can be decided before a byte of
+* code is generated: variables past the JMP at the front, then the constants.
+*--------------------------------------
+LAYOUT       lda   #<CODEORG+3
+             sta   VARBASE
+             lda   #>CODEORG+3
+             sta   VARBASE+1
+             jmp   CONSTBS
+
+*--------------------------------------
+* BADSAY -- name the objection, if there was one
+*--------------------------------------
+*--- ALWAYS SAYS SOMETHING. A stop with no code set printed nothing at all,
+*    which said only that generation had not happened and not one word about
+*    where -- so the stage letter is reported whether there is a code or not.
+BADSAY       lda   #<MSGSTOP
+             ldy   #>MSGSTOP
+             jsr   PRSTR
+             lda   STAGE
+             jsr   PRCH
+             lda   #$a0
+             jsr   PRCH
+             lda   BADFLG
+             sta   WORD
+             lda   #$00
+             sta   WORD+1
+             lda   #$00
+             sta   WORD+1
+             jsr   PRWORD
+             jsr   PRCR
+             jmp   FINISH
+
+*--------------------------------------
+* A low-ASCII string, length byte first: a ProDOS filename as it is stored
+*--------------------------------------
+PRLOW        sta   STRPTR
+             sty   STRPTR+1
+             ldy   #$00
+             lda   (STRPTR),y
+             beq   :done
+             sta   LOWN
+:loop        iny
+             lda   (STRPTR),y
+             ora   #$80
+             sty   YSAVE
+             jsr   COUT
+             ldy   YSAVE
+             dec   LOWN
+             bne   :loop
+:done        rts
+
+*--------------------------------------
+* The output file. Its name is the source's with a C in front, which is what
+* the hand-compiled model was called and is short enough to stay inside
+* ProDOS's fifteen characters for any name that could be typed at the prompt.
+*--------------------------------------
+OPENOUT      lda   SRCNAME
+             cmp   #$0f
+             bcc   :fits
+             lda   #$0e             ; room for the C
+:fits        tay
+             iny
+             sty   OUTNAME
+             lda   #'C'
+             sta   OUTNAME+1
+             ldy   #$00
+:copy        lda   SRCNAME+1,y
+             sta   OUTNAME+2,y
+             iny
+             cpy   OUTNAME
+             bcc   :copy
+
+             jsr   MLI
+             dfb   $c1              ; DESTROY: a stale file of the same name
+             da    DESTPARM         ; would otherwise be appended to
+             jsr   MLI
+             dfb   $c0              ; CREATE
+             da    CREPARM
+             sta   MLIERR
+             bcs   :bad
+             jsr   MLI
+             dfb   $c8              ; OPEN
+             da    OOPENPARM
+             sta   MLIERR
+             bcs   :bad
+             lda   OOPENPARM+5
+             sta   WRPARM+1
+             sta   OCLOSPARM+1
+             clc
+             rts
+:bad         sec
+             rts
+
+CLOSEOUT     jsr   MLI
+             dfb   $cc
+             da    OCLOSPARM
+             rts
+
+*--------------------------------------
+* REWIND -- back to the start of the source for the next pass
+*
+* The window and the pushback byte have to go with it. Leaving either behind
+* would start the pass one byte into the file, or with a character from the
+* end of the previous one.
+*--------------------------------------
+REWIND       lda   #$00
+             sta   SRCLEFT
+             sta   SRCLEFT+1
+             sta   PBFLAG
+             lda   OPENPARM+5
+             sta   MARKPARM+1
+             jsr   MLI
+             dfb   $ce              ; SET_MARK
+             da    MARKPARM
+             sta   MLIERR
+             rts
+
+*--------------------------------------
 * ASKNAME -- which file to compile
 *
 * GETLN, in the monitor at $FD6A: it hands back the line at $0200 with its
@@ -372,6 +551,30 @@ SETPPARM     dfb   $01
 ONLPARM      dfb   $02
              dfb   $00
              da    ONLBUF
+DESTPARM     dfb   $01
+             da    OUTNAME
+CREPARM      dfb   $07
+             da    OUTNAME
+             dfb   $c3              ; read, write, rename, destroy
+             dfb   $06              ; BIN
+             da    CODEORG          ; so BRUN puts it back where it belongs
+             dfb   $01              ; a seedling, to start with
+             da    $0000            ; ProDOS dates it itself
+             da    $0000
+OOPENPARM    dfb   $03
+             da    OUTNAME
+             da    IOBUF2
+             dfb   $00
+WRPARM       dfb   $04
+             dfb   $00
+             da    OUTBUF
+             da    $0000
+             da    $0000
+OCLOSPARM    dfb   $01
+             dfb   $00
+MARKPARM     dfb   $02
+             dfb   $00
+             dfb   $00,$00,$00
 QUITPARM     dfb   $04
              dfb   $00
              da    $0000
@@ -388,6 +591,14 @@ MSGOPEN      asc   "APPLESOFT COMPILER"
              dfb   $8d,$8d,$00
 MSGNOFILE    asc   "CANNOT OPEN THE SOURCE"
              dfb   $8d,$00
+MSGWROTE     asc   "WROTE "
+             dfb   $00
+MSGBYTES     asc   ", "
+             dfb   $00
+MSGNOOUT     asc   "CANNOT WRITE THE OUTPUT, CODE "
+             dfb   $00
+MSGSTOP      asc   "STOPPED AT "
+             dfb   $00
 MSGSRC       asc   "COMPILE WHICH FILE? "
              dfb   $00
 MSGKEY       asc   "PRESS A KEY"
@@ -404,11 +615,19 @@ LEADING      ds    1
 YSAVE        ds    1                ; Y across COUT, which does not keep it
 MLIERR       ds    1
 TMPA         ds    1
+LOWN         ds    1
+STAGE        ds    1
+OUTNAME      ds    17
              dend
 
-             dum   $1800
-IOBUF        ds    1024             ; ProDOS wants this page aligned
+*--- Two ProDOS buffers, a window into the source and one out to the output
+*    file. They were at $1800, which stopped fitting the moment there were two
+*    of them: $1E00 onwards is the compiler's own code.
+             dum   $9000
+IOBUF        ds    1024             ; ProDOS wants these page aligned
+IOBUF2       ds    1024
 DATBUF       ds    512
-PFXBUF       ds    64
+OUTBUF       ds    256              ; a whole page, so a string literal's JMP
+PFXBUF       ds    64               ; is still reachable to patch
 ONLBUF       ds    16
              dend

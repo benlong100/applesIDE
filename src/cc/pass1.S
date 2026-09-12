@@ -34,6 +34,7 @@
 MOVFM        equ   $eaf9            ; FAC <- packed at (A lo, Y hi)
 MOVMF        equ   $eb2b            ; packed at (X lo, Y hi) <- FAC
 FADD         equ   $e7be            ; FAC <- FAC + memory
+FSUB         equ   $e7a7            ; FAC <- memory - FAC   -- NOT FAC-memory
 FMUL         equ   $e97f            ; FAC <- FAC * memory
 FDIV         equ   $ea66            ; FAC <- memory / FAC   -- NOT FAC/memory
 FOUT         equ   $ed34            ; FAC -> string at $0100
@@ -58,6 +59,22 @@ PASS1        lda   #$00
              sta   NLINES
              sta   NLINES+1
              sta   BADFLG
+
+*--- ZERO AND ONE ARE ALWAYS THERE, whether the program mentions them or not.
+*    A comparison compiles to code that loads one of them, and negation is
+*    zero minus the value; a program with neither in its text would otherwise
+*    have nowhere for that code to point.
+             lda   #$00
+             sta   TMPA
+             ldy   #$04
+:z           sta   CTAB,y
+             sta   CTAB+5,y
+             dey
+             bpl   :z
+             lda   #$81             ; one, packed
+             sta   CTAB+5
+             lda   #$02
+             sta   NCONST
 
 :line        jsr   RDWORD           ; the next-line address
              bcs   :done
@@ -239,19 +256,26 @@ NUMPUT       ldx   NUMLEN
 *--------------------------------------
 * ISALNUM / ISDIGIT -- carry clear if CH is one
 *--------------------------------------
+*--- Local labels belong to the global one above them, so the two routines
+*    cannot share a yes and a no: Merlin looks for ISDIGIT's :yes and finds
+*    ISALNUM's, which is a different label with the same name.
 ISALNUM      lda   CH
              cmp   #'A'
              bcc   ISDIGIT
              cmp   #'Z'+1
-             bcc   :yes
+             bcc   ALNYES
+             bcs   ISDIGIT          ; a digit after a letter is still part of
+                                    ; the name, so both ranges are tried
+ALNYES       clc
+             rts
 ISDIGIT      lda   CH
              cmp   #'0'
-             bcc   :no
+             bcc   ALNNO
              cmp   #'9'+1
-             bcs   :no
-:yes         clc
+             bcs   ALNNO
+             clc
              rts
-:no          sec
+ALNNO        sec
              rts
 
 *--------------------------------------
@@ -502,12 +526,6 @@ REPORT       lda   #<MSGVARS
              jsr   PRWORD
              jsr   PRCR
 
-*--- Their addresses, which pass 1 can now decide: past the JMP at the front.
-             lda   #<CODEORG+3
-             sta   VARBASE
-             lda   #>CODEORG+3
-             sta   VARBASE+1
-
              lda   #$00
              sta   TMPA
 :var         lda   TMPA
@@ -549,8 +567,6 @@ REPORT       lda   #<MSGVARS
              sta   WORD+1
              jsr   PRWORD
              jsr   PRCR
-
-             jsr   CONSTBS          ; where they start, after the variables
 
              lda   #$00
              sta   TMPA
@@ -657,7 +673,7 @@ VMAX         equ   128
 CMAX         equ   128
 LTMAX        equ   512
 
-             dum   $140c
+             dum   $1440
 CH           ds    1                ; the byte being looked at
 INSTR        ds    1                ; inside a string literal
 LINEREF      ds    1                ; the next number is a branch target
@@ -672,7 +688,7 @@ NUMDP        ds    1                ; places after the point
 NUMDOT       ds    1
 TMPF         ds    5                ; a packed float being built
 FTEMP        ds    5                ; and one the ROM divides
-TMPB         ds    1
+TMPB         ds    2                ; LNMUL10 needs both bytes
 PBACK        ds    1                ; a byte read and not used
 PBFLAG       ds    1
 XSAVE        ds    1

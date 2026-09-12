@@ -1,33 +1,70 @@
 #!/usr/bin/env python3
 """Check that no two dum blocks overlap.
 
+    tools/dumcheck.py [directory]
+
 Merlin will not catch this: a dum block declares addresses without emitting
 anything, so two of them can quietly claim the same bytes and the only sign
 is a variable that changes when nothing touched it. That is a bad afternoon,
 so the build asks this question every time.
+
+ONE DIRECTORY AT A TIME, because the tree holds two programs. The editor's
+blocks and the compiler's may sit at the same addresses quite safely -- they
+never run together -- so checking them as one set would report overlaps that
+are not, and the real ones would be lost among them. That is not a
+hypothetical: the compiler's own blocks were NOT being checked at all, having
+been put in a subdirectory the glob did not reach, and two of them landed on
+top of each other. The symptom was a filename that read CS300.
 """
 import re, sys, glob, os
 
-def equates(root):
+def equates(where):
     """ds sizes are often named. Resolve the simple ones from the source."""
     out = {}
-    for path in glob.glob(os.path.join(root, "src", "*.S")):
+    for path in glob.glob(os.path.join(where, "*.S")):
         for line in open(path):
-            m = re.match(r"(\S+)\s+equ\s+\$?([0-9a-fA-F]+)\s*$", line.rstrip())
+            # A TRAILING COMMENT still leaves an equate. Requiring the end of
+            # the line meant SCRW, which has one, resolved to nothing -- and
+            # the blocks sized from it were never actually checked.
+            m = re.match(r"(\S+)\s+equ\s+(\$?[0-9a-fA-F]+)\s*(;.*)?$", line.rstrip())
             if m:
                 txt = m.group(2)
-                base = 16 if "$" in line.split("equ")[1] else 10
+                base = 16 if txt.startswith("$") else 10
+                txt = txt.lstrip("$")
                 try:
                     out[m.group(1)] = int(txt, base)
                 except ValueError:
                     pass
     return out
 
+def size(text, names):
+    """A ds operand: a number, a name, or a product of the two.
+
+    A block sized VMAX*2 was resolving to zero, so its end came out BELOW its
+    start and it overlapped nothing at all -- the check quietly passed on a
+    block it had not looked at. Anything not understood now says so rather
+    than counting as empty.
+    """
+    total = 1
+    for part in text.split("*"):
+        part = part.strip()
+        if part.isdigit():
+            total *= int(part)
+        elif part in names:
+            total *= names[part]
+        else:
+            print(f"dumcheck: cannot size '{text}'", file=sys.stderr)
+            return 0
+    return total
+
+
 def main():
     root = os.path.join(os.path.dirname(__file__), "..")
-    SIZES = equates(root)
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    where = os.path.join(root, args[0] if args else "src")
+    SIZES = equates(where)
     spans = []
-    for path in sorted(glob.glob(os.path.join(root, "src", "*.S"))):
+    for path in sorted(glob.glob(os.path.join(where, "*.S"))):
         addr = None
         items = []
         for i, line in enumerate(open(path), 1):
@@ -44,10 +81,8 @@ def main():
                 continue
             m = re.match(r"(\S*)\s+ds\s+(\S+)", line)
             if m:
-                n = m.group(2)
-                n = int(n) if n.isdigit() else SIZES.get(n, 0)
                 items.append(m.group(1) or "?")
-                addr += n
+                addr += size(m.group(2), SIZES)
 
     spans.sort()
     bad = 0

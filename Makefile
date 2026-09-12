@@ -125,6 +125,7 @@ screen:
 CCBIN  := $(BUILD)/ASIDECC.SYSTEM
 
 $(CCBIN): $(wildcard src/cc/*.S) | $(BUILD)
+	@python3 $(TOOLS)/dumcheck.py src/cc
 	@$(MERLIN) $(ASMINC) src/cc/cc.S > $(BUILD)/cc-merlin32.log 2>&1 || \
 		{ echo "--- Merlin32 failed ---"; cat $(BUILD)/cc-merlin32.log; exit 1; }
 	@grep -iE '^\s+(Error|Warning)' $(BUILD)/cc-merlin32.log && exit 1 || true
