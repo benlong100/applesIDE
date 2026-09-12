@@ -83,10 +83,55 @@ and the `PEEK` that did the reading are themselves floating-point evaluations
 and had overwritten it. The variable table holds still; the accumulator does
 not.
 
+### The floating-point accumulator
+
+Read through `USR`, which hands a value to machine code with the accumulator
+still holding it — no chance for anything to overwrite it in between, which is
+what spoiled the first attempt.
+
+`USR(2.5)` then `USR(-2.5)`, copying `$9D` onward out to be printed:
+
+```
+POS 130 160 0 0 0 0
+NEG 130 160 0 0 0 255
+```
+
+**The accumulator is not the packed format.** `$9E` reads `160` where the
+packed variable held `32` — the same value with bit 7 set, because the
+accumulator stores the mantissa's leading 1 explicitly and keeps the sign in a
+byte of its own at `$A2`, zero for positive and `255` for negative. The
+mantissa is identical between the two readings; only `$A2` moves.
+
+So: **exponent `$9D`, mantissa `$9E-$A1` with an explicit leading 1, sign
+`$A2`.** Assuming the accumulator and the packed form were the same layout
+would have produced numbers wrong by a factor of two and a sign.
+
+### The ROM entry points, each confirmed
+
+| address | what it does | confirmed by |
+|---|---|---|
+| `$EAF9` | FAC ← packed at (A lo, Y hi) | loading 4.0 and packing it back |
+| `$EB2B` | packed at (X lo, Y hi) ← FAC | 2.5 arriving as `130 32 0 0 0` |
+| `$E7BE` | FAC ← FAC + memory | 2.5 + 1 giving `130 96 0 0 0`, which is 3.5 |
+| `$E7A7` | FAC ← **memory − FAC** | 4 in FAC, 2 in memory, result −2 |
+| `$E97F` | FAC ← FAC × memory | 4 × 2 giving 8 |
+| `$EA66` | FAC ← **memory ÷ FAC** | 4 in FAC, 2 in memory, result 0.5 |
+
+The pack test is conclusive rather than suggestive because the packed byte
+(`32`) differs from the accumulator's (`160`): a routine that merely copied
+would have left `160` there.
+
+**SUBTRACT AND DIVIDE TAKE THEIR OPERANDS THE OTHER WAY ROUND.** Not
+`FAC - memory` but `memory - FAC`. The probe was built to show this — 4 and 2
+chosen because −2 and 2 are different answers, where 2 and 2 would have hidden
+it. Had they been assumed, every subtraction and division in every compiled
+program would have come out backwards, and the benchmark would still have
+printed a plausible number.
+
+So the code generator's rule for `A - B` and `A / B` is: **evaluate the RIGHT
+operand into FAC, then apply the operation naming the LEFT one's address.**
+For `+` and `×` the order does not matter.
+
 ### Still to establish
 
-The ROM entry points for load, store, add, subtract, multiply, divide,
-compare and printing a number. These will be **verified individually on the
-machine** before any of them is emitted, using `USR`, which is the documented
-way to hand a value to machine code in the accumulator and get control.
-Nothing here will be taken from memory of what the addresses usually are.
+Comparison, and printing a number. Same method.
