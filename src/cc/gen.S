@@ -51,6 +51,8 @@ FACEXP       equ   $9d              ; zero is the only way a float is zero
 ZPB          equ   $1a
 ZPELEM       equ   $1e
 COUTA        equ   $fded
+CHCOL        equ   $24              ; the cursor's column
+WNDWDTH      equ   $21              ; and how wide the window is
 
 NTEMPS       equ   8
 FDEPTH       equ   8                ; nested FOR loops
@@ -75,6 +77,8 @@ TTO          equ   $c1
 TSTEP        equ   $c7
 TNOT         equ   $c6
 TDIMK        equ   $86
+TON          equ   $b4
+ONMAX        equ   40
 TAND         equ   $cd
 TOR          equ   $ce
 
@@ -307,6 +311,8 @@ GENSTMT      lda   CH
              beq   :rem
              cmp   #TDIMK
              beq   :dim
+             cmp   #TON
+             beq   :on
              cmp   #TFORK
              beq   :for
              cmp   #TNEXT
@@ -332,6 +338,7 @@ GENSTMT      lda   CH
 :end         jmp   GEND
 :for         jmp   GFOR
 :next        jmp   GNEXT
+:on          jmp   GON
 
 *--- DIM generates nothing at all: pass 1 read the sizes and the space is
 *    already in the file. Its arguments are skipped rather than compiled --
@@ -798,6 +805,205 @@ GNEXT        lda   #$ff             ; no name given: the innermost loop
              rts
 
 *--------------------------------------
+* GON -- ON expression GOTO a,b,c
+*
+* One-based: 1 picks the first, and anything outside the list falls through to
+* whatever follows on the line, which is what Applesoft does rather than an
+* error.
+*
+* THE TARGETS ARE COLLECTED BEFORE ANYTHING IS EMITTED, so the size of the
+* jump table -- and therefore how far the three out-of-range branches have to
+* reach -- is known when they are written. The alternative is emitting a jump
+* over a table whose length is not known yet, which is the patching scheme
+* that string literals had to be rescued from.
+*
+* The layout, counted rather than guessed:
+*
+*    0  JSR AYINT      3
+*    3  LDA FACHI      2
+*    5  BNE over       2   -> 30 + 2n
+*    7  LDA FACLO      2
+*    9  BEQ over       2   -> 30 + 2n
+*   11  CMP #n+1       2
+*   13  BCS over       2   -> 30 + 2n
+*   15  ASL            1       two bytes to an entry
+*   16  TAX            1
+*   17  LDA tbl-2,X    3       X is 2 for the first target
+*   20  STA ZPB        2
+*   22  LDA tbl-1,X    3
+*   25  STA ZPB+1      2
+*   27  JMP (ZPB)      3
+*   30  the table      2n
+*--------------------------------------
+*--- The failure exits are at the far end of a long routine, past the whole
+*    emitter, so they are reached by jump rather than by branch.
+GON          jsr   EXPR
+             bcc   :got
+:badj        jmp   :bad
+:got         jsr   NEXTB
+             bcs   :badj
+             cmp   #TGOTOK
+             beq   :start
+             jmp   :notgoto
+
+:start       lda   #$00
+             sta   ONN
+:list        lda   ONN
+             cmp   #ONMAX
+             bcc   :room
+             jmp   :toomany
+:room        jsr   RDLNUM
+             bcs   :badj
+             jsr   LTFIND
+             bcc   :have
+             jmp   :nosuch
+:have
+             lda   ONN
+             asl
+             tax
+             lda   TMPP
+             sta   ONBUF,x
+             lda   TMPP+1
+             sta   ONBUF+1,x
+             inc   ONN
+             jsr   PEEK
+             bcs   :emit
+             cmp   #$2c
+             bne   :emit
+             jsr   NEXTB
+             jmp   :list
+
+*--- now the sizes are known
+:emit        lda   PC               ; where the table will land
+             clc
+             adc   #$1e
+             sta   ONTBL
+             lda   PC+1
+             adc   #$00
+             sta   ONTBL+1
+
+             lda   ONN              ; 2n, which every distance is counted from
+             asl
+             sta   ONW
+
+             lda   #$20
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+
+             lda   #$a5             ; LDA FACHI -- anything over 255, or
+             jsr   EMIT             ; negative, is outside the list
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   ONW
+             clc
+             adc   #$17
+             jsr   EMIT
+
+             lda   #$a5             ; LDA FACLO -- and so is zero
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   ONW
+             clc
+             adc   #$13
+             jsr   EMIT
+
+             lda   #$c9             ; CMP #count+1
+             jsr   EMIT
+             lda   ONN
+             clc
+             adc   #$01
+             jsr   EMIT
+             lda   #$b0
+             jsr   EMIT
+             lda   ONW
+             clc
+             adc   #$0f
+             jsr   EMIT
+
+             lda   #$0a             ; ASL -- two bytes to an entry
+             jsr   EMIT
+             lda   #$aa             ; TAX
+             jsr   EMIT
+
+             lda   #$bd             ; LDA tbl-2,X
+             jsr   EMIT
+             lda   ONTBL
+             sec
+             sbc   #$02
+             sta   TMPP
+             lda   ONTBL+1
+             sbc   #$00
+             sta   TMPP+1
+             lda   TMPP
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+
+             lda   #$bd             ; LDA tbl-1,X
+             jsr   EMIT
+             lda   ONTBL
+             sec
+             sbc   #$01
+             sta   TMPP
+             lda   ONTBL+1
+             sbc   #$00
+             sta   TMPP+1
+             lda   TMPP
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPB+1
+             jsr   EMIT
+
+             lda   #$6c             ; JMP (ZPB)
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+
+             lda   #$00             ; and the table itself
+             sta   EMI
+:tbl         ldx   EMI
+             lda   ONBUF,x
+             jsr   EMIT
+             inc   EMI
+             lda   EMI
+             cmp   ONW
+             bcc   :tbl
+             clc
+             rts
+
+:notgoto     lda   #$17             ; ON ... GOSUB NOT YET
+             jsr   SETBAD
+             sec
+             rts
+:toomany     lda   #$18             ; TOO MANY IN ON GOTO
+             jsr   SETBAD
+             sec
+             rts
+:nosuch      lda   #$07             ; NO SUCH LINE
+             jsr   SETBAD
+             sec
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
 * GPRINT -- strings, numbers, and semicolons between them
 *
 * Both printers are emitted inline rather than called, which is what the
@@ -813,29 +1019,36 @@ GPRINT       lda   #$00
              beq   :end
              cmp   #':'
              beq   :end
-             cmp   #$2c              ; a comma: Merlin cannot quote one
-             beq   :unsup
+             cmp   #$2c
+             beq   :comma
+             cmp   #';'
+             beq   :semi
              cmp   #'"'
              beq   :str
+
              lda   #$00
              sta   NONL
              jsr   EXPR
              bcs   :bad
              jsr   EMPRFAC
-             jmp   :sep
+             jmp   :item
 
 :str         jsr   NEXTB            ; the opening quote
              lda   #$00
              sta   NONL
              jsr   EMPRSTR
              bcs   :bad
-             jmp   :sep
+             jmp   :item
 
-:sep         jsr   PEEK
-             bcs   :end
-             cmp   #';'
-             bne   :item
-             jsr   NEXTB
+:semi        jsr   NEXTB
+             lda   #$01
+             sta   NONL
+             jmp   :item
+
+*--- A comma tabs, and like a semicolon it also suppresses the newline when it
+*    is the last thing on the statement.
+:comma       jsr   NEXTB
+             jsr   EMTAB
              lda   #$01
              sta   NONL
              jmp   :item
@@ -845,10 +1058,100 @@ GPRINT       lda   #$00
              jsr   EMCR
 :done        clc
              rts
-:unsup       lda   #$09
-             jsr   SETBAD
 :bad         sec
              rts
+
+*--------------------------------------
+* EMTAB -- what a comma does in a PRINT
+*
+* Read off the screen rather than recalled. Applesoft's stops are every
+* sixteen columns, and from column 23 at a width of 40 it tabs to 32 while
+* from column 24 it goes to a new line instead. That is not a magic 24: it is
+* "is there room for a whole sixteen-wide field", which is why this compares
+* the column plus sixteen against the WINDOW WIDTH and so follows a program
+* that changes it.
+*
+*    0  LDA CHCOL      2
+*    2  CLC            1
+*    3  ADC #16        2
+*    5  CMP WNDWDTH    2
+*    7  BCC tab        2   -> 17
+*    9  LDA #$8D       2
+*   11  JSR COUT       3
+*   14  JMP done       3   -> 28
+*   17  LDA #$A0       2   <- tab: at least one space, so a comma at a stop
+*   19  JSR COUT       3      still moves on to the next one
+*   22  LDA CHCOL      2
+*   24  AND #$0F       2
+*   26  BNE tab        2   -> 17
+*   28
+*--------------------------------------
+EMTAB        lda   PC               ; where the jump over the newline lands
+             clc
+             adc   #$1c
+             sta   TMPP
+             lda   PC+1
+             adc   #$00
+             sta   TMPP+1
+
+             lda   #$a5
+             jsr   EMIT
+             lda   #CHCOL
+             jsr   EMIT
+             lda   #$18             ; CLC
+             jsr   EMIT
+             lda   #$69             ; ADC #16
+             jsr   EMIT
+             lda   #$10
+             jsr   EMIT
+             lda   #$c5             ; CMP WNDWDTH
+             jsr   EMIT
+             lda   #WNDWDTH
+             jsr   EMIT
+             lda   #$90             ; BCC the tab loop
+             jsr   EMIT
+             lda   #$08
+             jsr   EMIT
+
+             lda   #$a9             ; no room: a new line instead
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<COUTA
+             jsr   EMIT
+             lda   #>COUTA
+             jsr   EMIT
+             lda   #$4c             ; JMP past the tab loop
+             jsr   EMIT
+             lda   TMPP
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+
+             lda   #$a9             ; spaces until the column divides by 16
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<COUTA
+             jsr   EMIT
+             lda   #>COUTA
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #CHCOL
+             jsr   EMIT
+             lda   #$29             ; AND #$0F
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMIT
+             lda   #$d0             ; BNE back
+             jsr   EMIT
+             lda   #$f5
+             jmp   EMIT
 
 *--- LDA #$8D / JSR COUT
 EMCR         lda   #$a9
@@ -2614,5 +2917,8 @@ HELPA        ds    2                ; where the address helper landed
 ATOT         ds    2
 ACNT         ds    2
 AIDX         ds    1
-AEND         ds    1                ; an index EMIT cannot clobber
+AEND         ds    1
+ONN          ds    1                ; how many targets in an ON
+ONW          ds    1                ; twice that: the table's length
+ONTBL        ds    2                ; an index EMIT cannot clobber
              dend

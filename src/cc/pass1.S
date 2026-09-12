@@ -258,13 +258,21 @@ SCANBODY     lda   #$00
 *    and put in the data area.
 :number      lda   LINEREF
              beq   :const
-             lda   #$00
-             sta   LINEREF
 :skip        jsr   RDBYTE
              bcs   :eof
              sta   CH
              jsr   ISDIGIT
              bcc   :skip
+
+*--- ON X GOTO 10,20,30 is THREE branch targets. Clearing the expectation
+*    after the first made 20 and 30 constants -- harmless in themselves, but
+*    they take room in a table that a big program can run out of, and they
+*    say the program contains numbers it does not.
+             lda   CH
+             cmp   #$2c
+             beq   :redo            ; a comma: another target follows
+             lda   #$00
+             sta   LINEREF
              jmp   :redo
 
 :const       jsr   RDNUM

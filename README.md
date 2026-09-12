@@ -93,10 +93,10 @@ Measured on the machine at 1MHz, the same five programs `make bench` uses:
 
 | program | interpreted | compiled | speedup |
 |---|---|---|---|
-| the loop alone | 33.74s | 7.04s | 4.8× |
-| 200 lines before the target | 66.73s | 7.09s | 9.4× |
-| 30 variables before its two | 38.76s | 7.84s | 4.9× |
-| both, as a real program is | 71.50s | 7.72s | 9.3× |
+| the loop alone | 33.77s | 7.16s | 4.7× |
+| 200 lines before the target | 66.66s | 7.07s | 9.4× |
+| 30 variables before its two | 38.84s | 7.83s | 5.0× |
+| both, as a real program is | 71.50s | 8.15s | 8.8× |
 
 Every answer identical to the interpreter's. **The compiled times barely move
 across the four**, which is the whole point: what differs between those
@@ -104,7 +104,8 @@ programs is Applesoft searching for a line and scanning for a variable, and
 compiling does not reduce that work, it removes it.
 
 It compiles `LET`, `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
-`RETURN`, `IF/THEN`, `FOR`/`NEXT` with `STEP`, `PRINT`, `REM`, `END`, and
+`RETURN`, `IF/THEN`, `FOR`/`NEXT` with `STEP`, `ON ... GOTO`, `PRINT` with
+`;` and `,`, `REM`, `END`, and
 expressions over `+ - * /`, unary minus, brackets, the six comparisons,
 `AND`/`OR`/`NOT`, and the eleven numeric functions (`SGN INT ABS SQR RND LOG
 EXP COS SIN TAN ATN`). String variables, `DATA`/`READ`, `INPUT` and

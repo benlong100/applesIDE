@@ -408,7 +408,9 @@ MSGTAB       da    BADSUF           ; 1
              da    BADEXP           ; 20
              da    BADDIM           ; 21
              da    BADARRS          ; 22
-NMSG         equ   22
+             da    BADONGS          ; 23
+             da    BADONN           ; 24
+NMSG         equ   24
 
 BADSUF       asc   "NO STRINGS OR ARRAYS"
              dfb   $00
@@ -453,6 +455,10 @@ BADEXP       asc   "EXPONENT TOO BIG"
 BADDIM       asc   "ONE DIMENSION ONLY"
              dfb   $00
 BADARRS      asc   "TOO MANY ARRAYS"
+             dfb   $00
+BADONGS      asc   "ON GOSUB NOT YET"
+             dfb   $00
+BADONN       asc   "TOO MANY IN ON GOTO"
              dfb   $00
 
 *--------------------------------------
@@ -855,5 +861,6 @@ DATBUF       ds    512
 OUTBUF       ds    256              ; a whole page, so a string literal's JMP
 PFXBUF       ds    64               ; is still reachable to patch
 ONLBUF       ds    16
+ONBUF        ds    80               ; an ON GOTO's targets, collected first
 STRBUF       ds    256              ; a literal, collected before it is emitted
              dend

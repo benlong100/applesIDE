@@ -263,11 +263,11 @@ each one interpreted and then compiled, in the same session on the same disk.
 
 | program | interpreted | compiled | speedup | answer |
 |---|---|---|---|---|
-| BENCH1 | 33.74s | 7.04s | 4.8× | 4501500 |
-| BENCH2 | 66.73s | 7.09s | 9.4× | 4501500 |
-| BENCH3 | 38.76s | 7.84s | 4.9× | 4501500 |
-| BENCH4 | 71.50s | 7.72s | 9.3× | 4501500 |
-| BENCH5 | 26.83s | 5.96s | 4.5× | 3000 |
+| BENCH1 | 33.77s | 7.16s | 4.7× | 4501500 |
+| BENCH2 | 66.66s | 7.07s | 9.4× | 4501500 |
+| BENCH3 | 38.84s | 7.83s | 5.0× | 4501500 |
+| BENCH4 | 71.50s | 8.15s | 8.8× | 4501500 |
+| BENCH5 | 26.82s | 5.81s | 4.6× | 3000 |
 
 Every answer is the interpreter's own.
 
@@ -373,17 +373,51 @@ fix, when it comes, is a count stored in front of each array and a test in
 `ARRADDR`; it is not done yet because the helper would then need an error exit
 and stop being the position-independent blob that makes it free to place.
 
+### ON ... GOTO, and the comma in a PRINT
+
+`ON X GOTO 100,200,300` is one-based, and anything outside the list falls
+through to whatever follows on the line — which is what Applesoft does rather
+than an error. **The targets are collected before anything is emitted**, so the
+size of the jump table, and therefore how far the three out-of-range branches
+have to reach, is known when they are written. Emitting a jump over a table
+whose length is not yet known is the patching scheme string literals had to be
+rescued from; once was enough.
+
+Pass 1 needed a fix for it: `ON X GOTO 10,20,30` is three branch targets, and
+it was treating only the first as one. The other two became constants —
+harmless in themselves, but they take room in a table a large program can run
+out of, and they say the program contains numbers it does not.
+
+`ON ... GOSUB` is refused by name. It needs a return address pushed before an
+indirect jump, which is a small thunk rather than a variation.
+
+**The comma in a `PRINT` was read off the screen, not recalled.** Applesoft's
+stops are every sixteen columns; from column 23 at a width of 40 it tabs to
+32, and from column 24 it starts a new line instead:
+
+```
+PRINT "01234567890123456789012","*"     -> * at column 32
+PRINT "012345678901234567890123","*"    -> * on the next line
+```
+
+That 24 is not a magic number: it is *is there room for a whole sixteen-wide
+field*, so the emitted code compares the column plus sixteen against the
+**window width** and follows a program that changes it. A comma also
+suppresses the trailing newline when it ends the statement, as a semicolon
+does.
+
 ### What it compiles
 
 `LET` (named or implied), `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
 `RETURN`, `IF ... THEN` and `IF ... GOTO`, `FOR` / `NEXT` with `STEP`,
-`PRINT` of numbers and string literals with `;`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
+`ON ... GOTO`, `PRINT` of numbers and string literals with `;` and `,`,
+`REM`, `END`, and expressions over `+ - * /`, unary minus,
 brackets, the six comparisons, `AND` / `OR` / `NOT`, and the eleven numeric
 functions.
 
-Not yet: strings as values, `DATA`/`READ`, `INPUT`, `ON ... GOTO`,
-`PEEK`/`POKE`, `DEF FN`, the graphics statements, arrays of more than one
-dimension, and `,` in a `PRINT`. Each
+Not yet: strings as values, `DATA`/`READ`, `INPUT`, `ON ... GOSUB`,
+`PEEK`/`POKE`, `DEF FN`, the graphics statements, and arrays of more than one
+dimension. Each
 is refused **by name and line number** rather than compiled wrongly:
 
 ```
