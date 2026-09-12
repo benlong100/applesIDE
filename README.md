@@ -3,17 +3,24 @@
 An Applesoft BASIC editor for the Enhanced Apple //e, written in 6502 assembly
 and running under ProDOS 8.
 
-**Very early.** It boots, opens an empty program, and lets you type and move
-around. None of the things that would make it an Applesoft editor rather than
-a text editor are built yet.
+**Early, and now two programs.** The editor, and a compiler for what you
+write in it — a separate application on the same disk, so that the editor
+stays light for somebody who only wants an editor.
 
     make          assemble src/aside.S
     make disk     bootable ProDOS 8 image at build/APPLESIDE.po
     make run      build and boot it in Virtual ][
     make test     run the regression suite (73 assertions)
-    make dist     an image to give away: adds BASIC.SYSTEM and a README
+    make dist     an image to give away: adds BASIC.SYSTEM, the compiler
+                  and a README
     make card VOL=NAME   copy the image to an SD card
     make tools    fetch the toolchain on a fresh clone
+
+    make cc       assemble the compiler, src/cc/cc.S
+    make cctest   compile every program in tests/cc and check it against
+                  the interpreter
+    make ccbench  time the five benchmark programs both ways, at 1MHz
+    make bench    what the interpreter spends its time on
 
 ## What it is
 
@@ -66,6 +73,44 @@ the project and the one component deliberately deferred.
 - **OA-K checks line references**: every GOTO, GOSUB, THEN and RUN target,
   ignoring keywords inside strings and after REM
 - English and any other language you write a `lang/<code>.txt` for
+
+## The compiler
+
+`ASIDECC.SYSTEM`, about 5.3K, running on the //e. It reads a tokenised
+Applesoft file and writes a binary you can `BRUN`.
+
+```
+]-ASIDECC.SYSTEM
+COMPILE WHICH FILE? MYPROG
+...
+WROTE CMYPROG, 289
+```
+
+and then puts you back at the `]` prompt, because that is where you want to be
+after compiling something.
+
+Measured on the machine at 1MHz, the same five programs `make bench` uses:
+
+| program | interpreted | compiled | speedup |
+|---|---|---|---|
+| the loop alone | 33.77s | 9.09s | 3.7× |
+| 200 lines before the target | 66.70s | 9.00s | 7.4× |
+| 30 variables before its two | 38.84s | 9.28s | 4.2× |
+| both, as a real program is | 71.56s | 9.73s | 7.4× |
+
+Every answer identical to the interpreter's. **The compiled times barely move
+across the four**, which is the whole point: what differs between those
+programs is Applesoft searching for a line and scanning for a variable, and
+compiling does not reduce that work, it removes it.
+
+It compiles `LET`, `GOTO`, `GOSUB`, `RETURN`, `IF/THEN`, `FOR`/`NEXT` with
+`STEP`, `PRINT`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
+brackets and the six comparisons. Arrays, string variables, `DATA`/`READ`,
+`INPUT`, `AND`/`OR` and the functions are refused with a code rather than
+compiled wrongly.
+
+`docs/compiler.md` has the design, what was established on the machine rather
+than recalled, and the measurements.
 
 ## Running what you have written
 

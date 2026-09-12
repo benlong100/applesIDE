@@ -97,9 +97,18 @@ $(IMAGE): $(BIN)
 #
 # BASIC.SYSTEM is added AFTER ours, because ProDOS launches the first .SYSTEM
 # file in DIRECTORY ORDER and the disk has to come up in the editor.
-dist: $(BIN) disk/README.TXT
+# The compiler rides along. It is a separate program -- nothing in the editor
+# knows about it -- but it is no use to anybody on a disk of its own, and the
+# editor's Ctrl-R already ends at the ] prompt where -ASIDECC.SYSTEM works.
+# The README on the disk is generated from a plain-text source, so that a
+# change to it reads as a change to the README rather than as high-ASCII soup.
+disk/README.TXT: disk/README.src
+	@python3 $(TOOLS)/mktxt.py disk/README.src disk/README.TXT
+
+dist: $(BIN) $(CCBIN) disk/README.TXT
 	@RELEASE=1 VOL=APPLESIDE SYS=$(NAME) $(TOOLS)/mkdisk.sh $(DISTIMG) $(BIN) >/dev/null
 	@$(AC) -p $(DISTIMG) README.TXT TXT < disk/README.TXT
+	@$(AC) -p $(DISTIMG) ASIDECC.SYSTEM SYS 0x2000 < $(CCBIN)
 	@echo "distribution image: $(DISTIMG)"
 	@$(AC) -l $(DISTIMG)
 
