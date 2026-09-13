@@ -102,15 +102,15 @@ START        lda   #$00
 *    loaded over the top of the interpreter that was loading it. Checked
 *    BEFORE the output file is created, so a program too big does not also
 *    leave half of itself on the disk.
-             lda   ENDPC+1
+             lda   FINPC+1
              cmp   #$96
              bcc   :fits
              lda   #<MSGBIG
              ldy   #>MSGBIG
              jsr   PRSTR
-             lda   ENDPC+1
+             lda   FINPC+1
              jsr   PRHEX
-             lda   ENDPC
+             lda   FINPC
              jsr   PRHEX
              jsr   PRCR
              jmp   :stop
@@ -135,11 +135,11 @@ START        lda   #$00
              lda   #<MSGBYTES
              ldy   #>MSGBYTES
              jsr   PRSTR
-             lda   ENDPC            ; the size is where it stopped, less $6000
+             lda   FINPC            ; the size is where it stopped, less $6000
              sec
              sbc   #<CODEORG
              sta   WORD
-             lda   ENDPC+1
+             lda   FINPC+1
              sbc   #>CODEORG
              sta   WORD+1
              jsr   PRWORD
@@ -410,7 +410,11 @@ MSGTAB       da    BADSUF           ; 1
              da    BADARRS          ; 22
              da    BADONGS          ; 23
              da    BADONN           ; 24
-NMSG         equ   24
+             da    BADSARR          ; 25
+             da    BADNSTR          ; 26
+             da    BADJOIN          ; 27
+             da    BADMIX           ; 28
+NMSG         equ   28
 
 BADSUF       asc   "NO STRINGS OR ARRAYS"
              dfb   $00
@@ -459,6 +463,14 @@ BADARRS      asc   "TOO MANY ARRAYS"
 BADONGS      asc   "ON GOSUB NOT YET"
              dfb   $00
 BADONN       asc   "TOO MANY IN ON GOTO"
+             dfb   $00
+BADSARR      asc   "NO STRING ARRAYS YET"
+             dfb   $00
+BADNSTR      asc   "TOO MANY STRINGS"
+             dfb   $00
+BADJOIN      asc   "NO STRING JOIN YET"
+             dfb   $00
+BADMIX       asc   "STRING AGAINST NUMBER"
              dfb   $00
 
 *--------------------------------------
@@ -845,7 +857,7 @@ OUTNAME      ds    17
 
 *--- The stub at $300 reads these AFTER BASIC.SYSTEM has landed on top of
 *    everything this program was assembled into, so they cannot live with it.
-             dum   $1500
+             dum   $1600
 BREADPARM    ds    8
 BCLOSPARM    ds    2
 BQPARM       ds    7

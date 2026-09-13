@@ -63,6 +63,7 @@ PASS1        lda   #$00
              sta   NLINES+1
              sta   NFORS
              sta   NARR
+             sta   NSVARS
              sta   BADFLG
              sta   BADLINE
              sta   BADLINE+1
@@ -229,7 +230,7 @@ SCANBODY     lda   #$00
 *    here for the same reason.
 :nend        lda   CH
              cmp   #'$'
-             beq   :unsup
+             beq   :isstr
              cmp   #'%'
              beq   :unsup
              cmp   #'('
@@ -248,6 +249,22 @@ SCANBODY     lda   #$00
              sta   ADIM             ; a guess, not a statement of size
              jsr   ARRADD
              jmp   :next
+
+*--- A string. What comes after the $ says whether it is a plain one or an
+*    array of them, and only the plain one compiles yet -- so the byte is read
+*    and, if it is not a bracket, handed straight back.
+:isstr       jsr   RDBYTE
+             bcs   :seof
+             sta   CH
+             cmp   #'('
+             beq   :sarray
+             jsr   SVARADD
+             jmp   :redo
+:sarray      lda   #$19             ; NO STRING ARRAYS YET
+             jsr   SETBAD
+             jmp   :next
+:seof        sec
+             rts
 
 :unsup       lda   #$01
              jsr   SETBAD
@@ -276,8 +293,10 @@ SCANBODY     lda   #$00
              jmp   :redo
 
 :const       jsr   RDNUM
-             bcs   :eof
-             jsr   NUMCONV
+             bcc   :cok
+             sec                    ; its own exit: the shared one is up past
+             rts                    ; the string block now
+:cok         jsr   NUMCONV
              jsr   CONSTADD
 *--- fall through
 
@@ -337,7 +356,9 @@ SCANBODY     lda   #$00
              jsr   RDNAME           ; leaves what ended it in CH
              bcs   :dimeof
              lda   CH
-             cmp   #'('
+             cmp   #'$'             ; DIM A$(5): a string array, and saying
+             beq   :dimstr          ; 'one dimension only' about it was no
+             cmp   #'('             ; help at all
              bne   :dimbad
 
              jsr   RDSIZE           ; the number inside the bracket
@@ -368,6 +389,9 @@ SCANBODY     lda   #$00
              rts
 :dimeof      sec
              rts
+:dimstr      lda   #$19             ; NO STRING ARRAYS YET
+             jsr   SETBAD
+             jmp   :next
 :dimbad      lda   #$15             ; ONE DIMENSION ONLY
              jsr   SETBAD
              jmp   :next
@@ -449,6 +473,43 @@ SZMUL10      lda   WORD
              sta   WORD
              bcc   :done
              inc   WORD+1
+:done        rts
+
+*--------------------------------------
+* SVARADD -- VN0/VN1 into the string table
+*
+* A, A( and A$ are THREE different variables to Applesoft, which is why there
+* are three tables and not one with a type column.
+*--------------------------------------
+SVARADD      lda   #$00
+             sta   TMPA
+:find        lda   TMPA
+             cmp   NSVARS
+             bcs   :new
+             asl
+             tax
+             lda   SVTAB,x
+             cmp   VN0
+             bne   :step
+             lda   SVTAB+1,x
+             cmp   VN1
+             beq   :done
+:step        inc   TMPA
+             jmp   :find
+
+:new         lda   NSVARS
+             cmp   #SVMAX
+             bcc   :room
+             lda   #$1a             ; TOO MANY STRINGS
+             jsr   SETBAD
+             rts
+:room        asl
+             tax
+             lda   VN0
+             sta   SVTAB,x
+             lda   VN1
+             sta   SVTAB+1,x
+             inc   NSVARS
 :done        rts
 
 *--------------------------------------
@@ -997,6 +1058,49 @@ REPORT       lda   #<MSGVARS
              inc   TMPA
              jmp   :var
 
+*--- The strings, each of which is a length and a pointer
+             lda   NSVARS
+             beq   :arrs
+             lda   #<MSGSTRS
+             ldy   #>MSGSTRS
+             jsr   PRSTR
+             lda   NSVARS
+             sta   WORD
+             lda   #$00
+             sta   WORD+1
+             jsr   PRWORD
+             jsr   PRCR
+
+             lda   #$00
+             sta   TMPA
+:sv          lda   TMPA
+             cmp   NSVARS
+             bcs   :arrs
+             asl
+             tax
+             lda   SVTAB,x
+             ora   #$80
+             jsr   PRCH
+             lda   SVTAB+1,x
+             beq   :ssp
+             ora   #$80
+             jsr   PRCH
+             jmp   :sdol
+:ssp         lda   #$a0
+             jsr   PRCH
+:sdol        lda   #'$'+$80
+             jsr   PRCH
+             lda   #$a0
+             jsr   PRCH
+             jsr   SVADDR
+             lda   TMPP+1
+             jsr   PRHEX
+             lda   TMPP
+             jsr   PRHEX
+             jsr   PRCR
+             inc   TMPA
+             jmp   :sv
+
 :arrs
 *--- The arrays, with how many elements each ended up with: eleven from a
 *    bare use, or whatever a DIM said.
@@ -1076,6 +1180,14 @@ REPORT       lda   #<MSGVARS
 *    refused program said the same thing twice and neither time helpfully.
 :bad         rts
 
+*--- TMPP <- the descriptor of string variable TMPA: a length and a pointer
+SVADDR       lda   SVBASE
+             sta   SLOTB
+             lda   SVBASE+1
+             sta   SLOTB+1
+             lda   #$03
+             jmp   SLOTN
+
 *--- TMPP <- the address of variable TMPA in the compiled program
 VADDR        lda   VARBASE
              sta   SLOTB
@@ -1113,6 +1225,8 @@ PRCR         lda   #$8d
 
 MSGVARS      asc   "VARIABLES: "
              dfb   $00
+MSGSTRS      asc   "STRINGS: "
+             dfb   $00
 MSGARRS      asc   "ARRAYS: "
              dfb   $00
 MSGCONST     asc   "CONSTANTS: "
@@ -1121,6 +1235,7 @@ MSGCONST     asc   "CONSTANTS: "
 NUMMAX       equ   24
 VMAX         equ   128
 AMAX         equ   32
+SVMAX        equ   64
 CMAX         equ   128
 LTMAX        equ   512
 
@@ -1162,6 +1277,8 @@ ACCN         ds    1
 ACCSZ        ds    1
 NFORS        ds    1
 NARR         ds    1
+NSVARS       ds    1
+SVBASE       ds    2
 ASIZE        ds    2                ; elements, while one is being recorded
 ADIM         ds    1                ; ...said by a DIM rather than guessed
 ARRBASE      ds    2
@@ -1173,6 +1290,7 @@ BADLINE      ds    2                ; and the one the first complaint was on
              dum   $8000
 VTAB         ds    VMAX*2
 ARRTAB       ds    AMAX*4           ; two of name, two of element count
+SVTAB        ds    SVMAX*2
 CTAB         ds    CMAX*5
 LTAB         ds    LTMAX*4
              dend

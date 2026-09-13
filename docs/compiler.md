@@ -263,11 +263,11 @@ each one interpreted and then compiled, in the same session on the same disk.
 
 | program | interpreted | compiled | speedup | answer |
 |---|---|---|---|---|
-| BENCH1 | 33.77s | 7.16s | 4.7× | 4501500 |
-| BENCH2 | 66.66s | 7.07s | 9.4× | 4501500 |
-| BENCH3 | 38.84s | 7.83s | 5.0× | 4501500 |
-| BENCH4 | 71.50s | 8.15s | 8.8× | 4501500 |
-| BENCH5 | 26.82s | 5.81s | 4.6× | 3000 |
+| BENCH1 | 33.68s | 7.07s | 4.8× | 4501500 |
+| BENCH2 | 66.70s | 7.14s | 9.3× | 4501500 |
+| BENCH3 | 38.81s | 7.83s | 5.0× | 4501500 |
+| BENCH4 | 71.54s | 7.67s | 9.3× | 4501500 |
+| BENCH5 | 26.78s | 5.85s | 4.6× | 3000 |
 
 Every answer is the interpreter's own.
 
@@ -406,18 +406,85 @@ field*, so the emitted code compares the column plus sixteen against the
 suppresses the trailing newline when it ends the statement, as a semicolon
 does.
 
+### Strings, as far as they go without a heap
+
+`A$`, literals, `A$ = B$`, `A$ = "text"`, `PRINT` of strings mixed with
+numbers, all six comparisons, and `LEN`.
+
+**A string value is a descriptor** — one byte of length and two of pointer,
+which is what Applesoft uses. Assignment copies the three bytes rather than
+the text, so `A$ = B$` leaves both pointing at the same characters; again what
+Applesoft does. A literal's characters are emitted into the compiled program
+and the descriptor points at them.
+
+**Nothing is allocated**, and that is what makes this a self-contained piece
+of work rather than a research project. None of Applesoft's heap is touched —
+no `FRETOP`, no `STREND`, no garbage collector, and no need to set up the
+interpreter's zero page as though it were running. Joining two strings, and
+`CHR$` and `LEFT$` and the rest, all have to **make** a string: somewhere to
+put it and something to reclaim it. That is the next piece and it is a real
+one; until then each is refused by name.
+
+`A`, `A(` and `A$` are **three different variables** to Applesoft, so there
+are three tables here rather than one with a type column.
+
+Two more runtime helpers join the array one: a print loop, and a comparison
+that answers in exactly `FCOMP`'s convention, so everything already reading
+`CMPWANT` and `CMPSENS` works unchanged.
+
+The semantics were read off the machine first:
+
+| | |
+|---|---|
+| `"AB" < "ABC"` | 1 — a prefix is the lesser |
+| `"AB" = "AB "` | 0 — no padding with spaces |
+| `PRINT "[";"";"]"` | `[]` |
+
+Text is stored with its high bits **clear**, the way Applesoft stores it, so
+that comparing two strings compares the bytes the interpreter would; the print
+helper puts the bit back on its way to `COUT`.
+
+**One place a number is insisted on.** `NEXPR` is `EXPR` plus a refusal, and
+everywhere but a `PRINT` item, a string assignment and a comparison's two
+sides goes through it. Without it a string reaching a numeric context — `FOR
+I = A$ TO 5` — compiled into arithmetic on whatever the accumulator happened
+to hold, which is the sort of wrong that runs. Finding all the call sites took
+two goes: a search for `jsr EXPR` missed every one with a trailing comment, so
+`FOR`'s three expressions and `ON`'s kept the unguarded version until a second
+look listed what should have changed rather than counting what had.
+
+### A harness fault wearing a compiler fault's clothes
+
+The string test failed with one extra `HELLO` in the compiled output, which
+reads exactly like a code generation bug. It was not one.
+
+`capture()` dropped the screen's first row, taking it for the echoed command.
+That is true only while the output is short enough not to scroll. The test had
+grown past a screenful, `]RUN` went off the top, row 0 became a real line of
+output, and the capture ate it — and the compiled run scrolled differently, so
+the two disagreed by one line.
+
+What settled it was dumping the raw screen with row numbers and finding **both**
+`HELLO`s sitting there. The output was right; the reading of it was wrong.
+
+The capture now finds the echo rather than assuming where it is, and a program
+whose output fills the screen is **refused outright** rather than compared on
+whatever survived. Same rule as the benchmark refusing to report a timeout as
+a measurement: a truncation is not a result. The string tests are two programs
+now, both comfortably inside a screen.
+
 ### What it compiles
 
 `LET` (named or implied), `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
 `RETURN`, `IF ... THEN` and `IF ... GOTO`, `FOR` / `NEXT` with `STEP`,
-`ON ... GOTO`, `PRINT` of numbers and string literals with `;` and `,`,
-`REM`, `END`, and expressions over `+ - * /`, unary minus,
+`ON ... GOTO`, string variables and literals with assignment, comparison and
+`LEN`, `PRINT` of numbers and strings with `;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
 brackets, the six comparisons, `AND` / `OR` / `NOT`, and the eleven numeric
 functions.
 
-Not yet: strings as values, `DATA`/`READ`, `INPUT`, `ON ... GOSUB`,
-`PEEK`/`POKE`, `DEF FN`, the graphics statements, and arrays of more than one
-dimension. Each
+Not yet: joining strings and the string functions, `DATA`/`READ`, `INPUT`,
+`ON ... GOSUB`, `PEEK`/`POKE`, `DEF FN`, the graphics statements, arrays of
+more than one dimension, and arrays of strings. Each
 is refused **by name and line number** rather than compiled wrongly:
 
 ```

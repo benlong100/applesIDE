@@ -72,6 +72,17 @@ to_basic
 
 # HOME first, every time: the previous run's output is still on the screen and
 # would otherwise be read as this one's.
+#
+# THE ECHO IS FOUND, NOT ASSUMED. This used to drop the screen's first row,
+# taking it for the echoed command -- which it is only while the output is
+# short enough not to scroll. A program that printed a screenful pushed the
+# echo off the top, so the first row became a real line of output and the
+# capture ate it. The compiled run of the same program scrolled differently
+# and the two disagreed by one line: a harness fault wearing a compiler
+# fault's clothes. Prompt lines start with ] and nothing a test prints does.
+#
+# And a program whose output fills the screen is refused outright rather than
+# silently compared on what is left of it. A truncation is not a result.
 capture() {                        # command -> what it printed, one line each
     "$V" line "HOME" >/dev/null
     "$V" settle 4 >/dev/null
@@ -81,7 +92,13 @@ capture() {                        # command -> what it printed, one line each
         "$V" screen 2>/dev/null | grep -qE "^DONE|\\?.*ERROR" && break
     done
     "$V" settle 4 >/dev/null
-    "$V" screen | sed -n "2,\$p" | sed '/^$/d'
+    local out
+    out=$("$V" screen | grep -v '^\]' | sed '/^$/d')
+    if [ "$(printf '%s\n' "$out" | wc -l)" -ge 22 ]; then
+        echo "OUTPUT-FILLS-THE-SCREEN--SPLIT-THIS-PROGRAM"
+        return
+    fi
+    printf '%s\n' "$out"
 }
 
 fail=0
