@@ -93,10 +93,10 @@ Measured on the machine at 1MHz, the same five programs `make bench` uses:
 
 | program | interpreted | compiled | speedup |
 |---|---|---|---|
-| the loop alone | 33.77s | 7.16s | 4.7× |
-| 200 lines before the target | 66.66s | 7.07s | 9.4× |
-| 30 variables before its two | 38.84s | 7.83s | 5.0× |
-| both, as a real program is | 71.50s | 8.15s | 8.8× |
+| the loop alone | 33.68s | 7.07s | 4.8× |
+| 200 lines before the target | 66.70s | 7.14s | 9.3× |
+| 30 variables before its two | 38.81s | 7.83s | 5.0× |
+| both, as a real program is | 71.54s | 7.67s | 9.3× |
 
 Every answer identical to the interpreter's. **The compiled times barely move
 across the four**, which is the whole point: what differs between those
@@ -105,15 +105,24 @@ compiling does not reduce that work, it removes it.
 
 It compiles `LET`, `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
 `RETURN`, `IF/THEN`, `FOR`/`NEXT` with `STEP`, `ON ... GOTO`, `PRINT` with
-`;` and `,`, `REM`, `END`, and
-expressions over `+ - * /`, unary minus, brackets, the six comparisons,
-`AND`/`OR`/`NOT`, and the eleven numeric functions (`SGN INT ABS SQR RND LOG
-EXP COS SIN TAN ATN`). String variables, `DATA`/`READ`, `INPUT` and
-`PEEK`/`POKE` are refused by name and line number rather than compiled
+`;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
+brackets, the six comparisons, `AND`/`OR`/`NOT`, and the eleven numeric
+functions (`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN`).
+
+**String variables** too, as far as they go without a heap: `A$ = B$`,
+`A$ = "text"`, `PRINT A$`, all six comparisons and `LEN`. A string value is a
+descriptor — a length and a pointer — so assignment copies three bytes rather
+than the text, exactly as Applesoft does, and a literal's characters live in
+the compiled program. Nothing is allocated.
+
+Joining strings and the string functions, `DATA`/`READ`, `INPUT`,
+`PEEK`/`POKE` and arrays of strings all have to make a string or are simply
+not built, and are refused by name and line number rather than compiled
 wrongly:
 
 ```
-STOPPED IN 30: NO STRINGS OR ARRAYS
+STOPPED IN 30: NO STRING JOIN YET
+STOPPED IN 20: STRING AGAINST NUMBER
 ```
 
 `docs/compiler.md` has the design, what was established on the machine rather
