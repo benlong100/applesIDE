@@ -263,11 +263,11 @@ each one interpreted and then compiled, in the same session on the same disk.
 
 | program | interpreted | compiled | speedup | answer |
 |---|---|---|---|---|
-| BENCH1 | 33.78s | 6.14s | 5.5× | 4501500 |
-| BENCH2 | 66.73s | 6.04s | 11.0× | 4501500 |
-| BENCH3 | 38.88s | 6.11s | 6.4× | 4501500 |
-| BENCH4 | 71.53s | 6.14s | 11.6× | 4501500 |
-| BENCH5 | 26.80s | 4.40s | 6.1× | 3000 |
+| BENCH1 | 33.79s | 6.04s | 5.6× | 4501500 |
+| BENCH2 | 66.73s | 6.03s | 11.1× | 4501500 |
+| BENCH3 | 38.78s | 6.11s | 6.3× | 4501500 |
+| BENCH4 | 71.48s | 6.13s | 11.7× | 4501500 |
+| BENCH5 | 26.84s | 4.46s | 6.0× | 3000 |
 
 Every answer is the interpreter's own.
 
@@ -304,13 +304,63 @@ costs 0.119s, measured. That is the granularity: nothing against an
 interpreted run of half a minute, and worth stating against a compiled one of
 six seconds. Two decimal places is more than these carry.
 
-### Every program carries the whole runtime
+### A program carries only the runtime it uses
 
-A compiled program gets the array helper, the string helpers, the heap and the
-collector whether it uses them or not — about 900 bytes on a program that
-never touches a string. Pass 1 already knows which features a program uses, so
-this is bookkeeping rather than a design problem, and it is worth doing: it is
-most of the difference between a 300-byte binary and an 1,100-byte one.
+| | before | after |
+|---|---|---|
+| a program whose whole body is one `PRINT` | 1,104 | **128** |
+| BENCH1 | ~1,200 | **266** |
+| BENCH4 | — | 836 |
+| the join test, which uses everything | — | 2,024 |
+
+**Pass 2 already knew.** It generates every line before it emits a single
+helper, so a bit set at each call site is complete by the time the helpers go
+down — and pass 3 sets the same bits from the same source and emits the same
+set, so the addresses pass 2 recorded still land where pass 3 puts them. No
+extra pass and no analysis: the information was already there in the right
+order.
+
+**And it confirmed the timing fix.** Taking about 900 bytes out of every
+binary moved the measured times by around a tenth of a second — which is the
+granularity, so: by nothing. That is what should happen once loading is
+outside the timer, and before the fix the same change would have shown up as a
+large false speedup.
+
+The dependencies are recorded rather than assumed. The heap and the collector
+come in with any of the four operations that allocate; the three substring
+functions share an ending, so they come in together; `ASC` allocates nothing
+and stays out of that group.
+
+### The fourth fall-through, and a way to stop making them
+
+The flag has to sit **on** the label, not above it. I put two of them above —
+`:pstr`, reached by a `bne`, and `:isleft`, reached by a `beq` — so printing a
+string never recorded that it needed the print helper, and `LEFT$` never
+recorded that it needed the slicing ones. The compiler then emitted `JSR` to
+routines it had decided not to include, and the program ran off into unwritten
+memory. The emulator sat in the monitor at `6048- 00 BRK`.
+
+That is the fourth bug of this shape in the compiler's history, all of them
+code placed by physical position where control arrives by a branch:
+
+- a trampoline written under its own branch, so every `LEFT$` compiled as
+  `MID$`
+- a routine's failure exit dropped into a fall-through path, so every `LEFT$`
+  returned failure with nothing to report
+- the pass 1 string report placed above the label its own loop jumps to, so it
+  never ran
+- and this one
+
+**The shape is mechanical enough to check for mechanically.** After fixing
+both, grepping for any remaining `jsr NEED` immediately followed by a label
+found none — which is the check that should have come before the first run,
+not after it.
+
+What did work: a missed flag was named in advance as silent in the compiler
+and fatal in the output, so the crash pointed straight at the cause instead of
+starting an investigation. And a program that dies in the monitor says
+*jumped somewhere impossible*, which is a better diagnosis than a wrong
+number.
 
 ### Correctness, against the interpreter rather than against a table
 

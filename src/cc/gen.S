@@ -2207,6 +2207,31 @@ EMHMID       lda   #$ad
              jmp   EMIT
 
 *--------------------------------------
+* NEED -- record that the program uses something
+*
+* A compiled program used to carry the array helper, the string helpers, the
+* heap and the collector whether it touched them or not: about nine hundred
+* bytes on a program that never sees a string.
+*
+* PASS 2 ALREADY KNOWS. It generates every line before it emits a single
+* helper, so a bit set at each call site is complete by the time the helpers
+* go down -- and pass 3 sets the same bits from the same source and emits the
+* same set, so the addresses pass 2 recorded still land where pass 3 puts
+* them.
+*
+*   $01 arrays      $02 printing a string   $04 comparing two
+*   $08 a substring $10 CHR$                $20 joining
+*   $40 STR$        $80 ASC
+*
+* The heap and the collector come in with any of the four that allocate.
+*--------------------------------------
+NEED         ora   USES
+             sta   USES
+             rts
+
+UHEAP        equ   $78              ; $08+$10+$20+$40: the ones that allocate
+
+*--------------------------------------
 * ARRBLOB -- base + 5 * index, the one piece of runtime a compiled program has
 *
 * Entered with the base in A and Y and the subscript already through AYINT, so
@@ -2259,6 +2284,7 @@ GENPASS      lda   #$00
              sta   LINEI+1
              sta   TEMPTOP
              sta   FORN
+             sta   USES
              sta   FSTKTOP
              sta   PENDOK
              sta   OUTLEN
@@ -2440,6 +2466,15 @@ GENPASS      lda   #$00
 *    program. Here each one records where it landed as it is emitted, and the
 *    calls to it are resolved the same way a forward GOTO is: pass 2 puts
 *    something plausible there, pass 3 puts the address pass 2 recorded.
+*
+*    AND ONLY THE ONES THE PROGRAM USES. USES was filled in as the code was
+*    generated, above, so it is complete by now; pass 3 fills it in the same
+*    way from the same source and emits the same set.
+
+*--- the address helper, for a program with arrays
+             lda   USES
+             and   #$01
+             beq   :noarr
              lda   PC
              sta   HARR
              lda   PC+1
@@ -2453,22 +2488,37 @@ GENPASS      lda   #$00
              lda   EMI
              cmp   #HELPSZ
              bcc   :hb
+:noarr
 
+*--- comparing two strings, and printing one
+             lda   USES
+             and   #$04
+             beq   :nocmp
              lda   PC
              sta   HSCMP
              lda   PC+1
              sta   HSCMP+1
              jsr   EMHSCMP
-
+:nocmp
+             lda   USES
+             and   #$02
+             beq   :nospr
              lda   PC
              sta   HSPR
              lda   PC+1
              sta   HSPR+1
              jsr   EMHSPR
+:nospr
 
-*--- The heap's own first: everything below calls into it, and emitting a
-*    caller before what it calls would leave the call resolved from the
-*    previous pass -- true, but true by accident.
+*--- The heap and the collector, which any of the four that allocate bring in
+*    with them. In an order where each one's address is already known by the
+*    time the next refers to it: the messages, the error exit, the collector,
+*    then the allocator that calls both.
+             lda   USES
+             and   #UHEAP
+             bne   :heap
+             jmp   :noheap
+:heap
              lda   PC
              sta   MOOM
              lda   PC+1
@@ -2503,6 +2553,10 @@ GENPASS      lda   #$00
              sta   HALLOC+1
              jsr   EMHALLOC
 
+*--- the three substring functions, which share an ending
+             lda   USES
+             and   #$08
+             beq   :noslice
              lda   PC
              sta   HSLICE
              lda   PC+1
@@ -2526,33 +2580,47 @@ GENPASS      lda   #$00
              lda   PC+1
              sta   HMID+1
              jsr   EMHMID
+:noslice
 
-             lda   PC
-             sta   HASC
-             lda   PC+1
-             sta   HASC+1
-             jsr   EMHASC
-
-*--- The heap's own, in an order where each one's address is already known by
-*    the time the next refers to it: the message, then the error exit, then
-*    the allocator, then what uses it.
+             lda   USES
+             and   #$10
+             beq   :nochr
              lda   PC
              sta   HCHR
              lda   PC+1
              sta   HCHR+1
              jsr   EMHCHR
-
+:nochr
+             lda   USES
+             and   #$20
+             beq   :nojoin
              lda   PC
              sta   HJOIN
              lda   PC+1
              sta   HJOIN+1
              jsr   EMHJOIN
-
+:nojoin
+             lda   USES
+             and   #$40
+             beq   :nostr
              lda   PC
              sta   HSTR
              lda   PC+1
              sta   HSTR+1
              jsr   EMHSTR
+:nostr
+:noheap
+
+*--- ASC allocates nothing, so it is not part of that group
+             lda   USES
+             and   #$80
+             beq   :noasc
+             lda   PC
+             sta   HASC
+             lda   PC+1
+             sta   HASC+1
+             jsr   EMHASC
+:noasc
 
              lda   PC               ; where the program really ends
              sta   FINPC
@@ -3406,7 +3474,9 @@ GPRINT       lda   #$00
              bne   :pstr
              jsr   EMPRFAC
              jmp   :item
-:pstr        lda   #$20             ; JSR the print helper
+:pstr        lda   #$02        ; ON the label, not above it: reached by a
+             jsr   NEED             ; branch, so anything in front is skipped
+             lda   #$20             ; JSR the print helper
              jsr   EMIT
              lda   HSPR
              jsr   EMIT
@@ -3976,6 +4046,8 @@ SCMPC        jsr   PEEK
              pla
              sta   CMPWANT
 
+             lda   #$04
+             jsr   NEED
              lda   #$20             ; JSR the comparison helper
              jsr   EMIT
              lda   HSCMP
@@ -4225,6 +4297,8 @@ ESUM         jsr   ETERM
              lda   ISSTR
              beq   :smix
 
+             lda   #$20
+             jsr   NEED
              lda   #$20
              jsr   EMIT
              lda   HJOIN
@@ -4636,6 +4710,8 @@ FCHR         jsr   NEXTB
              bcs   :no
              cmp   #')'
              bne   :no
+             lda   #$10
+             jsr   NEED
              jsr   EMAYINT
              lda   #$20
              jsr   EMIT
@@ -4665,6 +4741,8 @@ FSTR         jsr   NEXTB
              bcs   :no
              cmp   #')'
              bne   :no
+             lda   #$40
+             jsr   NEED
              lda   #$20
              jsr   EMIT
              lda   HSTR
@@ -4690,6 +4768,8 @@ FASC         jsr   SOPEN
              lda   #$00
              sta   ISSTR
              sta   PENDOK
+             lda   #$80
+             jsr   NEED
              lda   HASC
              sta   TMPP
              lda   HASC+1
@@ -4747,10 +4827,14 @@ FSLICE       lda   CH
              lda   SLICEF
              cmp   #TLEFT
              beq   :isleft
+             lda   #$08
+             jsr   NEED
              lda   HRIGHT
              ldy   HRIGHT+1
              jmp   :slcall
-:isleft      lda   HLEFT
+:isleft      lda   #$08        ; ON the label, not above it: reached by a
+             jsr   NEED             ; branch, so anything in front is skipped
+             lda   HLEFT
              ldy   HLEFT+1
 :slcall      sta   TMPP
              sty   TMPP+1
@@ -4833,6 +4917,8 @@ FMID         jsr   EMAYINT
              lda   #$00
              jsr   EMSCOFS
              jsr   EMPULLSD
+             lda   #$08
+             jsr   NEED
              lda   #$20
              jsr   EMIT
              lda   HMID
@@ -5064,6 +5150,8 @@ EMSUBS       lda   VARI
              jsr   EMIT
              lda   TMPP+1
              jsr   EMIT
+             lda   #$01
+             jsr   NEED
              lda   #$20             ; JSR the address helper
              jsr   EMIT
              lda   HARR
@@ -5735,6 +5823,7 @@ MOOM         ds    2                ; where the two messages landed
 MLONG        ds    2
 SLICEF       ds    1                ; which of the three is being compiled
 SCRA         ds    2                ; where the runtime's scratch begins
+USES         ds    1                ; which helpers the program actually needs
 ISSTR        ds    1                ; the value just parsed is a string
 DSTA         ds    2                ; where EMSDESC is to copy to
 DSTSV        ds    2                ; and where an assignment finally lands

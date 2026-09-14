@@ -93,10 +93,10 @@ Measured on the machine at 1MHz, the same five programs `make bench` uses:
 
 | program | interpreted | compiled | speedup |
 |---|---|---|---|
-| the loop alone | 33.78s | 6.14s | 5.5× |
-| 200 lines before the target | 66.73s | 6.04s | 11.0× |
-| 30 variables before its two | 38.88s | 6.11s | 6.4× |
-| both, as a real program is | 71.53s | 6.14s | 11.6× |
+| the loop alone | 33.79s | 6.04s | 5.6× |
+| 200 lines before the target | 66.73s | 6.03s | 11.1× |
+| 30 variables before its two | 38.78s | 6.11s | 6.3× |
+| both, as a real program is | 71.48s | 6.13s | 11.7× |
 
 Every answer identical to the interpreter's. **The compiled times barely move
 across the four** — a tenth of a second, against interpreted times from 33 to
@@ -133,6 +133,9 @@ by name and line number rather than compiled wrongly:
 STOPPED IN 30: NO STRING JOIN YET
 STOPPED IN 20: STRING AGAINST NUMBER
 ```
+
+A compiled program carries only the runtime it uses: one that never touches a
+string is 128 bytes where it used to be 1,104.
 
 `docs/compiler.md` has the design, what was established on the machine rather
 than recalled, and the measurements.
