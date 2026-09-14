@@ -453,6 +453,60 @@ two goes: a search for `jsr EXPR` missed every one with a trailing comment, so
 `FOR`'s three expressions and `ON`'s kept the unguarded version until a second
 look listed what should have changed rather than counting what had.
 
+### The slicing functions, which need no heap either
+
+`LEFT$`, `RIGHT$`, `MID$` and `ASC`. A substring is the same characters with
+a shorter length, or the same characters from further in — and a compiled
+program never writes into a string's text, it only ever replaces a
+descriptor, so sharing is safe. Applesoft copies here; the answer is the same
+and this does not need a heap to give it. That moved the whole family ahead of
+the heap work rather than behind it.
+
+**`LEFT$(A$, LEN(B$))` is not a strange thing to write**, and working out the
+count builds `B$` in the one descriptor slot, losing `A$`. So the string goes
+on the 6502 stack across the numeric arguments, which survives any depth of
+nesting where a second slot would not. `MID$`'s starting position goes on the
+stack too, because working out its count can reach another `MID$` through a
+`LEN`.
+
+**`LEFT$(A$,0)` is `?ILLEGAL QUANTITY` in Applesoft** — the range is 1 to 255,
+not 0 to 255. I had it returning an empty string, and the interpreter said
+otherwise. The compiled version clamps where Applesoft refuses, so the two
+differ on invalid input; a program the interpreter rejects cannot serve as a
+specification, so `tests/cc/slice` uses only arguments it accepts.
+
+### EPRIM was too long, and splitting it cost two bugs
+
+`EPRIM` reached 366 source lines with eight nested blocks. Every addition cost
+two or three builds finding the next branch that had gone out of range, and
+each block had grown a private failure exit because no shared one was in
+reach. The string handlers are now five routines — `FLEN`, `FASC`, `FSLICE`,
+`FMID`, `SVARP` — each with a label scope the length of itself.
+
+**Both bugs the split introduced were fall-throughs**, which is what happens
+when code that used physical adjacency as control flow gets moved without
+making the flow explicit first:
+
+- The `MID$` trampoline went directly under its own `beq`, so `LEFT$` and
+  `RIGHT$` fell straight into it and every one of them compiled as `MID$`.
+  `LEFT$("ABCDEFG",3)` printed `CDEFG`.
+- `FSLICE`'s `LEFT$`/`RIGHT$` path used to fall through into the shared
+  ending, and the routine's new failure exit went into exactly that gap. Every
+  `LEFT$` then returned carry set with nothing reported, so the compiler
+  stopped and printed no reason at all.
+
+Neither is something an assembler can catch: there is nothing wrong with any
+instruction involved. Only running it showed anything, and the refactor was
+supposed to change nothing — which is the reason to run the suite over a
+change that is supposed to change nothing.
+
+**And the pass 1 report had stopped describing the program.** The variable
+loop ends by jumping to the array report, and the string section went in above
+that label rather than below it, so a program full of strings reported none.
+Harmless to the output and not harmless at all: the report exists to say what
+the compiler saw, and it had been quietly wrong since it was written. It
+surfaced only because I was reading it to debug something else.
+
 ### A harness fault wearing a compiler fault's clothes
 
 The string test failed with one extra `HELLO` in the compiled output, which
@@ -478,13 +532,15 @@ now, both comfortably inside a screen.
 `LET` (named or implied), `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
 `RETURN`, `IF ... THEN` and `IF ... GOTO`, `FOR` / `NEXT` with `STEP`,
 `ON ... GOTO`, string variables and literals with assignment, comparison and
-`LEN`, `PRINT` of numbers and strings with `;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
+`LEN`, `LEFT$`, `RIGHT$`, `MID$` and `ASC`, `PRINT` of numbers and strings
+with `;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
 brackets, the six comparisons, `AND` / `OR` / `NOT`, and the eleven numeric
 functions.
 
-Not yet: joining strings and the string functions, `DATA`/`READ`, `INPUT`,
+Not yet: joining strings, `CHR$`, `STR$` and `VAL`, `DATA`/`READ`, `INPUT`,
 `ON ... GOSUB`, `PEEK`/`POKE`, `DEF FN`, the graphics statements, arrays of
-more than one dimension, and arrays of strings. Each
+more than one dimension, and arrays of strings. The first three all have to
+**make** a string, which is the heap, and it is the next piece of work. Each
 is refused **by name and line number** rather than compiled wrongly:
 
 ```

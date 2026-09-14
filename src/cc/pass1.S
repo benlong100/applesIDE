@@ -1034,8 +1034,8 @@ REPORT       lda   #<MSGVARS
 :var         lda   TMPA
              cmp   NVARS
              bcc   :vshow
-             jmp   :arrs            ; the array report sits between here and
-:vshow       asl                    ; the constants now
+             jmp   :strs            ; the string and array reports sit between
+:vshow       asl                    ; here and the constants now
              tax
              lda   VTAB,x
              ora   #$80
@@ -1058,8 +1058,13 @@ REPORT       lda   #<MSGVARS
              inc   TMPA
              jmp   :var
 
-*--- The strings, each of which is a length and a pointer
-             lda   NSVARS
+*--- The strings, each of which is a length and a pointer.
+*
+*    THIS WAS BEING JUMPED OVER. The variable loop finished by jumping to the
+*    array report, and this went in above that label rather than below it, so
+*    a program full of strings reported none and the report quietly stopped
+*    describing the program.
+:strs        lda   NSVARS
              beq   :arrs
              lda   #<MSGSTRS
              ldy   #>MSGSTRS

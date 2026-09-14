@@ -79,6 +79,10 @@ TNOT         equ   $c6
 TDIMK        equ   $86
 TON          equ   $b4
 TLEN         equ   $e3
+TASC         equ   $e6
+TLEFT        equ   $e8
+TRIGHT       equ   $e9
+TMID         equ   $ea
 ONMAX        equ   40
 TAND         equ   $cd
 TOR          equ   $ce
@@ -118,13 +122,21 @@ SDBADDR      lda   SDESCA
              sta   TMPP+1
              rts
 
-*--- SDEST back to SDA, which is where everything but a comparison's right
-*    side wants its descriptor put
-SDRESET      jsr   SDAADDR
-             lda   TMPP
-             sta   SDEST
+*--- SDA IS THE ONLY PLACE A STRING VALUE IS EVER BUILT.
+*
+*    It used to be built wherever the statement wanted it -- straight into the
+*    variable for an assignment, into SDB for the right of a comparison. That
+*    works while a string is only ever copied, and stops working the moment
+*    anything OPERATES on one: LEFT\$ has to be told where its string is, and
+*    an address chosen by the statement is not something a JSR can carry.
+*
+*    So every string value lands in SDA, and the two places that want it
+*    somewhere else copy it there afterwards. The copy is six bytes; the
+*    alternative is a pointer argument on every string helper for ever.
+SDSET        lda   TMPP             ; TMPP -> DSTA, for EMSDESC
+             sta   DSTA
              lda   TMPP+1
-             sta   SDEST+1
+             sta   DSTA+1
              rts
 
 *--- the string variable table, which pass 1 filled
@@ -157,7 +169,7 @@ EMADDR       lda   TMPP
              jmp   EMIT
 
 *--------------------------------------
-* EMSDESC -- emit code copying the three bytes at SRCA to SDEST
+* EMSDESC -- emit code copying the three bytes at SRCA to DSTA
 *--------------------------------------
 EMSDESC      lda   #$00
              sta   EMI
@@ -173,11 +185,11 @@ EMSDESC      lda   #$00
              jsr   EMADDR
              lda   #$8d             ; STA abs
              jsr   EMIT
-             lda   SDEST
+             lda   DSTA
              clc
              adc   EMI
              sta   TMPP
-             lda   SDEST+1
+             lda   DSTA+1
              adc   #$00
              sta   TMPP+1
              jsr   EMADDR
@@ -249,10 +261,7 @@ EMSLIT       lda   #$00
              jsr   EMIT
              lda   #$8d
              jsr   EMIT
-             lda   SDEST
-             sta   TMPP
-             lda   SDEST+1
-             sta   TMPP+1
+             jsr   SDAADDR
              jsr   EMADDR
 
              lda   #$a9
@@ -261,14 +270,8 @@ EMSLIT       lda   #$00
              jsr   EMIT
              lda   #$8d
              jsr   EMIT
-             lda   SDEST
-             clc
-             adc   #$01
-             sta   TMPP
-             lda   SDEST+1
-             adc   #$00
-             sta   TMPP+1
-             jsr   EMADDR
+             lda   #$01
+             jsr   EMSDOFS
 
              lda   #$a9
              jsr   EMIT
@@ -276,14 +279,8 @@ EMSLIT       lda   #$00
              jsr   EMIT
              lda   #$8d
              jsr   EMIT
-             lda   SDEST
-             clc
-             adc   #$02
-             sta   TMPP
-             lda   SDEST+1
-             adc   #$00
-             sta   TMPP+1
-             jsr   EMADDR
+             lda   #$02
+             jsr   EMSDOFS
              clc
              rts
 
@@ -294,6 +291,39 @@ EMSLIT       lda   #$00
 :unterm      lda   #$0a
              jsr   SETBAD
 :bad         sec
+             rts
+
+*--------------------------------------
+* EMPUSHSD / EMPULLSD -- SDA on and off the 6502 stack
+*
+* LEFT\$(A\$, LEN(B\$)) is why. Every string value is built in SDA, so working
+* out the count builds B\$ there and A\$ is gone. The stack costs twelve bytes
+* each way and survives any depth of that, which a second slot would not.
+*--------------------------------------
+EMPUSHSD     lda   #$00
+             sta   EMI
+:b           lda   #$ad             ; LDA SDA+n
+             jsr   EMIT
+             lda   EMI
+             jsr   EMSDOFS
+             lda   #$48             ; PHA
+             jsr   EMIT
+             inc   EMI
+             lda   EMI
+             cmp   #$03
+             bcc   :b
+             rts
+
+EMPULLSD     lda   #$02
+             sta   EMI
+:b           lda   #$68             ; PLA
+             jsr   EMIT
+             lda   #$8d             ; STA SDA+n, in the order they come back
+             jsr   EMIT
+             lda   EMI
+             jsr   EMSDOFS
+             dec   EMI
+             bpl   :b
              rts
 
 *--- emit an absolute address of SDESCA + A
@@ -397,6 +427,10 @@ EMHSPR       lda   #$ad
 *--------------------------------------
 * EMHSCMP -- compare SDA with SDB, answering as FCOMP does
 *
+* THE LEFT SIDE IS IN SDB and the right in SDA, which is the other way round
+* from how it reads: every string value is built in SDA, so the left has to
+* move aside before the right is built on top of it.
+*
 * 1 if the RIGHT side is the greater, $FF if it is the lesser, 0 if they are
 * the same -- which is FCOMP's convention with the left operand in memory, so
 * CMPWANT and CMPSENS mean exactly what they already meant.
@@ -404,18 +438,18 @@ EMHSPR       lda   #$ad
 * Byte by byte, and a string that runs out first is the lesser: "AB" < "ABC"
 * and "AB" is not "AB ". Read off the machine before this was written.
 *
-*    0  LDA SDA+1   3      the left pointer into ZPB
+*    0  LDA SDB+1   3      the left pointer into ZPB
 *    3  STA ZPB     2
-*    5  LDA SDA+2   3
+*    5  LDA SDB+2   3
 *    8  STA ZPB+1   2
-*   10  LDA SDB+1   3      and the right into ZPB+2
+*   10  LDA SDA+1   3      and the right into ZPB+2
 *   13  STA ZPB+2   2
-*   15  LDA SDB+2   3
+*   15  LDA SDA+2   3
 *   18  STA ZPB+3   2
 *   20  LDY #0      2
-*   22  CPY SDA     3   <- loop: has the left run out?
+*   22  CPY SDB     3   <- loop: has the left run out?
 *   25  BCS aend    2   -> 43
-*   27  CPY SDB     3      has the right, with the left still going?
+*   27  CPY SDA     3      has the right, with the left still going?
 *   30  BCS rless   2   -> 51
 *   32  LDA (ZPB),Y 2
 *   34  CMP (ZPB+2),Y 2
@@ -423,7 +457,7 @@ EMHSPR       lda   #$ad
 *   38  BNE rless   2   -> 51
 *   40  INY         1
 *   41  BNE loop    2   -> 22
-*   43  CPY SDB     3   <- aend: the left ended; is there more right?
+*   43  CPY SDA     3   <- aend: the left ended; is there more right?
 *   46  BCC rgreat  2   -> 54
 *   48  LDA #0      2      both ended together
 *   50  RTS         1
@@ -434,7 +468,7 @@ EMHSPR       lda   #$ad
 *--------------------------------------
 EMHSCMP      lda   #$ad
              jsr   EMIT
-             lda   #$01
+             lda   #$04
              jsr   EMSDOFS
              lda   #$85
              jsr   EMIT
@@ -442,7 +476,7 @@ EMHSCMP      lda   #$ad
              jsr   EMIT
              lda   #$ad
              jsr   EMIT
-             lda   #$02
+             lda   #$05
              jsr   EMSDOFS
              lda   #$85
              jsr   EMIT
@@ -451,7 +485,7 @@ EMHSCMP      lda   #$ad
 
              lda   #$ad
              jsr   EMIT
-             lda   #$04
+             lda   #$01
              jsr   EMSDOFS
              lda   #$85
              jsr   EMIT
@@ -459,7 +493,7 @@ EMHSCMP      lda   #$ad
              jsr   EMIT
              lda   #$ad
              jsr   EMIT
-             lda   #$05
+             lda   #$02
              jsr   EMSDOFS
              lda   #$85
              jsr   EMIT
@@ -473,7 +507,7 @@ EMHSCMP      lda   #$ad
 
              lda   #$cc             ; 22: the loop
              jsr   EMIT
-             lda   #$00
+             lda   #$03
              jsr   EMSDOFS
              lda   #$b0
              jsr   EMIT
@@ -481,7 +515,7 @@ EMHSCMP      lda   #$ad
              jsr   EMIT
              lda   #$cc
              jsr   EMIT
-             lda   #$03
+             lda   #$00
              jsr   EMSDOFS
              lda   #$b0
              jsr   EMIT
@@ -512,7 +546,7 @@ EMHSCMP      lda   #$ad
 
              lda   #$cc             ; 43: the left ran out
              jsr   EMIT
-             lda   #$03
+             lda   #$00
              jsr   EMSDOFS
              lda   #$90
              jsr   EMIT
@@ -537,6 +571,337 @@ EMHSCMP      lda   #$ad
              lda   #$01
              jsr   EMIT
              lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHLEFT -- LEFT$: the same text, no longer than asked for
+*
+* A substring needs NOTHING ALLOCATED. It is the same characters with a
+* shorter length, or the same characters from further in -- and a compiled
+* program never writes into a string's text, it only ever replaces a
+* descriptor, so sharing is safe. Applesoft copies here; the answer is the
+* same and this does not need a heap to give it.
+*
+*    0  LDA FACHI   2      over 255: the whole string
+*    2  BNE done    2   -> 14
+*    4  LDA FACLO   2
+*    6  CMP SDA     3      against the length
+*    9  BCS done    2   -> 14   asked for at least all of it
+*   11  STA SDA     3
+*   14  RTS         1
+*--------------------------------------
+EMHLEFT      lda   #$a5
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHRIGHT -- RIGHT$: the same text, starting further in
+*
+*    0  LDA FACHI   2
+*    2  BNE done    2   -> 36
+*    4  LDA FACLO   2
+*    6  CMP SDA     3
+*    9  BCS done    2   -> 36
+*   11  STA ZPB     2      the count
+*   13  LDA SDA     3
+*   16  SEC         1
+*   17  SBC ZPB     2      how much to skip
+*   19  CLC         1
+*   20  ADC SDA+1   3
+*   23  STA SDA+1   3
+*   26  BCC nc      2   -> 31
+*   28  INC SDA+2   3
+*   31  LDA ZPB     2   <- nc
+*   33  STA SDA     3
+*   36  RTS         1
+*--------------------------------------
+EMHRIGHT     lda   #$a5
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$19
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$e5
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$6d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$ee
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHMID -- MID$: the same text from a given place, for a given length
+*
+*    0  LDA MIDS    3
+*    3  BNE ok      2   -> 8
+*    5  INC MIDS    3      MID$(A$,0) is an error in Applesoft; treated here
+*    8  LDA MIDS    3      as 1, which is written down in docs/compiler.md
+*   11  SEC         1
+*   12  SBC #1      2      how many to skip
+*   14  CMP SDA     3
+*   17  BCC in      2   -> 27
+*   19  LDA #0      2      starts past the end: empty
+*   21  STA SDA     3
+*   24  JMP done    3   -> 66
+*   27  STA ZPB     2   <- in
+*   29  LDA SDA     3
+*   32  SEC         1
+*   33  SBC ZPB     2
+*   35  STA SDA     3      what is left after skipping
+*   38  LDA ZPB     2
+*   40  CLC         1
+*   41  ADC SDA+1   3
+*   44  STA SDA+1   3
+*   47  BCC nc      2   -> 52
+*   49  INC SDA+2   3
+*   52  LDA FACHI   2   <- nc: and no longer than the count
+*   54  BNE done    2   -> 66
+*   56  LDA FACLO   2
+*   58  CMP SDA     3
+*   61  BCS done    2   -> 66
+*   63  STA SDA     3
+*   66  RTS         1
+*--------------------------------------
+EMHMID       lda   #$ad
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSDOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$ee
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSDOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$e9
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$08
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$4c
+             jsr   EMIT
+             lda   HMID
+             clc
+             adc   #$42
+             sta   TMPP
+             lda   HMID+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$e5
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$6d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$ee
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$60
+             jmp   EMIT
+
+*--- JSR AYINT: the number in the accumulator as an integer
+EMAYINT      lda   #$20
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jmp   EMIT
+
+*--------------------------------------
+* EMHASC -- ASC: the first character as a number
+*
+* An EMPTY STRING is a divergence: Applesoft says ILLEGAL QUANTITY and this
+* reads whatever the pointer happens at, which for a string never assigned is
+* address zero. Harmless, and wrong, and written down rather than left to be
+* found.
+*--------------------------------------
+EMHASC       lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPB+1
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$a8             ; TAY -- the low byte
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   #<GIVAYF
+             jsr   EMIT
+             lda   #>GIVAYF
              jmp   EMIT
 
 *--------------------------------------
@@ -609,11 +974,19 @@ GENPASS      lda   #$00
              sta   HARR
              sta   HSCMP
              sta   HSPR
+             sta   HLEFT
+             sta   HRIGHT
+             sta   HMID
+             sta   HASC
              lda   #>CODEORG
              sta   HARR+1
              sta   HSCMP+1
              sta   HSPR+1
-:keep        jsr   SDRESET
+             sta   HLEFT+1
+             sta   HRIGHT+1
+             sta   HMID+1
+             sta   HASC+1
+:keep
 
              jsr   REWIND
              bcc   :ready
@@ -704,8 +1077,9 @@ GENPASS      lda   #$00
              sta   CURLINE+1
              jsr   LTSETA           ; this line starts here
              jsr   GENLINE
-             bcs   :fail
-             inc   LINEI
+             bcc   :next
+             jmp   :fail            ; :fail is past the helpers now
+:next        inc   LINEI
              bne   :line
              inc   LINEI+1
              jmp   :line
@@ -751,6 +1125,30 @@ GENPASS      lda   #$00
              lda   PC+1
              sta   HSPR+1
              jsr   EMHSPR
+
+             lda   PC
+             sta   HLEFT
+             lda   PC+1
+             sta   HLEFT+1
+             jsr   EMHLEFT
+
+             lda   PC
+             sta   HRIGHT
+             lda   PC+1
+             sta   HRIGHT+1
+             jsr   EMHRIGHT
+
+             lda   PC
+             sta   HMID
+             lda   PC+1
+             sta   HMID+1
+             jsr   EMHMID
+
+             lda   PC
+             sta   HASC
+             lda   PC+1
+             sta   HASC+1
+             jsr   EMHASC
 
              lda   PC               ; where the program really ends
              sta   FINPC
@@ -798,8 +1196,7 @@ GENLINE      jsr   NEXTB
 *--------------------------------------
 * GENSTMT -- one statement, its first byte already in CH
 *--------------------------------------
-GENSTMT      jsr   SDRESET
-             lda   #$00
+GENSTMT      lda   #$00
              sta   ISSTR
              lda   CH
              cmp   #TLET
@@ -950,10 +1347,10 @@ GLET         jsr   GETNAME
 GLETSTR      jsr   SVFIND
              bcs   :bad
              jsr   SVADDR
-             lda   TMPP
-             sta   SDEST
+             lda   TMPP             ; keep where it goes; the value is built
+             sta   DSTSV            ; in SDA and copied here at the end
              lda   TMPP+1
-             sta   SDEST+1
+             sta   DSTSV+1
 
              jsr   NEXTB
              bcs   :bad
@@ -967,7 +1364,17 @@ GLETSTR      jsr   SVFIND
              beq   :notstr
              lda   #$00
              sta   ISSTR
-             jsr   SDRESET
+
+             jsr   SDAADDR
+             lda   TMPP
+             sta   SRCA
+             lda   TMPP+1
+             sta   SRCA+1
+             lda   DSTSV
+             sta   DSTA
+             lda   DSTSV+1
+             sta   DSTA+1
+             jsr   EMSDESC
 
 *--- THE STATEMENT SHOULD BE OVER. One string primary is all this can take,
 *    so A$ = B$ + C$ leaves a + sitting there for the statement loop to find
@@ -985,13 +1392,11 @@ GLETSTR      jsr   SVFIND
              sec
              rts
 
-:notstr      jsr   SDRESET
-             lda   #$1c             ; STRING AGAINST NUMBER
+:notstr      lda   #$1c             ; STRING AGAINST NUMBER
              jsr   SETBAD
              sec
              rts
-:bad         jsr   SDRESET
-             lda   #$06
+:bad         lda   #$06
              jsr   SETBAD
              sec
              rts
@@ -2155,18 +2560,23 @@ SCMPC        jsr   PEEK
              lda   CMPSENS
              pha
 
-             jsr   SDBADDR          ; the right side goes in the other slot
+*--- The left side is in SDA and the right side is about to be built there
+*    too, so the left moves aside first. SDB is where the helper looks for it.
+             jsr   SDAADDR
              lda   TMPP
-             sta   SDEST
+             sta   SRCA
              lda   TMPP+1
-             sta   SDEST+1
+             sta   SRCA+1
+             jsr   SDBADDR
+             jsr   SDSET
+             jsr   EMSDESC
+
              lda   #$00
              sta   ISSTR
              jsr   EPRIM
              bcs   :drop
              lda   ISSTR
              beq   :mixed           ; a string against a number
-             jsr   SDRESET
 
              pla
              sta   CMPSENS
@@ -2192,14 +2602,12 @@ SCMPC        jsr   PEEK
 
 :mixed       pla
              pla
-             jsr   SDRESET
              lda   #$1c             ; STRING AGAINST NUMBER
              jsr   SETBAD
              sec
              rts
 :drop        pla
              pla
-             jsr   SDRESET
 :bad         sec
              rts
 
@@ -2575,8 +2983,16 @@ EPRIM        lda   #$00
              jsr   NEXTB
              bcs   :bad
              sta   CH
-             cmp   #TLEN            ; takes a STRING, so not one of the eleven
-             beq   :lenj
+             cmp   #TLEN            ; these take a STRING, so none of them is
+             beq   :lenj            ; one of the eleven
+             cmp   #TASC
+             beq   :ascj
+             cmp   #TLEFT
+             beq   :slicej
+             cmp   #TRIGHT
+             beq   :slicej
+             cmp   #TMID
+             beq   :slicej
              cmp   #$80
              bcs   :fn
              cmp   #'"'
@@ -2600,7 +3016,9 @@ EPRIM        lda   #$00
 :slitj       jmp   :slit
 :numj        jmp   :num
 :varj        jmp   :var
-:lenj        jmp   :len
+:lenj        jmp   FLEN
+:ascj        jmp   FASC
+:slicej      jmp   FSLICE
 
 :paren       jsr   EXPR
              bcs   :bad2
@@ -2661,13 +3079,21 @@ EPRIM        lda   #$00
 
 *--- a literal: converted the same way pass 1 did, then looked up rather than
 *    added, because pass 1 already put it in the table
+*--- Its own exits: EPRIM has grown long enough that the one at the top is
+*    out of branch range from down here.
 :num         jsr   RDNUM
-             bcs   :bad
-             jsr   PUTBACK          ; what ended it is not ours
+             bcc   :nok
+             sec
+             rts
+:nok         jsr   PUTBACK          ; what ended it is not ours
              jsr   NUMCONV
              jsr   CFIND
-             bcs   :bad
-             jsr   CADDR
+             bcc   :ngot
+             lda   #$0c
+             jsr   SETBAD
+             sec
+             rts
+:ngot        jsr   CADDR
              jmp   DEFER
 
 :slit        jsr   EMSLIT           ; its characters, and a descriptor
@@ -2717,25 +3143,26 @@ EPRIM        lda   #$00
              rts
 :ebad        sec                    ; its own name: EPRIM already has a :bad2
              rts                    ; and it is a long way up the routine
-:svarj       jmp   :svar            ; LEN's body sits between here and there
+:svarj       jmp   SVARP            ; LEN's body sits between here and there
 
 *--- LEN: a string in, a number out. The length is already in the descriptor,
 *    so this is the descriptor and then GIVAYF, which takes a signed sixteen
 *    bit value with the high byte in A and the low in Y.
-:len         jsr   NEXTB
-             bcs   :ebad
-             cmp   #'('
-             bne   :ebad
-             lda   #$00
-             sta   ISSTR
-             jsr   EPRIM
-             bcs   :ebad
-             lda   ISSTR
-             beq   :ebad            ; LEN of a number
+*--------------------------------------
+* The string functions, each a routine of its own
+*
+* THEY WERE INSIDE EPRIM, and EPRIM grew past the point where a branch could
+* cross it: every one of these blocks ended up with a private failure exit
+* because no shared one was in reach, and each addition cost two or three
+* builds finding the next branch that had gone out of range. Split out, each
+* has a label scope the length of itself.
+*--------------------------------------
+FLEN         jsr   SOPEN
+             bcs   :no
              jsr   NEXTB
-             bcs   :ebad
+             bcs   :no
              cmp   #')'
-             bne   :ebad
+             bne   :no
              lda   #$00
              sta   ISSTR
 
@@ -2759,17 +3186,185 @@ EPRIM        lda   #$00
              sta   PENDOK
              clc
              rts
+:no          sec
+             rts
+
+*--- ASC: a string in, a number out, and nothing allocated.
+FASC         jsr   SOPEN
+             bcs   :no
+             jsr   NEXTB
+             bcs   :no
+             cmp   #')'
+             bne   :no
+             lda   #$00
+             sta   ISSTR
+             sta   PENDOK
+             lda   HASC
+             sta   TMPP
+             lda   HASC+1
+             sta   TMPP+1
+             lda   #$20
+             jsr   EMIT
+             jsr   EMADDR
+             clc
+             rts
+:no          sec
+             rts
+
+*--------------------------------------
+* LEFT$, RIGHT$ and MID$
+*
+* The string goes on the stack while the numbers are worked out, because
+* working one out may well build another string in SDA -- LEFT$(A$, LEN(B$))
+* is not a strange thing to write.
+*--------------------------------------
+FSLICE       lda   CH
+             sta   SLICEF
+             jsr   SOPEN
+             bcs   :sbad
+             jsr   EMPUSHSD
+
+             jsr   NEXTB
+             bcs   :sbad
+             cmp   #$2c
+             bne   :sbad
+             lda   #$00
+             sta   ISSTR
+             jsr   NEXPR
+             bcs   :sbad
+*--- MID$ goes to a routine of its own: the two together are longer than a
+*    branch can reach end to end, which is how they came to be split.
+*
+*    BRANCHED PAST, NOT INTO. This jump was written directly under a
+*    'beq :ismid', so LEFT$ and RIGHT$ fell straight through it and every one
+*    of them compiled as MID$ -- LEFT$("ABCDEFG",3) printed CDEFG. The test
+*    caught it at once; the assembler could not, because there is nothing
+*    wrong with the instruction.
+             lda   SLICEF
+             cmp   #TMID
+             bne   :notmid
+             jmp   FMID
+
+*--- LEFT$ or RIGHT$: one number and the bracket
+:notmid
+             jsr   NEXTB
+             bcs   :sbad
+             cmp   #')'
+             bne   :sbad
+             jsr   EMAYINT
+             jsr   EMPULLSD
+             lda   SLICEF
+             cmp   #TLEFT
+             beq   :isleft
+             lda   HRIGHT
+             ldy   HRIGHT+1
+             jmp   :slcall
+:isleft      lda   HLEFT
+             ldy   HLEFT+1
+:slcall      sta   TMPP
+             sty   TMPP+1
+             lda   #$20
+             jsr   EMIT
+             jsr   EMADDR
+*--- SAID, NOT FALLEN INTO. This used to run straight on into the ending
+*    below it, and moving the failure exit in between turned every LEFT$ and
+*    RIGHT$ into a silent refusal -- carry set with nothing to report, so the
+*    compiler stopped and printed no reason at all.
+             jmp   SLOK
+
+*--- FSLICE's own failure exit, inside FSLICE's own scope. It was sitting
+*    above the label, which put it in the previous routine's -- exactly the
+*    mistake the split was meant to stop making.
+:sbad        sec
+             rts
+
+SLOK         lda   #$01
+             sta   ISSTR
+             lda   #$00
+             sta   PENDOK
+             clc
+             rts
+
+*--- And MID$ has one of its own again: the slice block is over a branch's
+*    reach end to end.
+:mbad        sec
+             rts
+
+*--- MID$: the start, which goes on the stack too because working out the
+*    count can reach another MID$ through a LEN
+FMID         jsr   EMAYINT
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$48             ; PHA
+             jsr   EMIT
+
+             jsr   NEXTB
+             bcs   :mbad
+             cmp   #')'
+             beq   :midrest
+             cmp   #$2c
+             bne   :mbad
+             lda   #$00
+             sta   ISSTR
+             jsr   NEXPR
+             bcs   :mbad
+             jsr   NEXTB
+             bcs   :mbad
+             cmp   #')'
+             bne   :mbad
+             jsr   EMAYINT
+             jmp   :midgo
+
+*--- no count given: 255, which the helper clamps to the length anyway
+:midrest     lda   #$a9
+             jsr   EMIT
+             lda   #$ff
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+
+:midgo       lda   #$68             ; PLA -- the start, back off the stack
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSDOFS
+             jsr   EMPULLSD
+             lda   #$20
+             jsr   EMIT
+             lda   HMID
+             jsr   EMIT
+             lda   HMID+1
+             jsr   EMIT
+             jmp   SLOK
 
 *--- A string variable: its descriptor is copied to wherever this expression
 *    wants one. The $ was read by GETNAME and is part of the name, so unlike
 *    a plain variable there is nothing to hand back.
-:svar        jsr   SVFIND
-             bcs   :ebad
+SVARP        jsr   SVFIND
+             bcc   :vok
+             sec                    ; and one of its own: EPRIM is long enough
+             rts                    ; now that no shared exit is in reach
+:vok
              jsr   SVADDR
              lda   TMPP
              sta   SRCA
              lda   TMPP+1
              sta   SRCA+1
+             jsr   SDAADDR
+             jsr   SDSET
              jsr   EMSDESC
              lda   #$01
              sta   ISSTR
@@ -2786,6 +3381,26 @@ DEFER        lda   TMPP
              lda   #$01
              sta   PENDOK
              clc
+             rts
+
+*--------------------------------------
+* SOPEN -- the ( and the string argument after it, into SDA
+*--------------------------------------
+SOPEN        jsr   NEXTB
+             bcs   :no
+             cmp   #'('
+             bne   :no
+             lda   #$00
+             sta   ISSTR
+             jsr   EPRIM
+             bcs   :no
+             lda   ISSTR
+             beq   :notstr
+             clc
+             rts
+:notstr      lda   #$1c             ; STRING AGAINST NUMBER
+             jsr   SETBAD
+:no          sec
              rts
 
 *--------------------------------------
@@ -3456,9 +4071,9 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              adc   #$00
              sta   SDESCA+1
 
-             lda   SDESCA           ; the string variables past the two of them
-             clc
-             adc   #$06
+             lda   SDESCA           ; the string variables past the two of
+             clc                     ; them, and MID$'s start after that
+             adc   #$07
              sta   SVBASE
              sta   TMPP
              lda   SDESCA+1
@@ -3599,8 +4214,14 @@ HARR         ds    2                ; where the address helper landed
 FINPC        ds    2                ; and the end of the whole thing
 HSCMP        ds    2                ; the string comparison helper
 HSPR         ds    2                ; and the one that prints one
+HLEFT        ds    2
+HRIGHT       ds    2
+HMID         ds    2
+HASC         ds    2
+SLICEF       ds    1                ; which of the three is being compiled
 ISSTR        ds    1                ; the value just parsed is a string
-SDEST        ds    2                ; where its descriptor is to be put
+DSTA         ds    2                ; where EMSDESC is to copy to
+DSTSV        ds    2                ; and where an assignment finally lands
 SRCA         ds    2
 SDESCA       ds    2                ; the two string descriptors
 ATOT         ds    2
