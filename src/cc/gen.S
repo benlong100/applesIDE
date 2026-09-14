@@ -62,8 +62,8 @@ FDEPTH       equ   8                ; nested FOR loops
 *    5 its length, 6-7 where the collector is moving to, 8-9 the best
 *    descriptor it has found, 10-11 that string's address, 12 its length,
 *    13 how many descriptors are left to look at, 14-15 which part of a
-*    string a slice wants.
-SCRASZ       equ   16
+*    string a slice wants, 16-17 a POKE's address across its value.
+SCRASZ       equ   18
 
 TFORK        equ   $81
 TNEXT        equ   $82
@@ -90,6 +90,10 @@ TLEN         equ   $e3
 TASC         equ   $e6
 TCHR         equ   $e7
 TSTR         equ   $e4
+TPEEK        equ   $e2
+TPOKE        equ   $b9
+TCALL        equ   $8c
+GETADR       equ   $e752            ; FAC -> unsigned 16 bits in $50 and $51
 TLEFT        equ   $e8
 TRIGHT       equ   $e9
 TMID         equ   $ea
@@ -2207,6 +2211,116 @@ EMHMID       lda   #$ad
              jmp   EMIT
 
 *--------------------------------------
+* EMHPEEK -- PEEK: a byte from anywhere in memory
+*
+* GETADR, not AYINT. AYINT is signed and refuses anything above 32767, which
+* would rule out every address a PEEK is usually interested in -- $C000 and
+* up. GETADR gives an unsigned sixteen bits in $50 and $51: read off the
+* machine, where 49152 comes back as 0 and 192.
+*--------------------------------------
+EMHPEEK      lda   #$20
+             jsr   EMIT
+             lda   #$52
+             jsr   EMIT
+             lda   #$e7
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$50
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$51
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$a8
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   #$f2
+             jsr   EMIT
+             lda   #$e2
+             jmp   EMIT
+
+*--------------------------------------
+* EMHPOKE -- POKE: the tail of it, after both sides have been worked out
+*
+* The address is kept in the program's own scratch rather than the zero page,
+* because working out the value in between can be an array subscript or a
+* string operation, and both of those use the zero page the address would
+* have been sitting in.
+*--------------------------------------
+EMHPOKE      lda   #$20
+             jsr   EMIT
+             lda   #$52
+             jsr   EMIT
+             lda   #$e7
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$10
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$11
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$50
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHCALL -- three bytes that turn an address in the zero page into a call
+*
+* JSR HCALL pushes the return, HCALL jumps through ZPB, and the RTS at the
+* other end comes back to the instruction after the JSR. CALL and ON..GOSUB
+* both need exactly this and neither needs anything more.
+*--------------------------------------
+EMHCALL      lda   #$6c
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$00
+             jmp   EMIT
+
+*--------------------------------------
 * NEED -- record that the program uses something
 *
 * A compiled program used to carry the array helper, the string helpers, the
@@ -2227,6 +2341,10 @@ EMHMID       lda   #$ad
 *--------------------------------------
 NEED         ora   USES
              sta   USES
+             rts
+
+NEED2        ora   USES2
+             sta   USES2
              rts
 
 UHEAP        equ   $78              ; $08+$10+$20+$40: the ones that allocate
@@ -2285,6 +2403,7 @@ GENPASS      lda   #$00
              sta   TEMPTOP
              sta   FORN
              sta   USES
+             sta   USES2
              sta   FSTKTOP
              sta   PENDOK
              sta   OUTLEN
@@ -2313,6 +2432,9 @@ GENPASS      lda   #$00
              sta   HALLOC
              sta   HGC
              sta   HSLICE
+             sta   HPEEK
+             sta   HPOKE
+             sta   HCALL
              sta   MOOM
              sta   MLONG
              lda   #>CODEORG
@@ -2330,6 +2452,9 @@ GENPASS      lda   #$00
              sta   HALLOC+1
              sta   HGC+1
              sta   HSLICE+1
+             sta   HPEEK+1
+             sta   HPOKE+1
+             sta   HCALL+1
              sta   MOOM+1
              sta   MLONG+1
 :keep
@@ -2611,6 +2736,33 @@ GENPASS      lda   #$00
 :nostr
 :noheap
 
+*--- PEEK, POKE and CALL, none of which touch the heap
+             lda   USES2
+             and   #$01
+             beq   :nopeek
+             lda   PC
+             sta   HPEEK
+             lda   PC+1
+             sta   HPEEK+1
+             jsr   EMHPEEK
+:nopeek      lda   USES2
+             and   #$02
+             beq   :nopoke
+             lda   PC
+             sta   HPOKE
+             lda   PC+1
+             sta   HPOKE+1
+             jsr   EMHPOKE
+:nopoke      lda   USES2
+             and   #$04
+             beq   :nocall
+             lda   PC
+             sta   HCALL
+             lda   PC+1
+             sta   HCALL+1
+             jsr   EMHCALL
+:nocall
+
 *--- ASC allocates nothing, so it is not part of that group
              lda   USES
              and   #$80
@@ -2691,6 +2843,10 @@ GENSTMT      lda   #$00
              beq   :dim
              cmp   #TON
              beq   :on
+             cmp   #TPOKE
+             beq   :poke
+             cmp   #TCALL
+             beq   :call
              cmp   #TFORK
              beq   :for
              cmp   #TNEXT
@@ -2717,6 +2873,8 @@ GENSTMT      lda   #$00
 :for         jmp   GFOR
 :next        jmp   GNEXT
 :on          jmp   GON
+:poke        jmp   GPOKE
+:call        jmp   GCALL
 
 *--- DIM generates nothing at all: pass 1 read the sizes and the space is
 *    already in the file. Its arguments are skipped rather than compiled --
@@ -3247,6 +3405,101 @@ GNEXT        lda   #$ff             ; no name given: the innermost loop
              rts
 
 *--------------------------------------
+* GPOKE -- POKE address, value
+*
+* The address is worked out and PUT AWAY before the value is, because working
+* out the value can be an array subscript or a string operation and both of
+* those use the zero page.
+*--------------------------------------
+GPOKE        jsr   NEXPR
+             bcs   :bad
+             lda   #$20             ; JSR GETADR
+             jsr   EMIT
+             lda   #<GETADR
+             jsr   EMIT
+             lda   #>GETADR
+             jsr   EMIT
+             lda   #$a5             ; LDA $50
+             jsr   EMIT
+             lda   #$50
+             jsr   EMIT
+             lda   #$8d             ; STA the scratch
+             jsr   EMIT
+             lda   #$10
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$51
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$11
+             jsr   EMSCOFS
+
+             jsr   NEXTB
+             bcs   :bad
+             cmp   #$2c
+             bne   :bad
+             jsr   NEXPR
+             bcs   :bad
+             lda   #$02
+             jsr   NEED2
+             lda   #$20
+             jsr   EMIT
+             lda   HPOKE
+             jsr   EMIT
+             lda   HPOKE+1
+             jsr   EMIT
+             clc
+             rts
+:bad         lda   #$06
+             jsr   SETBAD
+             sec
+             rts
+
+*--------------------------------------
+* GCALL -- CALL address
+*--------------------------------------
+GCALL        jsr   NEXPR
+             bcs   :bad
+             lda   #$20             ; JSR GETADR
+             jsr   EMIT
+             lda   #<GETADR
+             jsr   EMIT
+             lda   #>GETADR
+             jsr   EMIT
+             lda   #$a5             ; the address into the zero page
+             jsr   EMIT
+             lda   #$50
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPB
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$51
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPB+1
+             jsr   EMIT
+             lda   #$04
+             jsr   NEED2
+             lda   #$20
+             jsr   EMIT
+             lda   HCALL
+             jsr   EMIT
+             lda   HCALL+1
+             jsr   EMIT
+             clc
+             rts
+:bad         lda   #$06
+             jsr   SETBAD
+             sec
+             rts
+
+*--------------------------------------
 * GON -- ON expression GOTO a,b,c
 *
 * One-based: 1 picks the first, and anything outside the list falls through to
@@ -3284,11 +3537,19 @@ GON          jsr   NEXPR
 :badj        jmp   :bad
 :got         jsr   NEXTB
              bcs   :badj
+*--- GOTO or GOSUB. The only difference in what comes out is the three bytes
+*    that leave: a jump through the zero page, or a call through it followed
+*    by a jump past the table. Everything else shifts by those three.
+             ldx   #$00
              cmp   #TGOTOK
+             beq   :start
+             inx
+             cmp   #TGOSUBK
              beq   :start
              jmp   :notgoto
 
-:start       lda   #$00
+:start       stx   ONGS
+             lda   #$00
              sta   ONN
 :list        lda   ONN
              cmp   #ONMAX
@@ -3316,9 +3577,19 @@ GON          jsr   NEXPR
              jmp   :list
 
 *--- now the sizes are known
-:emit        lda   PC               ; where the table will land
+*--- where the table sits, counted from the start of what is about to be
+*    emitted: past the jump out, and past the jump over the table as well
+*    when this is a GOSUB and has to come back
+:emit        ldx   ONGS
+             beq   :goff
+             lda   #$21
+             bne   :soff
+:goff        lda   #$1e
+:soff        sta   ONTOF
+
+             lda   PC               ; where the table will land
              clc
-             adc   #$1e
+             adc   ONTOF
              sta   ONTBL
              lda   PC+1
              adc   #$00
@@ -3341,9 +3612,11 @@ GON          jsr   NEXPR
              jsr   EMIT
              lda   #$d0
              jsr   EMIT
-             lda   ONW
+             lda   ONW              ; past the table, wherever it starts
              clc
-             adc   #$17
+             adc   ONTOF
+             sec
+             sbc   #$07
              jsr   EMIT
 
              lda   #$a5             ; LDA FACLO -- and so is zero
@@ -3352,9 +3625,11 @@ GON          jsr   NEXPR
              jsr   EMIT
              lda   #$f0
              jsr   EMIT
-             lda   ONW
+             lda   ONW              ; past the table, wherever it starts
              clc
-             adc   #$13
+             adc   ONTOF
+             sec
+             sbc   #$0b
              jsr   EMIT
 
              lda   #$c9             ; CMP #count+1
@@ -3365,9 +3640,11 @@ GON          jsr   NEXPR
              jsr   EMIT
              lda   #$b0
              jsr   EMIT
-             lda   ONW
+             lda   ONW              ; past the table, wherever it starts
              clc
-             adc   #$0f
+             adc   ONTOF
+             sec
+             sbc   #$0f
              jsr   EMIT
 
              lda   #$0a             ; ASL -- two bytes to an entry
@@ -3411,12 +3688,37 @@ GON          jsr   NEXPR
              lda   #ZPB+1
              jsr   EMIT
 
+*--- and out: a GOTO never comes back, a GOSUB does and has to step over the
+*    table when it lands
+             lda   ONGS
+             bne   :isgosub
              lda   #$6c             ; JMP (ZPB)
              jsr   EMIT
              lda   #ZPB
              jsr   EMIT
              lda   #$00
              jsr   EMIT
+             jmp   :table
+
+:isgosub     lda   #$04
+             jsr   NEED2
+             lda   #$20             ; JSR HCALL, which jumps through ZPB
+             jsr   EMIT
+             lda   HCALL
+             jsr   EMIT
+             lda   HCALL+1
+             jsr   EMIT
+             lda   #$4c             ; JMP past the table
+             jsr   EMIT
+             lda   ONTBL
+             clc
+             adc   ONW
+             sta   TMPP
+             lda   ONTBL+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+:table
 
              lda   #$00             ; and the table itself
              sta   EMI
@@ -3430,7 +3732,7 @@ GON          jsr   NEXPR
              clc
              rts
 
-:notgoto     lda   #$17             ; ON ... GOSUB NOT YET
+:notgoto     lda   #$17             ; ON without GOTO or GOSUB after it
              jsr   SETBAD
              sec
              rts
@@ -4492,6 +4794,8 @@ EPRIM        lda   #$00
              beq   :chrj
              cmp   #TSTR
              beq   :strj
+             cmp   #TPEEK
+             beq   :peekj
              cmp   #TLEFT
              beq   :slicej
              cmp   #TRIGHT
@@ -4525,6 +4829,7 @@ EPRIM        lda   #$00
 :ascj        jmp   FASC
 :chrj        jmp   FCHR
 :strj        jmp   FSTR
+:peekj       jmp   FPEEK
 :slicej      jmp   FSLICE
 
 :paren       jsr   EXPR
@@ -4721,6 +5026,34 @@ FCHR         jsr   NEXTB
              jsr   EMIT
              lda   #$01
              sta   ISSTR
+             lda   #$00
+             sta   PENDOK
+             clc
+             rts
+:no          sec
+             rts
+
+*--- PEEK: the byte at an address.
+FPEEK        jsr   NEXTB
+             bcs   :no
+             cmp   #'('
+             bne   :no
+             lda   #$00
+             sta   ISSTR
+             jsr   NEXPR
+             bcs   :no
+             jsr   NEXTB
+             bcs   :no
+             cmp   #')'
+             bne   :no
+             lda   #$01
+             jsr   NEED2
+             lda   #$20
+             jsr   EMIT
+             lda   HPEEK
+             jsr   EMIT
+             lda   HPEEK+1
+             jsr   EMIT
              lda   #$00
              sta   PENDOK
              clc
@@ -5819,11 +6152,15 @@ HERR         ds    2
 HALLOC       ds    2
 HGC          ds    2
 HSLICE       ds    2
+HPEEK        ds    2
+HPOKE        ds    2
+HCALL        ds    2
 MOOM         ds    2                ; where the two messages landed
 MLONG        ds    2
 SLICEF       ds    1                ; which of the three is being compiled
 SCRA         ds    2                ; where the runtime's scratch begins
 USES         ds    1                ; which helpers the program actually needs
+USES2        ds    1                ; ...and the second byte of them
 ISSTR        ds    1                ; the value just parsed is a string
 DSTA         ds    2                ; where EMSDESC is to copy to
 DSTSV        ds    2                ; and where an assignment finally lands
@@ -5835,5 +6172,7 @@ AIDX         ds    1
 AEND         ds    1
 ONN          ds    1                ; how many targets in an ON
 ONW          ds    1                ; twice that: the table's length
-ONTBL        ds    2                ; an index EMIT cannot clobber
+ONTBL        ds    2
+ONGS         ds    1                ; 0 for GOTO, 1 for GOSUB
+ONTOF        ds    1                ; how far in the table starts                ; an index EMIT cannot clobber
              dend

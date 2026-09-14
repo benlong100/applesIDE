@@ -740,19 +740,45 @@ whatever survived. Same rule as the benchmark refusing to report a timeout as
 a measurement: a truncation is not a result. The string tests are two programs
 now, both comfortably inside a screen.
 
+### PEEK, POKE, CALL and ON ... GOSUB
+
+**The integer conversion had to be established again.** `AYINT`, which the
+array subscripts and the logical operators use, is **signed** and refuses
+anything above 32767 — which rules out every address a `PEEK` is usually
+interested in. `GETADR` at `$E752` gives an unsigned sixteen bits in `$50` and
+`$51`; read off the machine, where 49152 comes back as `0, 192`. Reusing the
+routine already to hand would have given a compiler that handled `PEEK(1000)`
+and failed on `PEEK(49152)`.
+
+**`CALL` and `ON ... GOSUB` share three bytes.** `JMP (ZPB)` reached by a
+`JSR` *is* a computed call: the return address is already pushed and the
+target's `RTS` comes back to the right place. One helper serves both and
+neither needs more.
+
+**`ON ... GOSUB` differs from `ON ... GOTO` by exactly those three bytes**, at
+the end. A `GOTO` never comes back, so the jump table can sit immediately
+after the jump out; a `GOSUB` does come back, and would land on the table
+unless a `JMP` steps over it. So the table starts at 30 or at 33, and the
+three range-check branches are computed from that rather than written twice.
+
+**`POKE` puts its address away before working out its value**, in the
+program's own scratch rather than the zero page — because working out the
+value can be an array subscript or a string operation, and both use exactly
+the zero-page bytes the address would have been sitting in.
+
 ### What it compiles
 
 `LET` (named or implied), `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
 `RETURN`, `IF ... THEN` and `IF ... GOTO`, `FOR` / `NEXT` with `STEP`,
-`ON ... GOTO`, string variables and literals with assignment, comparison and
+`ON ... GOTO` and `ON ... GOSUB`, `PEEK`, `POKE` and `CALL`, string
+variables and literals with assignment, comparison and
 `LEN`, `LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$`, `STR$` and joining with `+`,
 `PRINT` of numbers and strings with `;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
 brackets, the six comparisons, `AND` / `OR` / `NOT`, and the eleven numeric
 functions.
 
-Not yet: `VAL`, `DATA`/`READ`, `INPUT`, `ON ... GOSUB`, `PEEK`/`POKE`,
-`DEF FN`, the graphics statements, arrays of more than one dimension, and
-arrays of strings. Each
+Not yet: `VAL`, `DATA`/`READ`, `INPUT`, `DEF FN`, the graphics statements,
+arrays of more than one dimension, and arrays of strings. Each
 is refused **by name and line number** rather than compiled wrongly:
 
 ```

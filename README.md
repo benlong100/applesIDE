@@ -109,8 +109,9 @@ the compiled side as a `BRUN` charged it for loading its own file and made it
 look several seconds slower than it is; `docs/compiler.md` has the correction.
 
 It compiles `LET`, `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
-`RETURN`, `IF/THEN`, `FOR`/`NEXT` with `STEP`, `ON ... GOTO`, `PRINT` with
-`;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
+`RETURN`, `IF/THEN`, `FOR`/`NEXT` with `STEP`, `ON ... GOTO` and
+`ON ... GOSUB`, `PEEK`, `POKE`, `CALL`, `PRINT` with `;` and `,`, `REM`,
+`END`, and expressions over `+ - * /`, unary minus,
 brackets, the six comparisons, `AND`/`OR`/`NOT`, and the eleven numeric
 functions (`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN`).
 
@@ -126,8 +127,8 @@ running down from the top of free memory, with **a compacting garbage
 collector** when it fills — so a program that builds strings in a loop runs
 as far as the interpreter would.
 
-`VAL`, `DATA`/`READ`, `INPUT`, `PEEK`/`POKE` and arrays of strings are refused
-by name and line number rather than compiled wrongly:
+`VAL`, `DATA`/`READ`, `INPUT` and arrays of strings are refused by name and
+line number rather than compiled wrongly:
 
 ```
 STOPPED IN 30: NO STRING JOIN YET

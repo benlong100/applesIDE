@@ -460,7 +460,7 @@ BADDIM       asc   "ONE DIMENSION ONLY"
              dfb   $00
 BADARRS      asc   "TOO MANY ARRAYS"
              dfb   $00
-BADONGS      asc   "ON GOSUB NOT YET"
+BADONGS      asc   "ON NEEDS GOTO OR GOSUB"
              dfb   $00
 BADONN       asc   "TOO MANY IN ON GOTO"
              dfb   $00
