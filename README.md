@@ -117,7 +117,7 @@ functions (`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN`).
 
 **String variables** too, as far as they go without a heap: `A$ = B$`,
 `A$ = "text"`, `PRINT A$`, all six comparisons, joining with `+`, and `LEN`,
-`LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$` and `STR$`. A string value is a
+`LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$`, `STR$` and `VAL`. A string value is a
 descriptor — a length and a pointer — so assignment copies three bytes rather
 than the text, exactly as Applesoft does, and a literal's characters live in
 the compiled program. Nothing is allocated.
@@ -127,8 +127,8 @@ running down from the top of free memory, with **a compacting garbage
 collector** when it fills — so a program that builds strings in a loop runs
 as far as the interpreter would.
 
-`VAL`, `DATA`/`READ`, `INPUT` and arrays of strings are refused by name and
-line number rather than compiled wrongly:
+`DATA`/`READ`, `INPUT` and arrays of strings are refused by name and line
+number rather than compiled wrongly:
 
 ```
 STOPPED IN 30: NO STRING JOIN YET

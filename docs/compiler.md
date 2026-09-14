@@ -766,18 +766,40 @@ program's own scratch rather than the zero page — because working out the
 value can be an array subscript or a string operation, and both use exactly
 the zero-page bytes the address would have been sitting in.
 
+### VAL, and two things that have to be put back
+
+The ROM does the parsing. `FIN` at `$EC4A` reads a number from wherever
+Applesoft's text pointer points, reached through `CHRGET` — established on the
+machine with `123.5`, `-72`, `"  42"` with its spaces skipped, and `7E2` as
+700.
+
+**The text pointer is Applesoft's own.** Pointing it at our string means the
+interpreter resumes from a pointer into the heap when the program returns, so
+it is saved and restored around the call.
+
+**And an Applesoft string has a length, not a terminator.** `FIN` reads until
+it meets a non-numeric character, which for a string in the heap is whatever
+happens to follow it — `VAL("12")` with a `3` next door would be 123. So the
+byte just past the string is zeroed for the duration and put back afterwards,
+which is what Applesoft's own `VAL` does.
+
+The address of that byte is computed **twice**, once to zero it and once to
+restore it, rather than kept in the zero page across the call: `FIN` may use
+any of the zero page it likes, and the descriptor it comes from lives in the
+program's data area where `FIN` cannot reach.
+
 ### What it compiles
 
 `LET` (named or implied), `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
 `RETURN`, `IF ... THEN` and `IF ... GOTO`, `FOR` / `NEXT` with `STEP`,
 `ON ... GOTO` and `ON ... GOSUB`, `PEEK`, `POKE` and `CALL`, string
 variables and literals with assignment, comparison and
-`LEN`, `LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$`, `STR$` and joining with `+`,
+`LEN`, `LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$`, `STR$`, `VAL` and joining with `+`,
 `PRINT` of numbers and strings with `;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
 brackets, the six comparisons, `AND` / `OR` / `NOT`, and the eleven numeric
 functions.
 
-Not yet: `VAL`, `DATA`/`READ`, `INPUT`, `DEF FN`, the graphics statements,
+Not yet: `DATA`/`READ`, `INPUT`, `DEF FN`, the graphics statements,
 arrays of more than one dimension, and arrays of strings. Each
 is refused **by name and line number** rather than compiled wrongly:
 

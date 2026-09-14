@@ -91,6 +91,7 @@ TASC         equ   $e6
 TCHR         equ   $e7
 TSTR         equ   $e4
 TPEEK        equ   $e2
+TVAL         equ   $e5
 TPOKE        equ   $b9
 TCALL        equ   $8c
 GETADR       equ   $e752            ; FAC -> unsigned 16 bits in $50 and $51
@@ -2321,6 +2322,189 @@ EMHCALL      lda   #$6c
              jmp   EMIT
 
 *--------------------------------------
+* EMHVAL -- VAL: a number out of a string, parsed by the ROM
+*
+* FIN parses a number from wherever Applesoft's text pointer points, and is
+* reached through CHRGET. Established on the machine: 123.5, -72, "  42" with
+* the spaces skipped, and 7E2 as 700.
+*
+* TWO THINGS HAVE TO BE PUT BACK. The text pointer is Applesoft's own, so it
+* is saved and restored -- otherwise the interpreter carries on from a pointer
+* into our string. And a string here has a length, not a terminator, so the
+* byte just past it is zeroed for the duration and restored after, or FIN
+* reads straight on into whatever follows: VAL("12") with a 3 after it in the
+* heap would be 123.
+*
+* The address of that byte is worked out twice rather than kept, because FIN
+* is free to use any of the zero page it likes and the descriptor it comes
+* from is not in the zero page.
+*--------------------------------------
+EMHVAL       lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$06
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$a8
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   #$f2
+             jsr   EMIT
+             lda   #$e2
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$b8
+             jsr   EMIT
+             lda   #$48
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$48
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$6d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$69
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$48
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$e9
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$b8
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$e9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$4a
+             jsr   EMIT
+             lda   #$ec
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$6d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$69
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$68
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$68
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$68
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$b8
+             jsr   EMIT
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
 * NEED -- record that the program uses something
 *
 * A compiled program used to carry the array helper, the string helpers, the
@@ -2433,6 +2617,7 @@ GENPASS      lda   #$00
              sta   HGC
              sta   HSLICE
              sta   HPEEK
+             sta   HVAL
              sta   HPOKE
              sta   HCALL
              sta   MOOM
@@ -2453,6 +2638,7 @@ GENPASS      lda   #$00
              sta   HGC+1
              sta   HSLICE+1
              sta   HPEEK+1
+             sta   HVAL+1
              sta   HPOKE+1
              sta   HCALL+1
              sta   MOOM+1
@@ -2761,7 +2947,15 @@ GENPASS      lda   #$00
              lda   PC+1
              sta   HCALL+1
              jsr   EMHCALL
-:nocall
+:nocall      lda   USES2
+             and   #$08
+             beq   :noval
+             lda   PC
+             sta   HVAL
+             lda   PC+1
+             sta   HVAL+1
+             jsr   EMHVAL
+:noval
 
 *--- ASC allocates nothing, so it is not part of that group
              lda   USES
@@ -4796,6 +4990,8 @@ EPRIM        lda   #$00
              beq   :strj
              cmp   #TPEEK
              beq   :peekj
+             cmp   #TVAL
+             beq   :valj
              cmp   #TLEFT
              beq   :slicej
              cmp   #TRIGHT
@@ -4830,6 +5026,7 @@ EPRIM        lda   #$00
 :chrj        jmp   FCHR
 :strj        jmp   FSTR
 :peekj       jmp   FPEEK
+:valj        jmp   FVAL
 :slicej      jmp   FSLICE
 
 :paren       jsr   EXPR
@@ -5028,6 +5225,29 @@ FCHR         jsr   NEXTB
              sta   ISSTR
              lda   #$00
              sta   PENDOK
+             clc
+             rts
+:no          sec
+             rts
+
+*--- VAL: a string in, the number it spells out.
+FVAL         jsr   SOPEN
+             bcs   :no
+             jsr   NEXTB
+             bcs   :no
+             cmp   #')'
+             bne   :no
+             lda   #$08
+             jsr   NEED2
+             lda   #$00
+             sta   ISSTR
+             sta   PENDOK
+             lda   #$20
+             jsr   EMIT
+             lda   HVAL
+             jsr   EMIT
+             lda   HVAL+1
+             jsr   EMIT
              clc
              rts
 :no          sec
@@ -6153,6 +6373,7 @@ HALLOC       ds    2
 HGC          ds    2
 HSLICE       ds    2
 HPEEK        ds    2
+HVAL         ds    2
 HPOKE        ds    2
 HCALL        ds    2
 MOOM         ds    2                ; where the two messages landed
