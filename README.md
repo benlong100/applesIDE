@@ -93,15 +93,20 @@ Measured on the machine at 1MHz, the same five programs `make bench` uses:
 
 | program | interpreted | compiled | speedup |
 |---|---|---|---|
-| the loop alone | 33.68s | 7.07s | 4.8× |
-| 200 lines before the target | 66.70s | 7.14s | 9.3× |
-| 30 variables before its two | 38.81s | 7.83s | 5.0× |
-| both, as a real program is | 71.54s | 7.67s | 9.3× |
+| the loop alone | 33.78s | 6.14s | 5.5× |
+| 200 lines before the target | 66.73s | 6.04s | 11.0× |
+| 30 variables before its two | 38.88s | 6.11s | 6.4× |
+| both, as a real program is | 71.53s | 6.14s | 11.6× |
 
 Every answer identical to the interpreter's. **The compiled times barely move
-across the four**, which is the whole point: what differs between those
-programs is Applesoft searching for a line and scanning for a variable, and
-compiling does not reduce that work, it removes it.
+across the four** — a tenth of a second, against interpreted times from 33 to
+71 seconds. That is the whole point: what differs between those programs is
+Applesoft searching for a line and scanning for a variable, and compiling does
+not reduce that work, it removes it.
+
+Both sides are timed the same way, with the program already in memory. Timing
+the compiled side as a `BRUN` charged it for loading its own file and made it
+look several seconds slower than it is; `docs/compiler.md` has the correction.
 
 It compiles `LET`, `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
 `RETURN`, `IF/THEN`, `FOR`/`NEXT` with `STEP`, `ON ... GOTO`, `PRINT` with
@@ -116,12 +121,10 @@ descriptor — a length and a pointer — so assignment copies three bytes rathe
 than the text, exactly as Applesoft does, and a literal's characters live in
 the compiled program. Nothing is allocated.
 
-A substring needs nothing allocated — it is the same characters with a shorter
-length, or from further in, and a compiled program never writes into a
-string's text. Joining, `CHR$` and `STR$` do allocate, from a heap running
-down from the top of free memory. **There is no garbage collector yet**, so a
-program that builds strings in a loop will stop with `?OUT OF MEMORY ERROR`
-rather than run on.
+Joining, `CHR$`, `STR$` and the substring functions allocate from a heap
+running down from the top of free memory, with **a compacting garbage
+collector** when it fills — so a program that builds strings in a loop runs
+as far as the interpreter would.
 
 `VAL`, `DATA`/`READ`, `INPUT`, `PEEK`/`POKE` and arrays of strings are refused
 by name and line number rather than compiled wrongly:

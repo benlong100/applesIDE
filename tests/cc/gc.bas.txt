@@ -1,0 +1,14 @@
+10 A$ = "A" + "AA"
+20 B$ = "B" + "BB"
+30 C$ = ""
+40 FOR I = 1 TO 200
+50 C$ = C$ + "C"
+60 NEXT
+70 PRINT LEN(C$)
+80 PRINT A$
+90 PRINT B$
+100 PRINT LEFT$(C$,5)
+110 PRINT LEN(A$) + LEN(B$)
+120 D$ = A$ + B$
+130 PRINT D$
+140 PRINT "DONEGC"

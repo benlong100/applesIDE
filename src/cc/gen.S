@@ -57,6 +57,14 @@ WNDWDTH      equ   $21              ; and how wide the window is
 NTEMPS       equ   8
 FDEPTH       equ   8                ; nested FOR loops
 
+*--- The string runtime's scratch, past the collector's roots:
+*    0 MID$'s start, 1-2 the heap pointer, 3-4 a join's destination,
+*    5 its length, 6-7 where the collector is moving to, 8-9 the best
+*    descriptor it has found, 10-11 that string's address, 12 its length,
+*    13 how many descriptors are left to look at, 14-15 which part of a
+*    string a slice wants.
+SCRASZ       equ   16
+
 TFORK        equ   $81
 TNEXT        equ   $82
 TLET         equ   $aa
@@ -328,6 +336,21 @@ EMPULLSD     lda   #$02
              bpl   :b
              rts
 
+*--- emit an absolute address of SCRA + A
+EMSCOFS      clc
+             adc   SCRA
+             sta   TMPP
+             lda   SCRA+1
+             adc   #$00
+             sta   TMPP+1
+             jmp   EMADDR
+
+*--- and the count of descriptors the collector has to walk
+EMNDESC      lda   NSVARS
+             clc
+             adc   #$02
+             jmp   EMIT
+
 *--- emit an absolute address of SDESCA + A
 EMSDOFS      clc
              adc   SDESCA
@@ -576,292 +599,6 @@ EMHSCMP      lda   #$ad
              jmp   EMIT
 
 *--------------------------------------
-* EMHLEFT -- LEFT$: the same text, no longer than asked for
-*
-* A substring needs NOTHING ALLOCATED. It is the same characters with a
-* shorter length, or the same characters from further in -- and a compiled
-* program never writes into a string's text, it only ever replaces a
-* descriptor, so sharing is safe. Applesoft copies here; the answer is the
-* same and this does not need a heap to give it.
-*
-*    0  LDA FACHI   2      over 255: the whole string
-*    2  BNE done    2   -> 14
-*    4  LDA FACLO   2
-*    6  CMP SDA     3      against the length
-*    9  BCS done    2   -> 14   asked for at least all of it
-*   11  STA SDA     3
-*   14  RTS         1
-*--------------------------------------
-EMHLEFT      lda   #$a5
-             jsr   EMIT
-             lda   #FACHI
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$0a
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #FACLO
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$b0
-             jsr   EMIT
-             lda   #$03
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$60
-             jmp   EMIT
-
-*--------------------------------------
-* EMHRIGHT -- RIGHT$: the same text, starting further in
-*
-*    0  LDA FACHI   2
-*    2  BNE done    2   -> 36
-*    4  LDA FACLO   2
-*    6  CMP SDA     3
-*    9  BCS done    2   -> 36
-*   11  STA ZPB     2      the count
-*   13  LDA SDA     3
-*   16  SEC         1
-*   17  SBC ZPB     2      how much to skip
-*   19  CLC         1
-*   20  ADC SDA+1   3
-*   23  STA SDA+1   3
-*   26  BCC nc      2   -> 31
-*   28  INC SDA+2   3
-*   31  LDA ZPB     2   <- nc
-*   33  STA SDA     3
-*   36  RTS         1
-*--------------------------------------
-EMHRIGHT     lda   #$a5
-             jsr   EMIT
-             lda   #FACHI
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$20
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #FACLO
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$b0
-             jsr   EMIT
-             lda   #$19
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #ZPB
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$38
-             jsr   EMIT
-             lda   #$e5
-             jsr   EMIT
-             lda   #ZPB
-             jsr   EMIT
-             lda   #$18
-             jsr   EMIT
-             lda   #$6d
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$8d
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$90
-             jsr   EMIT
-             lda   #$03
-             jsr   EMIT
-             lda   #$ee
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSDOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #ZPB
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$60
-             jmp   EMIT
-
-*--------------------------------------
-* EMHMID -- MID$: the same text from a given place, for a given length
-*
-*    0  LDA MIDS    3
-*    3  BNE ok      2   -> 8
-*    5  INC MIDS    3      MID$(A$,0) is an error in Applesoft; treated here
-*    8  LDA MIDS    3      as 1, which is written down in docs/compiler.md
-*   11  SEC         1
-*   12  SBC #1      2      how many to skip
-*   14  CMP SDA     3
-*   17  BCC in      2   -> 27
-*   19  LDA #0      2      starts past the end: empty
-*   21  STA SDA     3
-*   24  JMP done    3   -> 66
-*   27  STA ZPB     2   <- in
-*   29  LDA SDA     3
-*   32  SEC         1
-*   33  SBC ZPB     2
-*   35  STA SDA     3      what is left after skipping
-*   38  LDA ZPB     2
-*   40  CLC         1
-*   41  ADC SDA+1   3
-*   44  STA SDA+1   3
-*   47  BCC nc      2   -> 52
-*   49  INC SDA+2   3
-*   52  LDA FACHI   2   <- nc: and no longer than the count
-*   54  BNE done    2   -> 66
-*   56  LDA FACLO   2
-*   58  CMP SDA     3
-*   61  BCS done    2   -> 66
-*   63  STA SDA     3
-*   66  RTS         1
-*--------------------------------------
-EMHMID       lda   #$ad
-             jsr   EMIT
-             lda   #$06
-             jsr   EMSDOFS
-             lda   #$d0
-             jsr   EMIT
-             lda   #$03
-             jsr   EMIT
-             lda   #$ee
-             jsr   EMIT
-             lda   #$06
-             jsr   EMSDOFS
-             lda   #$ad
-             jsr   EMIT
-             lda   #$06
-             jsr   EMSDOFS
-             lda   #$38
-             jsr   EMIT
-             lda   #$e9
-             jsr   EMIT
-             lda   #$01
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$90
-             jsr   EMIT
-             lda   #$08
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$4c
-             jsr   EMIT
-             lda   HMID
-             clc
-             adc   #$42
-             sta   TMPP
-             lda   HMID+1
-             adc   #$00
-             sta   TMPP+1
-             jsr   EMADDR
-
-             lda   #$85
-             jsr   EMIT
-             lda   #ZPB
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$38
-             jsr   EMIT
-             lda   #$e5
-             jsr   EMIT
-             lda   #ZPB
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #ZPB
-             jsr   EMIT
-             lda   #$18
-             jsr   EMIT
-             lda   #$6d
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$8d
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$90
-             jsr   EMIT
-             lda   #$03
-             jsr   EMIT
-             lda   #$ee
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSDOFS
-
-             lda   #$a5
-             jsr   EMIT
-             lda   #FACHI
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$0a
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #FACLO
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$b0
-             jsr   EMIT
-             lda   #$03
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$60
-             jmp   EMIT
-
-*--- JSR AYINT: the number in the accumulator as an integer
-EMAYINT      lda   #$20
-             jsr   EMIT
-             lda   #<AYINT
-             jsr   EMIT
-             lda   #>AYINT
-             jmp   EMIT
-
-*--------------------------------------
 * EMHASC -- ASC: the first character as a number
 *
 * An EMPTY STRING is a divergence: Applesoft says ILLEGAL QUANTITY and this
@@ -1010,143 +747,6 @@ EMHERR       lda   #$85
              jmp   EMIT
 
 *--------------------------------------
-* EMHALLOC -- take bytes off the top of the heap
-*
-* The heap runs DOWN from the top of free memory to the end of the compiled
-* program. FRETOP is where it has got to; the floor is the program's own last
-* byte, which is why the floor is FINPC and why FINPC has to be known before
-* this is emitted.
-*
-* NOTHING IS RECLAIMED YET. Running out is an honest error rather than silent
-* corruption, and a collector is the next piece of work -- the root set is one
-* contiguous range, which is what makes it tractable.
-*
-*    0  STA ZPB+3   2      how many bytes
-*    2  LDA FRETOP  3
-*    5  SEC         1
-*    6  SBC ZPB+3   2
-*    8  STA ZPB     2
-*   10  LDA FRETOP+1 3
-*   13  SBC #0      2
-*   15  STA ZPB+1   2
-*   17  LDA ZPB+1   2
-*   19  CMP #>floor 2
-*   21  BCC nospace 2   -> 46
-*   23  BNE ok      2   -> 31
-*   25  LDA ZPB     2
-*   27  CMP #<floor 2
-*   29  BCC nospace 2   -> 46
-*   31  LDA ZPB     2   <- ok
-*   33  STA FRETOP  3
-*   36  LDA ZPB+1   2
-*   38  STA FRETOP+1 3
-*   41  LDY ZPB+1   2
-*   43  LDA ZPB     2
-*   45  RTS         1
-*   46  LDA #<msg   2   <- nospace
-*   48  LDY #>msg   2
-*   50  JMP HERR    3
-*--------------------------------------
-EMHALLOC     lda   #$85
-             jsr   EMIT
-             lda   #$1d
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$07
-             jsr   EMSDOFS
-             lda   #$38
-             jsr   EMIT
-             lda   #$e5
-             jsr   EMIT
-             lda   #$1d
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$08
-             jsr   EMSDOFS
-             lda   #$e9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$c9
-             jsr   EMIT
-             lda   FINPC+1
-             jsr   EMIT
-             lda   #$90
-             jsr   EMIT
-             lda   #$17
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$06
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$c9
-             jsr   EMIT
-             lda   FINPC
-             jsr   EMIT
-             lda   #$90
-             jsr   EMIT
-             lda   #$0f
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$07
-             jsr   EMSDOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$08
-             jsr   EMSDOFS
-             lda   #$a4
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$60
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   MOOM
-             jsr   EMIT
-             lda   #$a0
-             jsr   EMIT
-             lda   MOOM+1
-             jsr   EMIT
-             lda   #$4c
-             jsr   EMIT
-             lda   HERR
-             jsr   EMIT
-             lda   HERR+1
-             jmp   EMIT
-
-*--------------------------------------
 * EMHCHR -- CHR$: one byte, allocated
 *
 * Stored as given and printed with its high bit set, which is what Applesoft
@@ -1289,8 +889,8 @@ EMHJOIN      lda   #$ad
              jsr   EMIT
              lda   #$8d
              jsr   EMIT
-             lda   #$0b
-             jsr   EMSDOFS
+             lda   #$05
+             jsr   EMSCOFS
              lda   #$20
              jsr   EMIT
              lda   HALLOC
@@ -1299,16 +899,16 @@ EMHJOIN      lda   #$ad
              jsr   EMIT
              lda   #$8d
              jsr   EMIT
-             lda   #$09
-             jsr   EMSDOFS
+             lda   #$03
+             jsr   EMSCOFS
              lda   #$85
              jsr   EMIT
              lda   #$1e
              jsr   EMIT
              lda   #$8c
              jsr   EMIT
-             lda   #$0a
-             jsr   EMSDOFS
+             lda   #$04
+             jsr   EMSCOFS
              lda   #$84
              jsr   EMIT
              lda   #$1f
@@ -1419,24 +1019,24 @@ EMHJOIN      lda   #$ad
              jsr   EMIT
              lda   #$ad
              jsr   EMIT
-             lda   #$0b
-             jsr   EMSDOFS
+             lda   #$05
+             jsr   EMSCOFS
              lda   #$8d
              jsr   EMIT
              lda   #$00
              jsr   EMSDOFS
              lda   #$ad
              jsr   EMIT
-             lda   #$09
-             jsr   EMSDOFS
+             lda   #$03
+             jsr   EMSCOFS
              lda   #$8d
              jsr   EMIT
              lda   #$01
              jsr   EMSDOFS
              lda   #$ad
              jsr   EMIT
-             lda   #$0a
-             jsr   EMSDOFS
+             lda   #$04
+             jsr   EMSCOFS
              lda   #$8d
              jsr   EMIT
              lda   #$02
@@ -1510,8 +1110,8 @@ EMHSTR       lda   #$20
              jsr   EMIT
              lda   #$8d
              jsr   EMIT
-             lda   #$0b
-             jsr   EMSDOFS
+             lda   #$05
+             jsr   EMSCOFS
              lda   #$20
              jsr   EMIT
              lda   HALLOC
@@ -1536,8 +1136,8 @@ EMHSTR       lda   #$20
              jsr   EMSDOFS
              lda   #$ad
              jsr   EMIT
-             lda   #$0b
-             jsr   EMSDOFS
+             lda   #$05
+             jsr   EMSCOFS
              lda   #$8d
              jsr   EMIT
              lda   #$00
@@ -1548,8 +1148,8 @@ EMHSTR       lda   #$20
              jsr   EMIT
              lda   #$cc
              jsr   EMIT
-             lda   #$0b
-             jsr   EMSDOFS
+             lda   #$05
+             jsr   EMSCOFS
              lda   #$b0
              jsr   EMIT
              lda   #$08
@@ -1571,6 +1171,1039 @@ EMHSTR       lda   #$20
              lda   #$f3
              jsr   EMIT
              lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHGC -- the garbage collector
+*
+* Applesoft's own method: repeatedly find the live string sitting highest
+* below where the last one was moved to, slide it up against it, and lower the
+* boundary. Quadratic in the number of descriptors, of which there are at most
+* sixty-six, for something that runs only when the heap is full.
+*
+* THE ROOTS ARE ONE UNBROKEN RUN: SDA, SDB, then three bytes per string
+* variable, which is why the layout puts them together. SDA and SDB are roots
+* because a collection happens inside an allocation, in the middle of an
+* expression -- a join holds its left side in SDB and its right in SDA.
+*
+* A descriptor pointing below the floor is a literal in the compiled program's
+* own text and never moves. One comparison tells them apart.
+*
+* EVERY DESCRIPTOR POINTING AT THE MOVED STRING IS UPDATED, not just the one
+* that won the search. Two can hold the same address -- A\$ = B\$ makes two,
+* and C\$ = C\$ + \"C\" leaves the join's saved left side aliasing C\$ exactly.
+* Updating one of them left the other pointing at the old address, which the
+* next round found and moved again, on top of something else. That is what
+* made A\$ and B\$ print as CCC.
+*
+* The copy runs high to low: the destination is at or above the source, and a
+* block moved upward over itself has to be copied from its end.
+*--------------------------------------
+EMHGC        lda   #$a5
+             jsr   EMIT
+             lda   #$73
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$74
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$07
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   SDESCA
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   SDESCA+1
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             jsr   EMNDESC
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0d
+             jsr   EMSCOFS
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$4e
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   FINPC+1
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$3e
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$06
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   FINPC
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$36
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$07
+             jsr   EMSCOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$09
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$2d
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$26
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSCOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$09
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMSCOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$16
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$14
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$08
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$09
+             jsr   EMSCOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$69
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$e6
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$ce
+             jsr   EMIT
+             lda   #$0d
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$9c
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMSCOFS
+             lda   #$0d
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSCOFS
+             lda   #$f0
+             jsr   EMIT
+             lda   #$7d
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$08
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$09
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0c
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSCOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$0c
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$07
+             jsr   EMSCOFS
+             lda   #$e9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1d
+             jsr   EMIT
+             lda   #$ac
+             jsr   EMIT
+             lda   #$0c
+             jsr   EMSCOFS
+             lda   #$88
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$c0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$f7
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   SDESCA
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   SDESCA+1
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             jsr   EMNDESC
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0d
+             jsr   EMSCOFS
+             lda   #$a0
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$13
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$69
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$e6
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$ce
+             jsr   EMIT
+             lda   #$0d
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$d4
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$07
+             jsr   EMSCOFS
+             lda   #$4c
+             jsr   EMIT
+             lda   HGC
+             clc
+             adc   #$0a
+             sta   TMPP
+             lda   HGC+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$ad
+             jsr   EMIT
+             lda   #$06
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$07
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSCOFS
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHALLOC -- take bytes off the top of the heap, collecting if it must
+*
+*   try; if that failed, collect and try once more; if that failed, say so
+*
+* Once only: a collection that did not free enough will not free more for
+* being run again.
+*--------------------------------------
+EMHALLOC     lda   #$8d
+             jsr   EMIT
+             lda   #$05
+             jsr   EMSCOFS
+             lda   #$20
+             jsr   EMIT
+             lda   HALLOC
+             clc
+             adc   #$1b
+             sta   TMPP
+             lda   HALLOC+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$90
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   HALLOC
+             clc
+             adc   #$18
+             sta   TMPP
+             lda   HALLOC+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$20
+             jsr   EMIT
+             lda   HALLOC
+             clc
+             adc   #$1b
+             sta   TMPP
+             lda   HALLOC+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$90
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   MOOM
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   MOOM+1
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HERR
+             jsr   EMIT
+             lda   HERR+1
+             jsr   EMIT
+             lda   #$60
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HGC
+             jsr   EMIT
+             lda   HGC+1
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSCOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$05
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSCOFS
+             lda   #$e9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   FINPC+1
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$06
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   FINPC
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$10
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSCOFS
+             lda   #$a4
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$60
+             jsr   EMIT
+             lda   #$38
+             jsr   EMIT
+             lda   #$60
+             jmp   EMIT
+
+*--- JSR AYINT: the number in the accumulator as an integer
+EMAYINT      lda   #$20
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jmp   EMIT
+
+*--------------------------------------
+* EMHSLICE -- what LEFT$, RIGHT$ and MID$ all end with
+*
+* SLOFF and SLLEN say which part of the string in SDA is wanted; this
+* allocates that many bytes and copies them, and SDA comes out pointing at a
+* block of its own.
+*
+* IT HAS TO COPY, and I had it sharing. A substring that points into the
+* middle of another string is a pointer the collector cannot fix up: it finds
+* strings by the address they start at, and an interior pointer matches
+* nothing. So the parent moves and the substring is left pointing at whatever
+* is there now. Applesoft copies here, and this is why.
+*
+* The source pointer is read AFTER the allocation, deliberately: allocating
+* may collect, and a collection may move the very string being sliced. SDA is
+* a root, so by then it says where the text went.
+*--------------------------------------
+EMHSLICE     lda   #$ad
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$04
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$60
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   HALLOC
+             jsr   EMIT
+             lda   HALLOC+1
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$03
+             jsr   EMSCOFS
+             lda   #$84
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$8c
+             jsr   EMIT
+             lda   #$04
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$6d
+             jsr   EMIT
+             lda   #$0e
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$69
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$cc
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$f4
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$03
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$04
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$60
+             jmp   EMIT
+
+*--- LEFT$: from the start, for as many as asked or as many as there are
+EMHLEFT      lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0e
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$0d
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$a1
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$06
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$4c
+             jsr   EMIT
+             lda   HSLICE
+             jsr   EMIT
+             lda   HSLICE+1
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$4c
+             jsr   EMIT
+             lda   HSLICE
+             jsr   EMIT
+             lda   HSLICE+1
+             jmp   EMIT
+
+*--- RIGHT$: the last so many, which is an offset and the same length
+EMHRIGHT     lda   #$a5
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$17
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$a1
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$10
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0e
+             jsr   EMSCOFS
+             lda   #$4c
+             jsr   EMIT
+             lda   HSLICE
+             jsr   EMIT
+             lda   HSLICE+1
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0e
+             jsr   EMSCOFS
+             lda   #$4c
+             jsr   EMIT
+             lda   HSLICE
+             jsr   EMIT
+             lda   HSLICE+1
+             jmp   EMIT
+
+*--- MID$: from a place, for a length, both clamped to what is there.
+*    MID$(A$,0) is an error in Applesoft and is treated here as 1.
+EMHMID       lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$ee
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSCOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$e9
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0e
+             jsr   EMSCOFS
+             lda   #$4c
+             jsr   EMIT
+             lda   HSLICE
+             jsr   EMIT
+             lda   HSLICE+1
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0e
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$0e
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$a1
+             jsr   EMIT
+             lda   #$cd
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMSCOFS
+             lda   #$4c
+             jsr   EMIT
+             lda   HSLICE
+             jsr   EMIT
+             lda   HSLICE+1
              jmp   EMIT
 
 *--------------------------------------
@@ -1652,6 +2285,8 @@ GENPASS      lda   #$00
              sta   HSTR
              sta   HERR
              sta   HALLOC
+             sta   HGC
+             sta   HSLICE
              sta   MOOM
              sta   MLONG
              lda   #>CODEORG
@@ -1667,6 +2302,8 @@ GENPASS      lda   #$00
              sta   HSTR+1
              sta   HERR+1
              sta   HALLOC+1
+             sta   HGC+1
+             sta   HSLICE+1
              sta   MOOM+1
              sta   MLONG+1
 :keep
@@ -1744,16 +2381,16 @@ GENPASS      lda   #$00
              jsr   EMIT
              lda   #$8d             ; STA FRETOP
              jsr   EMIT
-             lda   #$07
-             jsr   EMSDOFS
+             lda   #$01
+             jsr   EMSCOFS
              lda   #$a5             ; LDA $74
              jsr   EMIT
              lda   #$74
              jsr   EMIT
              lda   #$8d
              jsr   EMIT
-             lda   #$08
-             jsr   EMSDOFS
+             lda   #$02
+             jsr   EMSCOFS
 
 *--- remember where the stack was, so END can unwind a GOSUB
              lda   #$ba             ; TSX
@@ -1829,6 +2466,49 @@ GENPASS      lda   #$00
              sta   HSPR+1
              jsr   EMHSPR
 
+*--- The heap's own first: everything below calls into it, and emitting a
+*    caller before what it calls would leave the call resolved from the
+*    previous pass -- true, but true by accident.
+             lda   PC
+             sta   MOOM
+             lda   PC+1
+             sta   MOOM+1
+             lda   #<MSGOOM
+             ldy   #>MSGOOM
+             jsr   EMMSG
+
+             lda   PC
+             sta   MLONG
+             lda   PC+1
+             sta   MLONG+1
+             lda   #<MSGLONG
+             ldy   #>MSGLONG
+             jsr   EMMSG
+
+             lda   PC
+             sta   HERR
+             lda   PC+1
+             sta   HERR+1
+             jsr   EMHERR
+
+             lda   PC
+             sta   HGC
+             lda   PC+1
+             sta   HGC+1
+             jsr   EMHGC
+
+             lda   PC
+             sta   HALLOC
+             lda   PC+1
+             sta   HALLOC+1
+             jsr   EMHALLOC
+
+             lda   PC
+             sta   HSLICE
+             lda   PC+1
+             sta   HSLICE+1
+             jsr   EMHSLICE
+
              lda   PC
              sta   HLEFT
              lda   PC+1
@@ -1856,34 +2536,6 @@ GENPASS      lda   #$00
 *--- The heap's own, in an order where each one's address is already known by
 *    the time the next refers to it: the message, then the error exit, then
 *    the allocator, then what uses it.
-             lda   PC
-             sta   MOOM
-             lda   PC+1
-             sta   MOOM+1
-             lda   #<MSGOOM
-             ldy   #>MSGOOM
-             jsr   EMMSG
-
-             lda   PC
-             sta   MLONG
-             lda   PC+1
-             sta   MLONG+1
-             lda   #<MSGLONG
-             ldy   #>MSGLONG
-             jsr   EMMSG
-
-             lda   PC
-             sta   HERR
-             lda   PC+1
-             sta   HERR+1
-             jsr   EMHERR
-
-             lda   PC
-             sta   HALLOC
-             lda   PC+1
-             sta   HALLOC+1
-             jsr   EMHALLOC
-
              lda   PC
              sta   HCHR
              lda   PC+1
@@ -4178,8 +4830,8 @@ FMID         jsr   EMAYINT
              jsr   EMIT
              lda   #$8d
              jsr   EMIT
-             lda   #$06
-             jsr   EMSDOFS
+             lda   #$00
+             jsr   EMSCOFS
              jsr   EMPULLSD
              lda   #$20
              jsr   EMIT
@@ -4902,8 +5554,10 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              lda   TMPP+1
              sta   SPSAVEA+1
 
-*--- Two string descriptors -- a length and a pointer each -- for the
-*    comparison helper to work on. Past SPSAVE, before the arrays.
+*--- THE COLLECTOR'S ROOTS, ALL TOGETHER. The two working descriptors and
+*    every string variable sit in one unbroken run, so a collection walks a
+*    single range instead of two: SDA, SDB, then three bytes per string
+*    variable. Everything else the runtime scratches in goes after them.
              lda   TMPP
              clc
              adc   #$01
@@ -4912,11 +5566,9 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              adc   #$00
              sta   SDESCA+1
 
-*--- The scratch the string runtime works in: two descriptors, MID$'s start,
-*    the heap pointer, and a place for a join to keep its destination.
-             lda   SDESCA
+             lda   SDESCA           ; the string variables follow the two
              clc
-             adc   #$0c
+             adc   #$06
              sta   SVBASE
              sta   TMPP
              lda   SDESCA+1
@@ -4929,9 +5581,20 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              lda   NSVARS
              sta   ACCN
              jsr   BUMP
-             lda   TMPP             ; and then the arrays
+
+*--- and past the roots, everything else the string runtime works in:
+*    MID$'s start, the heap pointer, the join's destination and length, and
+*    the collector's own five.
+             lda   TMPP
+             sta   SCRA
+             lda   TMPP+1
+             sta   SCRA+1
+             lda   TMPP
+             clc
+             adc   #SCRASZ
              sta   ARRBASE
              lda   TMPP+1
+             adc   #$00
              sta   ARRBASE+1
 
              lda   NARR             ; ...and run for five bytes an element
@@ -5066,9 +5729,12 @@ HJOIN        ds    2
 HSTR         ds    2
 HERR         ds    2
 HALLOC       ds    2
+HGC          ds    2
+HSLICE       ds    2
 MOOM         ds    2                ; where the two messages landed
 MLONG        ds    2
 SLICEF       ds    1                ; which of the three is being compiled
+SCRA         ds    2                ; where the runtime's scratch begins
 ISSTR        ds    1                ; the value just parsed is a string
 DSTA         ds    2                ; where EMSDESC is to copy to
 DSTSV        ds    2                ; and where an assignment finally lands

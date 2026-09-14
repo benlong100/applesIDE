@@ -8,6 +8,12 @@
 # 1MHz, like bench.sh, because at the emulator's default speed the wall clock
 # stops meaning anything.
 #
+# Both sides are timed the same way: the program is in memory before the clock
+# starts, and what is measured is the running. The screen is polled to spot
+# the end marker and one poll costs about 0.12s, so that is the granularity --
+# which is nothing against an interpreted run of half a minute and worth
+# knowing about against a compiled one of a few seconds.
+#
 # Each program is timed twice -- interpreted, then compiled -- in the same
 # session on the same disk, so the two numbers are comparable without any
 # argument about the machine's state in between.
@@ -97,7 +103,17 @@ for spec in "BENCH1 ENDONE" "BENCH2 ENDTWO" "BENCH3 ENDTRE" "BENCH4 ENDFOR" "BEN
         WROTE*) ;;
         *) printf '%-8s %10s   %s\n' "$name" "$ti" "$msg"; continue;;
     esac
-    tc=$(timed "BRUN C$name" "$mark")
+
+    # BLOAD THEN CALL, not BRUN. BRUN loads AND runs, and timing it charged
+    # the compiler for reading its own file off the disk while the
+    # interpreted side had its LOAD done before the clock started. A compiled
+    # program that does nothing but print one line took 3.35s that way, all
+    # of it loading -- so every compiled figure reported before this was
+    # several seconds too slow, and the comparison was unfair to the thing
+    # being measured.
+    "$V" line "BLOAD C$name" >/dev/null
+    "$V" settle 8 >/dev/null
+    tc=$(timed "CALL 24576" "$mark")
     ansc=$("$V" screen | grep -B1 "$mark" | head -1)
 
     if [ "$ansi" != "$ansc" ]; then

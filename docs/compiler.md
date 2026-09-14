@@ -263,18 +263,54 @@ each one interpreted and then compiled, in the same session on the same disk.
 
 | program | interpreted | compiled | speedup | answer |
 |---|---|---|---|---|
-| BENCH1 | 33.68s | 7.07s | 4.8× | 4501500 |
-| BENCH2 | 66.70s | 7.14s | 9.3× | 4501500 |
-| BENCH3 | 38.81s | 7.83s | 5.0× | 4501500 |
-| BENCH4 | 71.54s | 7.67s | 9.3× | 4501500 |
-| BENCH5 | 26.78s | 5.85s | 4.6× | 3000 |
+| BENCH1 | 33.78s | 6.14s | 5.5× | 4501500 |
+| BENCH2 | 66.73s | 6.04s | 11.0× | 4501500 |
+| BENCH3 | 38.88s | 6.11s | 6.4× | 4501500 |
+| BENCH4 | 71.53s | 6.14s | 11.6× | 4501500 |
+| BENCH5 | 26.80s | 4.40s | 6.1× | 3000 |
 
 Every answer is the interpreter's own.
 
-**The compiled times barely move across the five**, and that is the whole
-claim made visible. What differs between those programs is the line search and
-the variable scan; compiling does not reduce them, it removes them. BENCH4 is
-the realistically shaped one, and it is the one that gains most.
+**The compiled times barely move across the first four** — 6.04 to 6.14, a
+spread of a tenth of a second across programs whose interpreted times run from
+33 to 71 seconds. That is the whole claim made visible: what differs between
+them is the line search and the variable scan, and compiling does not reduce
+that work, it removes it. BENCH4 is the realistically shaped one and gains
+most.
+
+### These numbers were wrong until they were measured properly
+
+Every compiled figure reported before this was several seconds too slow, and
+the fault was in the harness rather than the compiler.
+
+The two sides were not timed the same way. The interpreted run had its `LOAD`
+done before the clock started, so only the running was measured. The compiled
+run was timed as a `BRUN` — which loads **and** runs — so the compiler was
+charged for reading its own file off the disk and the interpreter was not.
+
+What settled it: a compiled program whose entire body is `PRINT "ENDTINY"`
+takes **3.35 seconds**, essentially all of it loading. That was the constant
+being added to one side of every comparison.
+
+It surfaced as a 7% "regression" after the string runtime went in. Nothing in
+the arithmetic path had changed; the binary had grown from about 300 bytes to
+about 1,100 as the runtime went in, and the extra load time showed up as
+slower execution. Treating that as noise would have buried the real fault.
+
+Both sides now load before the clock starts: `BLOAD` and then `CALL 24576`.
+
+**And the precision.** The screen is polled to spot the end marker and a poll
+costs 0.119s, measured. That is the granularity: nothing against an
+interpreted run of half a minute, and worth stating against a compiled one of
+six seconds. Two decimal places is more than these carry.
+
+### Every program carries the whole runtime
+
+A compiled program gets the array helper, the string helpers, the heap and the
+collector whether it uses them or not — about 900 bytes on a program that
+never touches a string. Pass 1 already knows which features a program uses, so
+this is bookkeeping rather than a design problem, and it is worth doing: it is
+most of the difference between a 300-byte binary and an 1,100-byte one.
 
 ### Correctness, against the interpreter rather than against a table
 
@@ -453,14 +489,27 @@ two goes: a search for `jsr EXPR` missed every one with a trailing comment, so
 `FOR`'s three expressions and `ON`'s kept the unguarded version until a second
 look listed what should have changed rather than counting what had.
 
-### The slicing functions, which need no heap either
+### The slicing functions
 
-`LEFT$`, `RIGHT$`, `MID$` and `ASC`. A substring is the same characters with
-a shorter length, or the same characters from further in — and a compiled
-program never writes into a string's text, it only ever replaces a
-descriptor, so sharing is safe. Applesoft copies here; the answer is the same
-and this does not need a heap to give it. That moved the whole family ahead of
-the heap work rather than behind it.
+`LEFT$`, `RIGHT$`, `MID$` and `ASC`.
+
+**I first wrote these to share their parent's text**, on the grounds that a
+substring is the same characters with a shorter length, or from further in,
+and a compiled program never writes into a string's text — it only ever
+replaces a descriptor. That let the whole family arrive before the heap rather
+than after it, and it was true right up until the collector existed.
+
+It is wrong with a compacting collector, and the reason is worth keeping. The
+collector finds strings **by the address they start at**. A substring shares
+its parent's block, so its pointer lands in the middle of one, and matches
+nothing: the parent moves and the substring is left pointing at whatever
+occupies that memory afterwards. Applesoft copies here, and this is why —
+knowing *that* it copies was never the same as knowing why.
+
+So they allocate and copy, through a shared ending, `HSLICE`. That ending
+reads the source pointer **after** the allocation, deliberately: allocating
+may collect, and a collection may move the very string being sliced. SDA is a
+root, so by then it says where the text went.
 
 **`LEFT$(A$, LEN(B$))` is not a strange thing to write**, and working out the
 count builds `B$` in the one descriptor slot, losing `A$`. So the string goes
@@ -532,13 +581,23 @@ Three call sites had to widen from a string *primary* to a string
 retired the `NO STRING JOIN YET` complaint, which existed only to name a plus
 sign the parser could not reach.
 
-### Nothing is reclaimed yet, and what that costs
+### The garbage collector
 
-There is no collector. Running out is an honest error rather than silent
-corruption — `?OUT OF MEMORY ERROR` and back to the `]` prompt by way of the
-stack pointer the prologue saved.
+Applesoft's own method: repeatedly find the live string sitting highest below
+where the last one was moved to, slide it up against it, lower the boundary.
+Quadratic in the number of descriptors, of which there are at most sixty-six,
+for something that runs only when the heap is full.
 
-The cost is visible in one program:
+**The roots are one unbroken run** — SDA, SDB, then three bytes per string
+variable — which is why the layout puts them together and everything else the
+runtime scratches in after them. SDA and SDB are roots because a collection
+happens inside an allocation, in the middle of an expression: a join holds its
+left side in SDB and its right in SDA, and both must survive.
+
+A descriptor pointing below the floor is a literal living in the compiled
+program's own text, and never moves. One comparison separates the two kinds.
+
+The program that forced the work, before and after:
 
 ```
 10 F$ = "X"
@@ -547,17 +606,58 @@ The cost is visible in one program:
 
 | | |
 |---|---|
-| interpreted | `?STRING TOO LONG ERROR IN 30` — it collects, reaches 255 characters, and meets Applesoft's length limit |
-| compiled | `?OUT OF MEMORY ERROR` — it exhausts 13K of heap at about 160 characters first |
+| interpreted | `?STRING TOO LONG ERROR IN 30` |
+| before the collector | `?OUT OF MEMORY ERROR` at about 160 characters |
+| after | `?STRING TOO LONG ERROR` |
 
-Both stop; they stop for different reasons. A collector would make the second
-give the first's answer, and that is the whole of what it buys.
+It now stops for the same reason at the same point. The missing `IN 30` is the
+line number a compiled program cannot know, which is the same limitation as
+the division-by-zero case.
 
-**It is tractable because the root set is one contiguous range**: the two
-scratch descriptors and the string variables, laid out adjacently on purpose.
-A descriptor points either into the compiled program's own text — a literal,
-which never moves — or into the heap, and the two are told apart by a single
-comparison against the floor.
+### Three bugs in the collector, and what each one taught
+
+**Aliasing.** Two descriptors can hold the same address: `A$ = B$` makes two,
+and `C$ = C$ + "C"` leaves the join's saved left side aliasing `C$` exactly.
+Updating only the descriptor that won the search left the other pointing at
+the old address, which the next round found and moved again, on top of
+something else. Every descriptor pointing at the moved string is updated now.
+
+**The wrong addressing mode**, and this was the one that mattered. The
+descriptor walk began
+
+```
+LDA $xx        A5 — zero page
+```
+
+where it needed
+
+```
+LDA #<SDESCA   A9 — immediate
+```
+
+One byte. The collector never walked the string descriptors at all: it walked
+whatever lived at that zero-page address, found "descriptors" in unrelated
+memory, and moved bytes on their say-so. The same typo appeared twice, because
+I copied it forward while fixing the aliasing bug.
+
+**This is the limit of the generator.** It computes branch offsets and sizes
+so those cannot be wrong, and it confirmed `HGC` at 277 bytes with every
+branch in range — but it has no idea whether `A5` is the opcode that was
+meant. It checks the arithmetic, not the intent.
+
+**And the near miss is the lesson.** The first failure looked exactly like an
+aliasing bug; aliasing *was* a real bug; fixing it changed nothing, because it
+was never the cause. Had the fix happened to mask the symptom, a collector
+that walks arbitrary memory would have shipped. **The unchanged failure was
+the useful signal** — the same value as a test that fails for the reason you
+expected it to.
+
+### What a full heap cost before the collector
+
+An allocation that does not fit collects once and tries again; only then does
+it give up with `?OUT OF MEMORY ERROR`, back to the `]` prompt by way of the
+stack pointer the prologue saved. Once, because a collection that did not free
+enough will not free more for being run again.
 
 ### Writing the runtime with a generator
 
@@ -602,8 +702,7 @@ functions.
 
 Not yet: `VAL`, `DATA`/`READ`, `INPUT`, `ON ... GOSUB`, `PEEK`/`POKE`,
 `DEF FN`, the graphics statements, arrays of more than one dimension, and
-arrays of strings. And no garbage collector, which is the next piece of
-work. Each
+arrays of strings. Each
 is refused **by name and line number** rather than compiled wrongly:
 
 ```
