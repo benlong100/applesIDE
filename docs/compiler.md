@@ -507,6 +507,69 @@ Harmless to the output and not harmless at all: the report exists to say what
 the compiler saw, and it had been quietly wrong since it was written. It
 surfaced only because I was reading it to debug something else.
 
+### The heap: joining, CHR$ and STR$
+
+The operations that have to **make** a string. `MEMSIZ` at `$73` is `$9600`
+under BASIC.SYSTEM with one file buffer, and a compiled program leaves it
+alone — read off the machine before and after a `BRUN`, not assumed. So the
+heap runs **down** from the top of free memory to the compiled program's own
+last byte. That floor is `FINPC`, which is not known until every helper has
+been emitted, so the allocator that needs it as a constant is emitted with the
+value pass 2 recorded — the same forward reference as a `GOTO`.
+
+**Joining puts the left side aside first.** Every string value is built in
+SDA, so parsing the right of `A$ + B$` would build it on top of the left; the
+left moves to SDB, which is where the join helper looks for it, exactly as the
+comparison helper does.
+
+**And the destination is written last.** `HJOIN` allocates and then holds the
+new address in two places, because the result descriptor lives in the same
+slot that still holds the right-hand operand — writing it early would destroy
+the thing being copied.
+
+Three call sites had to widen from a string *primary* to a string
+*expression*: `A$ = B$ + C$`, `IF A$ = B$ + C$`, and `LEFT$(A$ + B$, 2)`. That
+retired the `NO STRING JOIN YET` complaint, which existed only to name a plus
+sign the parser could not reach.
+
+### Nothing is reclaimed yet, and what that costs
+
+There is no collector. Running out is an honest error rather than silent
+corruption — `?OUT OF MEMORY ERROR` and back to the `]` prompt by way of the
+stack pointer the prologue saved.
+
+The cost is visible in one program:
+
+```
+10 F$ = "X"
+20 FOR I = 1 TO 400 : F$ = F$ + "Y" : NEXT
+```
+
+| | |
+|---|---|
+| interpreted | `?STRING TOO LONG ERROR IN 30` — it collects, reaches 255 characters, and meets Applesoft's length limit |
+| compiled | `?OUT OF MEMORY ERROR` — it exhausts 13K of heap at about 160 characters first |
+
+Both stop; they stop for different reasons. A collector would make the second
+give the first's answer, and that is the whole of what it buys.
+
+**It is tractable because the root set is one contiguous range**: the two
+scratch descriptors and the string variables, laid out adjacently on purpose.
+A descriptor points either into the compiled program's own text — a literal,
+which never moves — or into the heap, and the two are told apart by a single
+comparison against the floor.
+
+### Writing the runtime with a generator
+
+The string runtime is about 380 bytes now, and writing `lda #$xx / jsr EMIT`
+twice per byte by hand is tedious and a good way to mistype an opcode. The
+helpers are written as byte specs and the emitter source is generated from
+them.
+
+Its first useful act was confirming that `HERR`, `HALLOC` and `HCHR` came out
+at exactly 27, 53 and 27 bytes — the sizes the hand-counted branch offsets in
+their comments assume. That check used to be done by eye.
+
 ### A harness fault wearing a compiler fault's clothes
 
 The string test failed with one extra `HELLO` in the compiled output, which
@@ -532,15 +595,15 @@ now, both comfortably inside a screen.
 `LET` (named or implied), `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
 `RETURN`, `IF ... THEN` and `IF ... GOTO`, `FOR` / `NEXT` with `STEP`,
 `ON ... GOTO`, string variables and literals with assignment, comparison and
-`LEN`, `LEFT$`, `RIGHT$`, `MID$` and `ASC`, `PRINT` of numbers and strings
-with `;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
+`LEN`, `LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$`, `STR$` and joining with `+`,
+`PRINT` of numbers and strings with `;` and `,`, `REM`, `END`, and expressions over `+ - * /`, unary minus,
 brackets, the six comparisons, `AND` / `OR` / `NOT`, and the eleven numeric
 functions.
 
-Not yet: joining strings, `CHR$`, `STR$` and `VAL`, `DATA`/`READ`, `INPUT`,
-`ON ... GOSUB`, `PEEK`/`POKE`, `DEF FN`, the graphics statements, arrays of
-more than one dimension, and arrays of strings. The first three all have to
-**make** a string, which is the heap, and it is the next piece of work. Each
+Not yet: `VAL`, `DATA`/`READ`, `INPUT`, `ON ... GOSUB`, `PEEK`/`POKE`,
+`DEF FN`, the graphics statements, arrays of more than one dimension, and
+arrays of strings. And no garbage collector, which is the next piece of
+work. Each
 is refused **by name and line number** rather than compiled wrongly:
 
 ```

@@ -1,0 +1,20 @@
+10 A$ = "AB"
+20 B$ = "CD"
+30 C$ = A$ + B$
+40 PRINT C$
+50 PRINT LEN(C$)
+60 PRINT A$ + B$ + "EF"
+70 D$ = "" : PRINT "[" + D$ + "]"
+80 E$ = A$ + CHR$(90)
+90 PRINT E$
+100 PRINT LEFT$(A$ + B$, 3)
+110 IF A$ + B$ = "ABCD" THEN PRINT "JOINEQ"
+120 F$ = "X"
+130 FOR I = 1 TO 4
+140 F$ = F$ + "Y"
+150 NEXT
+160 PRINT F$
+170 PRINT STR$(42)
+180 PRINT "N=" + STR$(7)
+190 PRINT LEN(STR$(100))
+200 PRINT "DONEJOIN"

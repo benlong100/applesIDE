@@ -110,17 +110,21 @@ brackets, the six comparisons, `AND`/`OR`/`NOT`, and the eleven numeric
 functions (`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN`).
 
 **String variables** too, as far as they go without a heap: `A$ = B$`,
-`A$ = "text"`, `PRINT A$`, all six comparisons, and `LEN`, `LEFT$`, `RIGHT$`,
-`MID$` and `ASC`. A string value is a
+`A$ = "text"`, `PRINT A$`, all six comparisons, joining with `+`, and `LEN`,
+`LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$` and `STR$`. A string value is a
 descriptor — a length and a pointer — so assignment copies three bytes rather
 than the text, exactly as Applesoft does, and a literal's characters live in
 the compiled program. Nothing is allocated.
 
-A substring needs nothing allocated either — it is the same characters with a
-shorter length, or from further in, and a compiled program never writes into a
-string's text. Joining strings, `CHR$`, `STR$`, `DATA`/`READ`, `INPUT`,
-`PEEK`/`POKE` and arrays of strings are refused by name and line number rather
-than compiled wrongly:
+A substring needs nothing allocated — it is the same characters with a shorter
+length, or from further in, and a compiled program never writes into a
+string's text. Joining, `CHR$` and `STR$` do allocate, from a heap running
+down from the top of free memory. **There is no garbage collector yet**, so a
+program that builds strings in a loop will stop with `?OUT OF MEMORY ERROR`
+rather than run on.
+
+`VAL`, `DATA`/`READ`, `INPUT`, `PEEK`/`POKE` and arrays of strings are refused
+by name and line number rather than compiled wrongly:
 
 ```
 STOPPED IN 30: NO STRING JOIN YET

@@ -80,6 +80,8 @@ TDIMK        equ   $86
 TON          equ   $b4
 TLEN         equ   $e3
 TASC         equ   $e6
+TCHR         equ   $e7
+TSTR         equ   $e4
 TLEFT        equ   $e8
 TRIGHT       equ   $e9
 TMID         equ   $ea
@@ -905,6 +907,673 @@ EMHASC       lda   #$ad
              jmp   EMIT
 
 *--------------------------------------
+* EMMSG -- a run-time message: high ASCII, a return, and a zero
+*--------------------------------------
+EMMSG        sta   STRPTR
+             sty   STRPTR+1
+             lda   #$00
+             sta   EMI
+:loop        ldy   EMI
+             lda   (STRPTR),y
+             beq   :end
+             ora   #$80
+             jsr   EMIT
+             inc   EMI
+             jmp   :loop
+:end         lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jmp   EMIT
+
+MSGOOM       asc   "?OUT OF MEMORY ERROR"
+             dfb   $00
+MSGLONG      asc   "?STRING TOO LONG ERROR"
+             dfb   $00
+
+*--------------------------------------
+* EMHERR -- say what went wrong at run time, and stop
+*
+* A\$ = A\$ + \"X\" in a loop will run out of string space eventually, and a
+* compiled program has to say so rather than write over its own code. The
+* message address comes in A and Y; the stack pointer the prologue saved is
+* what gets it back to BASIC.
+*
+*    0  STA ZPB     2
+*    2  STY ZPB+1   2
+*    4  LDA #0      2      the index, in memory: COUT does not keep Y
+*    6  STA ZPB+2   2
+*    8  LDY ZPB+2   2   <- loop
+*   10  LDA (ZPB),Y 2
+*   12  BEQ done    2   -> 22
+*   14  JSR COUT    3
+*   17  INC ZPB+2   2
+*   19  JMP loop    3   -> 8
+*   22  LDX SPSAVE  3   <- done
+*   25  TXS         1
+*   26  RTS         1
+*--------------------------------------
+EMHERR       lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$84
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMIT
+             lda   #$a4
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$08
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$fd
+             jsr   EMIT
+             lda   #$e6
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HERR
+             clc
+             adc   #$08
+             sta   TMPP
+             lda   HERR+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$ae
+             jsr   EMIT
+             jsr   SPADDR
+             jsr   EMADDR
+             lda   #$9a
+             jsr   EMIT
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHALLOC -- take bytes off the top of the heap
+*
+* The heap runs DOWN from the top of free memory to the end of the compiled
+* program. FRETOP is where it has got to; the floor is the program's own last
+* byte, which is why the floor is FINPC and why FINPC has to be known before
+* this is emitted.
+*
+* NOTHING IS RECLAIMED YET. Running out is an honest error rather than silent
+* corruption, and a collector is the next piece of work -- the root set is one
+* contiguous range, which is what makes it tractable.
+*
+*    0  STA ZPB+3   2      how many bytes
+*    2  LDA FRETOP  3
+*    5  SEC         1
+*    6  SBC ZPB+3   2
+*    8  STA ZPB     2
+*   10  LDA FRETOP+1 3
+*   13  SBC #0      2
+*   15  STA ZPB+1   2
+*   17  LDA ZPB+1   2
+*   19  CMP #>floor 2
+*   21  BCC nospace 2   -> 46
+*   23  BNE ok      2   -> 31
+*   25  LDA ZPB     2
+*   27  CMP #<floor 2
+*   29  BCC nospace 2   -> 46
+*   31  LDA ZPB     2   <- ok
+*   33  STA FRETOP  3
+*   36  LDA ZPB+1   2
+*   38  STA FRETOP+1 3
+*   41  LDY ZPB+1   2
+*   43  LDA ZPB     2
+*   45  RTS         1
+*   46  LDA #<msg   2   <- nospace
+*   48  LDY #>msg   2
+*   50  JMP HERR    3
+*--------------------------------------
+EMHALLOC     lda   #$85
+             jsr   EMIT
+             lda   #$1d
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$07
+             jsr   EMSDOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$e5
+             jsr   EMIT
+             lda   #$1d
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$08
+             jsr   EMSDOFS
+             lda   #$e9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   FINPC+1
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$17
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$06
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   FINPC
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$0f
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$07
+             jsr   EMSDOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$08
+             jsr   EMSDOFS
+             lda   #$a4
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$60
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   MOOM
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   MOOM+1
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HERR
+             jsr   EMIT
+             lda   HERR+1
+             jmp   EMIT
+
+*--------------------------------------
+* EMHCHR -- CHR$: one byte, allocated
+*
+* Stored as given and printed with its high bit set, which is what Applesoft
+* does -- CHR$(65) and CHR$(193) both print A there and both print A here.
+*--------------------------------------
+EMHCHR       lda   #$a9
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   HALLOC
+             jsr   EMIT
+             lda   HALLOC+1
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$84
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$8c
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$a1
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHJOIN -- A$ + B$
+*
+* The LEFT side is in SDB and the right in SDA, as with the comparison: every
+* string value is built in SDA, so the left has to move aside before the right
+* is built on top of it.
+*
+* Over 255 characters is ?STRING TOO LONG ERROR, which is what Applesoft says.
+*
+*    0  LDA SDB      3      the two lengths
+*    3  CLC          1
+*    4  ADC SDA      3
+*    7  BCC ok       2   -> 16
+*    9  LDA #<msg    2
+*   11  LDY #>msg    2
+*   13  JMP HERR     3
+*   16  STA JOINLEN  3   <- ok
+*   19  JSR HALLOC   3
+*   22  STA JOINDST  3      keep the base: SDA is still the right operand
+*   25  STA ZPELEM   2      and cannot be written until it is copied
+*   27  STY JOINDST+1 3
+*   30  STY ZPELEM+1 2
+*   32  LDA SDB+1    3      copy the left
+*   35  STA ZPB      2
+*   37  LDA SDB+2    3
+*   40  STA ZPB+1    2
+*   42  LDY #0       2
+*   44  CPY SDB      3   <- l1
+*   47  BCS d1       2   -> 56
+*   49  LDA (ZPB),Y  2
+*   51  STA (ZPELEM),Y 2
+*   53  INY          1
+*   54  BNE l1       2   -> 44
+*   56  TYA          1   <- d1: Y is the left's length exactly
+*   57  CLC          1
+*   58  ADC ZPELEM   2
+*   60  STA ZPELEM   2
+*   62  BCC n1       2   -> 66
+*   64  INC ZPELEM+1 2
+*   66  LDA SDA+1    3   <- n1: copy the right after it
+*   69  STA ZPB      2
+*   71  LDA SDA+2    3
+*   74  STA ZPB+1    2
+*   76  LDY #0       2
+*   78  CPY SDA      3   <- l2
+*   81  BCS d2       2   -> 90
+*   83  LDA (ZPB),Y  2
+*   85  STA (ZPELEM),Y 2
+*   87  INY          1
+*   88  BNE l2       2   -> 78
+*   90  LDA JOINLEN  3   <- d2: and only now the descriptor
+*   93  STA SDA      3
+*   96  LDA JOINDST  3
+*   99  STA SDA+1    3
+*  102  LDA JOINDST+1 3
+*  105  STA SDA+2    3
+*  108  RTS          1
+*--------------------------------------
+EMHJOIN      lda   #$ad
+             jsr   EMIT
+             lda   #$03
+             jsr   EMSDOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$6d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   MLONG
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   MLONG+1
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HERR
+             jsr   EMIT
+             lda   HERR+1
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSDOFS
+             lda   #$20
+             jsr   EMIT
+             lda   HALLOC
+             jsr   EMIT
+             lda   HALLOC+1
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$09
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$8c
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMSDOFS
+             lda   #$84
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$04
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$05
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$cc
+             jsr   EMIT
+             lda   #$03
+             jsr   EMSDOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$f4
+             jsr   EMIT
+             lda   #$98
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$65
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$90
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$e6
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$cc
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$f4
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$09
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHSTR -- STR$: a number as its characters
+*
+* FOUT leaves a zero-terminated string at $0100, which is counted, allocated
+* for and copied. The same routine PRINT uses for a number.
+*
+*    0  JSR FOUT     3
+*    3  LDX #0       2
+*    5  LDA $0100,X  3   <- count
+*    8  BEQ got      2   -> 14
+*   10  INX          1
+*   11  JMP count    3   -> 5
+*   14  TXA          1   <- got
+*   15  STA JOINLEN  3
+*   18  JSR HALLOC   3
+*   21  STA ZPELEM   2
+*   23  STA SDA+1    3
+*   26  STY ZPELEM+1 2
+*   28  STY SDA+2    3
+*   31  LDA JOINLEN  3
+*   34  STA SDA      3
+*   37  LDY #0       2
+*   39  CPY JOINLEN  3   <- copy
+*   42  BCS done     2   -> 52
+*   44  LDA $0100,Y  3
+*   47  STA (ZPELEM),Y 2
+*   49  INY          1
+*   50  BNE copy     2   -> 39
+*   52  RTS          1
+*--------------------------------------
+EMHSTR       lda   #$20
+             jsr   EMIT
+             lda   #$34
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$a2
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$bd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$04
+             jsr   EMIT
+             lda   #$e8
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HSTR
+             clc
+             adc   #$05
+             sta   TMPP
+             lda   HSTR+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$8a
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSDOFS
+             lda   #$20
+             jsr   EMIT
+             lda   HALLOC
+             jsr   EMIT
+             lda   HALLOC+1
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$84
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$8c
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$cc
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMSDOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$08
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$f3
+             jsr   EMIT
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
 * ARRBLOB -- base + 5 * index, the one piece of runtime a compiled program has
 *
 * Entered with the base in A and Y and the subscript already through AYINT, so
@@ -978,6 +1647,13 @@ GENPASS      lda   #$00
              sta   HRIGHT
              sta   HMID
              sta   HASC
+             sta   HCHR
+             sta   HJOIN
+             sta   HSTR
+             sta   HERR
+             sta   HALLOC
+             sta   MOOM
+             sta   MLONG
              lda   #>CODEORG
              sta   HARR+1
              sta   HSCMP+1
@@ -986,6 +1662,13 @@ GENPASS      lda   #$00
              sta   HRIGHT+1
              sta   HMID+1
              sta   HASC+1
+             sta   HCHR+1
+             sta   HJOIN+1
+             sta   HSTR+1
+             sta   HERR+1
+             sta   HALLOC+1
+             sta   MOOM+1
+             sta   MLONG+1
 :keep
 
              jsr   REWIND
@@ -1052,8 +1735,28 @@ GENPASS      lda   #$00
              jsr   EMIT
              jmp   :temps
 
+*--- The heap runs down from the top of free memory, read at run time rather
+*    than assumed: MEMSIZ at $73 is $9600 under BASIC.SYSTEM with one file
+*    buffer, and a compiled program leaves it alone. Read off the machine.
+:prologue    lda   #$a5             ; LDA $73
+             jsr   EMIT
+             lda   #$73
+             jsr   EMIT
+             lda   #$8d             ; STA FRETOP
+             jsr   EMIT
+             lda   #$07
+             jsr   EMSDOFS
+             lda   #$a5             ; LDA $74
+             jsr   EMIT
+             lda   #$74
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$08
+             jsr   EMSDOFS
+
 *--- remember where the stack was, so END can unwind a GOSUB
-:prologue    lda   #$ba             ; TSX
+             lda   #$ba             ; TSX
              jsr   EMIT
              lda   #$8e             ; STX abs
              jsr   EMIT
@@ -1149,6 +1852,55 @@ GENPASS      lda   #$00
              lda   PC+1
              sta   HASC+1
              jsr   EMHASC
+
+*--- The heap's own, in an order where each one's address is already known by
+*    the time the next refers to it: the message, then the error exit, then
+*    the allocator, then what uses it.
+             lda   PC
+             sta   MOOM
+             lda   PC+1
+             sta   MOOM+1
+             lda   #<MSGOOM
+             ldy   #>MSGOOM
+             jsr   EMMSG
+
+             lda   PC
+             sta   MLONG
+             lda   PC+1
+             sta   MLONG+1
+             lda   #<MSGLONG
+             ldy   #>MSGLONG
+             jsr   EMMSG
+
+             lda   PC
+             sta   HERR
+             lda   PC+1
+             sta   HERR+1
+             jsr   EMHERR
+
+             lda   PC
+             sta   HALLOC
+             lda   PC+1
+             sta   HALLOC+1
+             jsr   EMHALLOC
+
+             lda   PC
+             sta   HCHR
+             lda   PC+1
+             sta   HCHR+1
+             jsr   EMHCHR
+
+             lda   PC
+             sta   HJOIN
+             lda   PC+1
+             sta   HJOIN+1
+             jsr   EMHJOIN
+
+             lda   PC
+             sta   HSTR
+             lda   PC+1
+             sta   HSTR+1
+             jsr   EMHSTR
 
              lda   PC               ; where the program really ends
              sta   FINPC
@@ -1358,7 +2110,7 @@ GLETSTR      jsr   SVFIND
              bne   :bad
              lda   #$00
              sta   ISSTR
-             jsr   EPRIM
+             jsr   ESUM             ; a whole string expression, joins and all
              bcs   :bad
              lda   ISSTR
              beq   :notstr
@@ -1376,20 +2128,9 @@ GLETSTR      jsr   SVFIND
              sta   DSTA+1
              jsr   EMSDESC
 
-*--- THE STATEMENT SHOULD BE OVER. One string primary is all this can take,
-*    so A$ = B$ + C$ leaves a + sitting there for the statement loop to find
-*    -- which then reported 'STATEMENT NOT YET' about a plus sign. Naming the
-*    thing that is actually missing is the whole reason these messages exist.
-             jsr   PEEK
-             bcs   :done
-             cmp   #TPLUS
-             beq   :join
-:done        clc
-             rts
-
-:join        lda   #$1b             ; NO STRING JOIN YET
-             jsr   SETBAD
-             sec
+*--- ESUM has consumed any joins, so the statement really should be over
+*    here; what used to complain about a trailing + now compiles it.
+             clc
              rts
 
 :notstr      lda   #$1c             ; STRING AGAINST NUMBER
@@ -2573,7 +3314,7 @@ SCMPC        jsr   PEEK
 
              lda   #$00
              sta   ISSTR
-             jsr   EPRIM
+             jsr   ESUM             ; so that A$ = B$ + C$ compares too
              bcs   :drop
              lda   ISSTR
              beq   :mixed           ; a string against a number
@@ -2804,13 +3545,47 @@ ESUM         jsr   ETERM
              rts                    ; the operator loop below
 :ok          lda   ISSTR
              beq   :loop
-             jsr   PEEK             ; A$ + B$ is joining, which needs a heap
+
+*--- A string, and the only operator it takes is +.
+*
+*    THE LEFT SIDE MOVES ASIDE FIRST. Every string value is built in SDA, so
+*    parsing the right would build it on top of the left; SDB is where the
+*    join helper looks for the left, as the comparison helper does.
+:sjoin       jsr   PEEK
              bcs   :sdone
              cmp   #TPLUS
              bne   :sdone
-             lda   #$1b             ; NO STRING JOIN YET
+             jsr   NEXTB
+
+             jsr   SDAADDR
+             lda   TMPP
+             sta   SRCA
+             lda   TMPP+1
+             sta   SRCA+1
+             jsr   SDBADDR
+             jsr   SDSET
+             jsr   EMSDESC
+
+             lda   #$00
+             sta   ISSTR
+             jsr   EPRIM
+             bcs   :sfail
+             lda   ISSTR
+             beq   :smix
+
+             lda   #$20
+             jsr   EMIT
+             lda   HJOIN
+             jsr   EMIT
+             lda   HJOIN+1
+             jsr   EMIT
+             lda   #$01
+             sta   ISSTR
+             jmp   :sjoin
+
+:smix        lda   #$1c             ; STRING AGAINST NUMBER
              jsr   SETBAD
-             sec
+:sfail       sec
              rts
 :sdone       clc
              rts
@@ -2987,6 +3762,10 @@ EPRIM        lda   #$00
              beq   :lenj            ; one of the eleven
              cmp   #TASC
              beq   :ascj
+             cmp   #TCHR
+             beq   :chrj
+             cmp   #TSTR
+             beq   :strj
              cmp   #TLEFT
              beq   :slicej
              cmp   #TRIGHT
@@ -3018,6 +3797,8 @@ EPRIM        lda   #$00
 :varj        jmp   :var
 :lenj        jmp   FLEN
 :ascj        jmp   FASC
+:chrj        jmp   FCHR
+:strj        jmp   FSTR
 :slicej      jmp   FSLICE
 
 :paren       jsr   EXPR
@@ -3182,6 +3963,64 @@ FLEN         jsr   SOPEN
              jsr   EMIT
              lda   #>GIVAYF
              jsr   EMIT
+             lda   #$00
+             sta   PENDOK
+             clc
+             rts
+:no          sec
+             rts
+
+*--- CHR$: a number in, a string out, and the first thing here that has to
+*    MAKE one.
+FCHR         jsr   NEXTB
+             bcs   :no
+             cmp   #'('
+             bne   :no
+             lda   #$00
+             sta   ISSTR
+             jsr   NEXPR
+             bcs   :no
+             jsr   NEXTB
+             bcs   :no
+             cmp   #')'
+             bne   :no
+             jsr   EMAYINT
+             lda   #$20
+             jsr   EMIT
+             lda   HCHR
+             jsr   EMIT
+             lda   HCHR+1
+             jsr   EMIT
+             lda   #$01
+             sta   ISSTR
+             lda   #$00
+             sta   PENDOK
+             clc
+             rts
+:no          sec
+             rts
+
+*--- STR$: a number in, its characters out.
+FSTR         jsr   NEXTB
+             bcs   :no
+             cmp   #'('
+             bne   :no
+             lda   #$00
+             sta   ISSTR
+             jsr   NEXPR
+             bcs   :no
+             jsr   NEXTB
+             bcs   :no
+             cmp   #')'
+             bne   :no
+             lda   #$20
+             jsr   EMIT
+             lda   HSTR
+             jsr   EMIT
+             lda   HSTR+1
+             jsr   EMIT
+             lda   #$01
+             sta   ISSTR
              lda   #$00
              sta   PENDOK
              clc
@@ -3386,13 +4225,15 @@ DEFER        lda   TMPP
 *--------------------------------------
 * SOPEN -- the ( and the string argument after it, into SDA
 *--------------------------------------
+*--- ESUM, not EPRIM: LEFT$(A$ + B$, 2) should work, and joining lives in
+*    ESUM's string path.
 SOPEN        jsr   NEXTB
              bcs   :no
              cmp   #'('
              bne   :no
              lda   #$00
              sta   ISSTR
-             jsr   EPRIM
+             jsr   ESUM
              bcs   :no
              lda   ISSTR
              beq   :notstr
@@ -4071,9 +4912,11 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              adc   #$00
              sta   SDESCA+1
 
-             lda   SDESCA           ; the string variables past the two of
-             clc                     ; them, and MID$'s start after that
-             adc   #$07
+*--- The scratch the string runtime works in: two descriptors, MID$'s start,
+*    the heap pointer, and a place for a join to keep its destination.
+             lda   SDESCA
+             clc
+             adc   #$0c
              sta   SVBASE
              sta   TMPP
              lda   SDESCA+1
@@ -4218,6 +5061,13 @@ HLEFT        ds    2
 HRIGHT       ds    2
 HMID         ds    2
 HASC         ds    2
+HCHR         ds    2
+HJOIN        ds    2
+HSTR         ds    2
+HERR         ds    2
+HALLOC       ds    2
+MOOM         ds    2                ; where the two messages landed
+MLONG        ds    2
 SLICEF       ds    1                ; which of the three is being compiled
 ISSTR        ds    1                ; the value just parsed is a string
 DSTA         ds    2                ; where EMSDESC is to copy to
