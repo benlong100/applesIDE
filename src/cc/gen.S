@@ -64,7 +64,9 @@ FDEPTH       equ   8                ; nested FOR loops
 *    13 how many descriptors are left to look at, 14-15 which part of a
 *    string a slice wants, 16-17 a POKE's address across its value,
 *    18-19 how far through the DATA a READ has got.
-SCRASZ       equ   28               ; $1a/$1b: an array element being assigned to               ; $14-$17 the input line and its split,
+SCRASZ       equ   36               ; $1a/$1b an array element being assigned
+*                                     to, $1c-$23 the running subscript and
+*                                     the multiply a comma in one needs               ; $14-$17 the input line and its split,
 *                                     $18/$19 an item on its way to the heap
 
 TFORK        equ   $81
@@ -3570,6 +3572,9 @@ NEED         ora   USES
              sta   USES
              rts
 
+NEED3        ora   USES3
+             sta   USES3
+             rts
 NEED2        ora   USES2
              sta   USES2
              rts
@@ -3665,6 +3670,7 @@ GENPASS      lda   #$00
              sta   FORN
              sta   USES
              sta   USES2
+             sta   USES3
              sta   FSTKTOP
              sta   PENDOK
              sta   OUTLEN
@@ -3711,6 +3717,7 @@ GENPASS      lda   #$00
              sta   MEXTRA
              sta   HICOPY
              sta   HSARR
+             sta   HMUL
              sta   MOOM
              sta   MLONG
              lda   #>CODEORG
@@ -3745,6 +3752,7 @@ GENPASS      lda   #$00
              sta   MEXTRA+1
              sta   HICOPY+1
              sta   HSARR+1
+             sta   HMUL+1
              sta   MOOM+1
              sta   MLONG+1
 :keep
@@ -3928,7 +3936,15 @@ GENPASS      lda   #$00
              cmp   #HELPSZ
              bcc   :hb
 :noarr
-             lda   USES2
+             lda   USES3
+             and   #$01
+             beq   :nomul
+             lda   PC
+             sta   HMUL
+             lda   PC+1
+             sta   HMUL+1
+             jsr   EMHMUL
+:nomul       lda   USES2
              and   #$80
              beq   :nosarr
              lda   PC
@@ -5189,6 +5205,86 @@ EMIVAL       lda   #$20
              lda   INPPC
              jsr   EMIT
              lda   INPPC+1
+             jmp   EMIT
+
+*--------------------------------------
+* EMHMUL -- MR = MA * MB, in the compiled program
+*
+* Shift and add. A subscript with a comma in it needs the extents
+* multiplied at run time; one with a single subscript never calls this,
+* and a program without a multi-dimensional array never carries it.
+*
+*   47 bytes
+*--------------------------------------
+EMHMUL       lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$22
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$23
+             jsr   EMSCOFS
+             lda   #$a2
+             jsr   EMIT
+             lda   #$10
+             jsr   EMIT
+             lda   #$4e
+             jsr   EMIT
+             lda   #$21
+             jsr   EMSCOFS
+             lda   #$6e
+             jsr   EMIT
+             lda   #$20
+             jsr   EMSCOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$13
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$22
+             jsr   EMSCOFS
+             lda   #$6d
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$22
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$23
+             jsr   EMSCOFS
+             lda   #$6d
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$23
+             jsr   EMSCOFS
+             lda   #$0e
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMSCOFS
+             lda   #$2e
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMSCOFS
+             lda   #$ca
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$dc
+             jsr   EMIT
+             lda   #$60
              jmp   EMIT
 
 *--------------------------------------
@@ -7879,6 +7975,8 @@ EMSUBS       lda   VARI
              bcs   :drop
              jsr   NEXTB
              bcs   :drop
+             cmp   #$2c
+             beq   :multij          ; a comma: there are more to come
              cmp   #')'
              bne   :dropbad
 
@@ -7911,12 +8009,228 @@ EMSUBS       lda   VARI
              clc
              rts
 
+:multij      jmp   :multi
 :dropbad     pla
              lda   #$0c
              jsr   SETBAD
              sec
              rts
 :drop        pla
+             sec
+             rts
+
+*--------------------------------------
+*    SEVERAL SUBSCRIPTS. The index is built up as
+*
+*        i1, then (idx * extent-of-k) + ik for each one after
+*
+*    which is the mixed-radix sum, and the extents come from the DIM. The
+*    multiplying is done by the compiled program because the subscripts are
+*    only known when it runs; the extents are known here.
+*
+*    A PROGRAM MUST HAVE SAID DIM A(3,4) BEFORE WRITING A(I,J). A bare use
+*    gives an array eleven elements and one dimension, and pass 1 cannot count
+*    the commas from the use -- what is inside the bracket is scanned as
+*    ordinary code. So a subscript with more commas than the DIM allowed is
+*    refused by name rather than folded into one dimension.
+:multi       pla                    ; which array, kept where EMDIMX can see it
+             sta   MULARR
+             pha
+             lda   #$01
+             jsr   NEED3            ; this program wants the multiply
+             lda   #$01
+             sta   DIMN
+
+             lda   #$20             ; JSR AYINT
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+             lda   #$a5             ; the running index starts as the first one
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$1d
+             jsr   EMSCOFS
+
+:more        jsr   EMDIMX           ; DEXT = the extent of dimension DIMN
+             bcs   :dropbad
+             lda   #$ad             ; idx into the multiply's left side
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$1d
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMSCOFS
+             lda   #$a9             ; and the extent into its right
+             jsr   EMIT
+             lda   DEXT
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$20
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   DEXT+1
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$21
+             jsr   EMSCOFS
+             lda   #$20
+             jsr   EMIT
+             lda   HMUL
+             jsr   EMIT
+             lda   HMUL+1
+             jsr   EMIT
+
+             lda   DIMN             ; an inner subscript may be an array too
+             pha
+             lda   MULARR
+             pha
+             jsr   NEXPR            ; the subscript for this dimension
+             bcc   :inner
+             pla
+             pla
+             jmp   :drop
+:inner       pla
+             sta   MULARR
+             pla
+             sta   DIMN
+             lda   #$20
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+             lda   #$18             ; idx = product + this one
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$22
+             jsr   EMSCOFS
+             lda   #$65
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$23
+             jsr   EMSCOFS
+             lda   #$65
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$1d
+             jsr   EMSCOFS
+
+             inc   DIMN
+             jsr   NEXTB
+             bcs   :dropn
+             cmp   #$2c
+             beq   :moren
+             cmp   #')'
+             beq   :allsubs
+             jmp   :dropbad         ; the shared exits are a long way back
+:moren       jmp   :more            ; and so is the top of this loop
+:dropn       jmp   :drop
+:allsubs
+
+*--- and the finished index goes where a single one would have left it
+             lda   #$ad
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$1d
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+
+             pla
+             sta   TMPA
+             jsr   AADDR
+             lda   #$a9
+             jsr   EMIT
+             lda   TMPP
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+             lda   #$01
+             jsr   NEED
+             lda   #$20
+             jsr   EMIT
+             lda   HARR
+             jsr   EMIT
+             lda   HARR+1
+             jsr   EMIT
+             clc
+             rts
+
+*--------------------------------------
+* EMDIMX -- DEXT <- the extent of dimension DIMN of the array on the stack
+*
+* Carry set if the program never said DIM for that many, which is the one
+* thing that cannot be compiled: the size was fixed before the subscript was
+* read, and guessing here would write outside it.
+*--------------------------------------
+EMDIMX       lda   MULARR
+             sta   TMPA
+             jsr   DIMSLOT
+             ldy   #$00
+             lda   (TMPP),y         ; how many dimensions it was given
+             cmp   DIMN
+             bcc   :nodim
+             beq   :nodim           ; this one is past the last of them
+             lda   DIMN             ; entry 1 + 2*DIMN is the next extent
+             asl
+             tay
+             iny
+             lda   (TMPP),y
+             sta   DEXT
+             iny
+             lda   (TMPP),y
+             sta   DEXT+1
+             clc
+             rts
+:nodim       lda   #$15             ; that many were never declared
+             jsr   SETBAD
              sec
              rts
 
@@ -8629,7 +8943,7 @@ PUTBACK      lda   CH
              sta   PBFLAG
              rts
 
-             dum   $14b0            ; pass 1's block has grown to $14a0
+             dum   $14d0            ; pass 1's block below keeps growing
 PASSNO       ds    1
 PC           ds    2                ; where the next emitted byte will live
 ENDPC        ds    2
@@ -8672,6 +8986,11 @@ ACOUNT       ds    2                ; one array's element count
 TMPA2        ds    1
 SAI          ds    1                ; SASUM's own index
 SDI          ds    1                ; and the descriptor byte being emitted
+HMUL         ds    2                ; the runtime multiply, if the program has
+USES3        ds    1                ; a subscript with a comma in it
+DIMN         ds    1                ; how many subscripts one has been given
+DEXT         ds    2                ; and the extent being multiplied in
+MULARR       ds    1                ; which array the subscripts belong to
 HSARR        ds    2                ; the three-byte address helper
 HARR         ds    2                ; where the address helper landed
 FINPC        ds    2                ; and the end of the whole thing

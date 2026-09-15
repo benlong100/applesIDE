@@ -1151,3 +1151,47 @@ scope bug and early here, and the difference was six emulator runs.
 store what it read before pushing it back, which is what `EPRIM` does a few
 lines away and what both new ones failed to do — so they handed back the `$`
 that `GETNAME` had left there, and the `=` after it was never seen.
+
+## Arrays of more than one dimension
+
+`DIM A(3,4)` is four by five, twenty elements, up to three dimensions. The
+index is the mixed-radix sum — `i1`, then `idx * extent-of-k + ik` for each
+one after — with the multiplying done by the compiled program, because the
+subscripts are only known when it runs, and the extents worked out here,
+because they are known when it compiles.
+
+**The element order need not be Applesoft's**, which is what kept this small.
+The compiled program is the only reader of its own arrays; nothing outside it
+ever sees the layout. So the only thing that has to hold is that `A(1,2)`
+reads what `A(1,2)` wrote, and that let the whole question of Applesoft's
+internal ordering go unasked.
+
+**A multi-dimensional use must follow its DIM.** A bare use gives an array
+eleven elements in one dimension, and pass 1 cannot count the commas from the
+use — what is inside the bracket is scanned as ordinary code, not parsed. So a
+subscript with more commas than the `DIM` declared is refused by name rather
+than folded into one dimension and written outside the array.
+
+`A(I,B(J))` works: the inner subscript runs the same routine again, so the
+dimension counter and which-array are kept across the expression.
+
+### Absolute opcodes with a one-byte operand
+
+The compiled program printed nothing at all — not even the `PRINT` on a line
+that had no array in it. The disassembly said why in one instruction:
+
+    61AC: 6D A1 8D   ADC $8DA1
+
+`FACLO` and `FACHI` are `$A1` and `$A0`: **zero page**. Emitting `$6D` — `ADC`
+absolute — with a single operand byte made each of those instructions swallow
+the byte after it, and from there the whole stream ran together into
+something that returned to BASIC without doing anything.
+
+Six of them, all mine, all in the new code. The fix is the zero-page opcode:
+`$A5`, `$85`, `$65`.
+
+**And the fix nearly went in incomplete.** A pattern that repaired five of the
+six skipped the one with a trailing comment after the opcode — the same shape
+that once made `dumcheck.py` miss an equate with a comment on it. Counting the
+opcodes afterwards is what caught it, which is the habit worth keeping: after
+a mechanical edit, count what changed rather than trusting that it all did.

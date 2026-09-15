@@ -378,47 +378,112 @@ SCANBODY     lda   #$00
 * not a spare one added for safety. A DIM anywhere in the program replaces the
 * eleven a bare use would have given it.
 *
-* One dimension. DIM A(3,4) is refused rather than compiled as though the
-* second number were not there.
+* Up to three dimensions. DIM A(3,4) is four by five; more than three is
+* refused by name rather than compiled as though the extra were not there.
 *--------------------------------------
-:dim         jsr   RDBYTE
-             bcs   :dimeofj
+:dim         jmp   :dstart
+:deof2       jmp   :dimeof          ; the shared exits are past the whole block
+:dbad2       jmp   :dimbad
+:dstrn       jmp   :dimstr          ; and so is the string-array case
+:dstart      jsr   RDBYTE
+             bcs   :deof2
              sta   CH
              jsr   ISALNUM
-             bcs   :dimbadj
+             bcs   :dbad2
              jsr   RDNAME           ; leaves what ended it in CH
-             bcs   :dimeofj
+             bcs   :deof2
              lda   CH
              cmp   #'$'             ; DIM A$(5): a string array, and saying
-             beq   :dimstr          ; 'one dimension only' about it was no
+             beq   :dstrn           ; 'one dimension only' about it was no
              cmp   #'('             ; help at all
-             bne   :dimbadj
+             bne   :dbad2
 
-             jsr   RDSIZE           ; the number inside the bracket
-             bcs   :dimeofj
-             lda   CH
-             cmp   #')'
-             bne   :dimbadj
+*--- ONE DIMENSION OR SEVERAL. DIM A(3,4) is four by five, twenty elements,
+*    and the only thing the compiled program has to agree with is itself: it
+*    is the only reader of its own arrays, so the order they sit in need not
+*    be Applesoft's. What must match is that A(1,2) reads what A(1,2) wrote.
+             lda   #$00
+             sta   NDIMS
+             lda   #$01             ; the product so far
+             sta   DTOT
+             lda   #$00
+             sta   DTOT+1
 
+:dnext       jsr   RDSIZE
+             bcs   :deof2
              inc   WORD             ; DIM A(20) holds twenty-one
-             bne   :dimset
+             bne   :dok
              inc   WORD+1
-:dimset      lda   WORD
-             sta   ASIZE
+:dok         ldx   NDIMS
+             cpx   #MAXDIM
+             bcs   :dimdeep
+             txa
+             asl
+             tax
+             lda   WORD
+             sta   DIMS,x
              lda   WORD+1
+             sta   DIMS+1,x
+             inc   NDIMS
+
+             lda   DTOT             ; the total is the product of the extents
+             sta   MA
+             lda   DTOT+1
+             sta   MA+1
+             lda   WORD
+             sta   MB
+             lda   WORD+1
+             sta   MB+1
+             jsr   MUL16
+             lda   MR
+             sta   DTOT
+             lda   MR+1
+             sta   DTOT+1
+
+             lda   CH
+             cmp   #$2c
+             beq   :dnext
+             cmp   #')'
+             beq   :dend
+             jmp   :dimbad          ; a jump rather than a branch: the end of
+:dend                               ; the loop is a long way from the top now
+
+             lda   DTOT
+             sta   ASIZE
+             lda   DTOT+1
              sta   ASIZE+1
              lda   #$01
              sta   ADIM
              jsr   ARRADD
+             lda   BADFLG
+             bne   :dimeofj2
+             jsr   DIMSLOT          ; ARRADD leaves the index in TMPA
+             ldy   #$00
+             lda   NDIMS
+             sta   (TMPP),y
+             ldx   #$00
+:dcopy       iny
+             lda   DIMS,x
+             sta   (TMPP),y
+             inx
+             cpx   #MAXDIM*2
+             bcc   :dcopy
+             jmp   :dimmore
+:dimeofj2    jmp   :dimdone
+:dimdeep     lda   #$15             ; ONE DIMENSION ONLY -> too many of them
+             jsr   SETBAD
+             jmp   :dimdone
+:dimmore
 
              jsr   RDBYTE           ; DIM A(5),B(6) -- another may follow
              bcs   :dimdone
              sta   CH
              cmp   #$2c
-             beq   :dim
+             beq   :dimagain
              jmp   :redo
 
 *--- near exits: the real ones are past the string block now
+:dimagain    jmp   :dim
 :dimbadj     jmp   :dimbad
 :dimeofj     jmp   :dimeof
 :dimdone     clc
@@ -940,6 +1005,41 @@ SARRADD      lda   #$00
              lda   ASIZE+1
              sta   (TMPP),y
 :done        rts
+
+*--- TMPP <- DIMTAB + 7 * TMPA: how many dimensions array TMPA has, and the
+*    extent of each. Only consulted when a subscript has a comma in it.
+DIMSLOT      lda   #<DIMTAB
+             sta   SLOTB
+             lda   #>DIMTAB
+             sta   SLOTB+1
+             lda   #$07
+             jmp   SLOTN
+
+*--------------------------------------
+* MUL16 -- MR = MA * MB, at compile time
+*
+* Shift and add, sixteen times round. The product of the extents is worked out
+* here rather than by the compiled program, which only ever sees the total.
+*--------------------------------------
+MUL16        lda   #$00
+             sta   MR
+             sta   MR+1
+             ldx   #$10
+:loop        lsr   MB+1
+             ror   MB
+             bcc   :skip
+             lda   MR
+             clc
+             adc   MA
+             sta   MR
+             lda   MR+1
+             adc   MA+1
+             sta   MR+1
+:skip        asl   MA
+             rol   MA+1
+             dex
+             bne   :loop
+             rts
 
 *--- TMPP <- SATAB + 4 * TMPA
 SASLOT       lda   #<SATAB
@@ -1660,6 +1760,7 @@ NUMMAX       equ   24
 VMAX         equ   128
 AMAX         equ   32
 SAMAX        equ   16
+MAXDIM       equ   3
 DFMAX        equ   16
 SVMAX        equ   64
 DBUFMAX      equ   2048
@@ -1712,6 +1813,12 @@ NDATA        ds    2                ; how many items there are
 FDATA        ds    1                ; and whether the program uses them at all
 NDEFS        ds    1                ; how many DEF FN there are
 NSARR        ds    1                ; and how many arrays of strings
+NDIMS        ds    1                ; how many a DIM being read has
+DIMS         ds    MAXDIM*2         ; and the extent of each
+DTOT         ds    2                ; their product
+MA           ds    2                ; MUL16's two sides and its answer
+MB           ds    2
+MR           ds    2
 FNBASE       ds    2                ; where their saved parameters live
 ASIZE        ds    2                ; elements, while one is being recorded
 ADIM         ds    1                ; ...said by a DIM rather than guessed
@@ -1730,4 +1837,5 @@ CTAB         ds    CMAX*5
 LTAB         ds    LTMAX*4
 DFTAB        ds    DFMAX*7
 SATAB        ds    SAMAX*4
+DIMTAB       ds    AMAX*7
              dend
