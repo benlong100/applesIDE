@@ -133,7 +133,8 @@ HGRROM       equ   $f3e2            ; page one, mixed, cleared
 HCOLBYTE     equ   $e4              ; where HCOLOR= puts the mask...
 HPLOTCOL     equ   $30              ; ...and where the plotting reads it
 HPOSN        equ   $f411            ; row in A, column in X and Y
-HPLOT0       equ   $f457            ; and plot where HPOSN left it
+HPLOT0       equ   $f457            ; position and plot, HPOSN included
+HLINEROM     equ   $f53a            ; a line TO there from where it is
 V2           equ   $2d
 TFNK         equ   $c2
 TPOKE        equ   $b9
@@ -5709,8 +5710,24 @@ GHCOLOR      jsr   EMCOORD
 :bad         sec
              rts
 
-GHPLOT       jsr   NEXPR            ; the column, both halves of it
-             bcs   :bad
+*--- HPLOT x,y  /  HPLOT x,y TO x,y TO x,y  /  HPLOT TO x,y
+*
+*    THE LINE ROUTINE TAKES ITS REGISTERS THE OTHER WAY ROUND from HPOSN,
+*    which is not a thing to guess at: HPOSN reads the row from A and the
+*    column from X and Y, and $F53A reads the column from A and X and the row
+*    from Y. Peeked out of the ROM and disassembled -- it begins by
+*    subtracting $E0 and $E1, the position HPOSN last stored.
+GHPLOT
+             jmp   :start
+:badj        jmp   :bad             ; the exits are past the whole of the loop
+:herej       jmp   :fromhere
+:badsynj     jmp   :badsyn
+:start       jsr   PEEK
+             bcs   :badj
+             cmp   #TTO
+             beq   :herej           ; carry on from wherever the last one left
+             jsr   NEXPR            ; the column, both halves of it
+             bcs   :badj
              lda   #$20
              jsr   EMIT
              lda   #<AYINT
@@ -5735,11 +5752,11 @@ GHPLOT       jsr   NEXPR            ; the column, both halves of it
              jsr   EMSCOFS
 
              jsr   NEXTB
-             bcs   :bad
+             bcs   :badj
              cmp   #$2c
-             bne   :badsyn
+             bne   :badsynj
              jsr   EMCOORD          ; the row, left in A
-             bcs   :bad
+             bcs   :badj
              lda   #$ae             ; LDX the column's low half
              jsr   EMIT
              lda   #$24
@@ -5754,7 +5771,62 @@ GHPLOT       jsr   NEXPR            ; the column, both halves of it
              jsr   EMIT
              lda   #>HPLOT0
              jsr   EMIT
-             clc
+
+*--- and then any number of TO pairs, each a line from where the last ended
+:fromhere
+:toloop      jsr   PEEK
+             bcs   :done
+             cmp   #TTO
+             bne   :done
+             jsr   NEXTB            ; the TO itself
+             jsr   NEXPR            ; the column it goes to
+             bcs   :bad
+             lda   #$20
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$25
+             jsr   EMSCOFS
+             jsr   NEXTB
+             bcs   :bad
+             cmp   #$2c
+             bne   :badsyn
+             jsr   EMCOORD          ; and the row, left in A
+             bcs   :bad
+             lda   #$a8             ; TAY -- the row goes in Y for this one
+             jsr   EMIT
+             lda   #$ad             ; and the column into A and X
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             lda   #$ae
+             jsr   EMIT
+             lda   #$25
+             jsr   EMSCOFS
+             lda   #$20
+             jsr   EMIT
+             lda   #<HLINEROM
+             jsr   EMIT
+             lda   #>HLINEROM
+             jsr   EMIT
+             jmp   :toloop
+:done        clc
              rts
 :badsyn      lda   #$0c
              jsr   SETBAD

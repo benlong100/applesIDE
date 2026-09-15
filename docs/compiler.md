@@ -1285,3 +1285,15 @@ The habit this project keeps returning to, pointing the other way for once:
 the remembered ROM addresses looked like the risky part and the emitted code
 like the sure thing, and reading the ROM showed the code was right and the
 model of what those routines *do* was wrong.
+
+### HPLOT ... TO
+
+`HPLOT x,y`, `HPLOT x,y TO x,y TO x,y`, and `HPLOT TO x,y` continuing from
+wherever the last one ended.
+
+**The line routine takes its registers the other way round from HPOSN**, which
+is not something to guess at: `HPOSN` reads the row from A and the column from
+X and Y; `$F53A` reads the column from A and X and the row from Y. Peeked out
+of the ROM and disassembled — it opens by subtracting `$E0` and `$E1`, the
+position `HPOSN` last stored, which is what makes it a line *from where the
+pen is* rather than between two given points.
