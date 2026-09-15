@@ -126,6 +126,14 @@ TAT          equ   $c5
 HLINROM      equ   $f819            ; row in A, from Y to H2
 VLINROM      equ   $f828            ; from A to V2, in column Y
 H2           equ   $2c
+THGR         equ   $91
+THCOLOR      equ   $92
+THPLOT       equ   $93
+HGRROM       equ   $f3e2            ; page one, mixed, cleared
+HCOLBYTE     equ   $e4              ; where HCOLOR= puts the mask...
+HPLOTCOL     equ   $30              ; ...and where the plotting reads it
+HPOSN        equ   $f411            ; row in A, column in X and Y
+HPLOT0       equ   $f457            ; and plot where HPOSN left it
 V2           equ   $2d
 TFNK         equ   $c2
 TPOKE        equ   $b9
@@ -3607,6 +3615,10 @@ NEED2        ora   USES2
 
 UHEAP        equ   $78              ; $08+$10+$20+$40: the ones that allocate
 
+*--- black, green, violet, white, and the four with the high bit set that
+*    shift the pixels half a dot across
+HCMASKS      dfb   $00,$2a,$55,$7f,$80,$aa,$d5,$ff
+
 *--------------------------------------
 * ARRBLOB -- base + 5 * index, the one piece of runtime a compiled program has
 *
@@ -3744,6 +3756,7 @@ GENPASS      lda   #$00
              sta   HICOPY
              sta   HSARR
              sta   HMUL
+             sta   HCTAB
              sta   MOOM
              sta   MLONG
              lda   #>CODEORG
@@ -3779,6 +3792,7 @@ GENPASS      lda   #$00
              sta   HICOPY+1
              sta   HSARR+1
              sta   HMUL+1
+             sta   HCTAB+1
              sta   MOOM+1
              sta   MLONG+1
 :keep
@@ -3963,6 +3977,22 @@ GENPASS      lda   #$00
              bcc   :hb
 :noarr
              lda   USES3
+             and   #$02
+             beq   :nohct
+             lda   PC
+             sta   HCTAB
+             lda   PC+1
+             sta   HCTAB+1
+             lda   #$00
+             sta   EMI
+:hct         ldx   EMI
+             lda   HCMASKS,x
+             jsr   EMIT
+             inc   EMI
+             lda   EMI
+             cmp   #$08
+             bcc   :hct
+:nohct       lda   USES3
              and   #$01
              beq   :nomul
              lda   PC
@@ -5627,6 +5657,111 @@ EMATV        jsr   NEXTB
              rts
 
 *--------------------------------------
+* HGR, HCOLOR= and HPLOT
+*
+* A HI-RES COLUMN DOES NOT FIT IN A BYTE. It runs to 279, so unlike every
+* coordinate above it this one is wanted whole: AYINT leaves both halves and
+* both are kept, the low in X and the high in Y, which is what HPOSN wants
+* alongside the row in A.
+*--------------------------------------
+GHGR         lda   #<HGRROM
+             ldy   #>HGRROM
+             jmp   EMCALLAY
+
+*--- THE MASK GOES IN TWO PLACES, and finding out why took reading the ROM.
+*
+*    A program that snapshotted the zero page either side of an HCOLOR= showed
+*    $E4 going to $7F for colour 3 -- the white mask -- so that is where
+*    Applesoft keeps it. But the plotting routine at $F457 reads $30:
+*
+*        JSR $F411 : LDA $1C : EOR ($26),Y : AND $30 : EOR ($26),Y
+*        STA ($26),Y : RTS
+*
+*    peeked out of the ROM and disassembled. Setting only $E4 left the plot
+*    drawing in whatever $30 held, which after HGR is zero -- black on a
+*    cleared page, invisible, and a sum of nothing.
+GHCOLOR      jsr   EMCOORD
+             bcs   :bad
+             lda   #$02
+             jsr   NEED3
+             lda   #$29             ; AND #$07
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$aa             ; TAX
+             jsr   EMIT
+             lda   #$bd             ; LDA table,X
+             jsr   EMIT
+             lda   HCTAB
+             jsr   EMIT
+             lda   HCTAB+1
+             jsr   EMIT
+             lda   #$85             ; STA where HCOLOR= keeps it
+             jsr   EMIT
+             lda   #HCOLBYTE
+             jsr   EMIT
+             lda   #$85             ; and where the plotting reads it
+             jsr   EMIT
+             lda   #HPLOTCOL
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+GHPLOT       jsr   NEXPR            ; the column, both halves of it
+             bcs   :bad
+             lda   #$20
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+             lda   #$a5             ; LDA FACLO : STA scratch
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             lda   #$a5             ; LDA FACHI : STA scratch+1
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$25
+             jsr   EMSCOFS
+
+             jsr   NEXTB
+             bcs   :bad
+             cmp   #$2c
+             bne   :badsyn
+             jsr   EMCOORD          ; the row, left in A
+             bcs   :bad
+             lda   #$ae             ; LDX the column's low half
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             lda   #$ac             ; LDY its high half
+             jsr   EMIT
+             lda   #$25
+             jsr   EMSCOFS
+             lda   #$20             ; HPLOT0 calls HPOSN itself -- read out
+             jsr   EMIT             ; of the ROM, not assumed
+             lda   #<HPLOT0
+             jsr   EMIT
+             lda   #>HPLOT0
+             jsr   EMIT
+             clc
+             rts
+:badsyn      lda   #$0c
+             jsr   SETBAD
+:bad         sec
+             rts
+
+*--------------------------------------
 * GSTMT2 -- the statements that did not fit in GENSTMT's list
 *
 * Not a matter of taste: that list's branches reach their targets with little
@@ -5659,6 +5794,12 @@ GSTMT2       lda   CH
              beq   :hlink
              cmp   #TVLIN
              beq   :vlink
+             cmp   #THGR
+             beq   :hgrk
+             cmp   #THCOLOR
+             beq   :hcolk
+             cmp   #THPLOT
+             beq   :hplotk
              lda   #$05             ; STATEMENT NOT YET
              jsr   SETBAD
              sec
@@ -5675,6 +5816,9 @@ GSTMT2       lda   CH
 :plotk       jmp   GPLOT
 :hlink       jmp   GHLIN
 :vlink       jmp   GVLIN
+:hgrk        jmp   GHGR
+:hcolk       jmp   GHCOLOR
+:hplotk      jmp   GHPLOT
 
 *--------------------------------------
 * VTAB and HTAB, and the switches that take no argument
@@ -9320,6 +9464,7 @@ ACOUNT       ds    2                ; one array's element count
 TMPA2        ds    1
 SAI          ds    1                ; SASUM's own index
 SDI          ds    1                ; and the descriptor byte being emitted
+HCTAB        ds    2                ; where the eight colour masks landed
 HMUL         ds    2                ; the runtime multiply, if the program has
 USES3        ds    1                ; a subscript with a comma in it
 DIMN         ds    1                ; how many subscripts one has been given

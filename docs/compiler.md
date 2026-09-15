@@ -1250,3 +1250,38 @@ statement can draw to and no byte it cannot.
 
 Both times the real signal was already visible: the individually sampled bytes
 agreed, and only the totals that included non-drawing memory did not.
+
+## High-resolution graphics
+
+`HGR`, `HCOLOR=`, `HPLOT`. A hi-res column runs to 279 and so does not fit in
+a byte: unlike every coordinate above it, both halves of the integer are kept
+and handed to `HPOSN` as the low in X and the high in Y, with the row in A.
+
+### Reading the ROM rather than remembering it
+
+The first two attempts drew nothing at all — a sum of zero over a page the
+`HGR` had plainly cleared, which is what plotting in black looks like.
+
+`HCOLOR=` was established the usual way, by asking the machine: a program that
+snapshotted the zero page either side of one showed `$E4` going to `$7F` for
+colour 3, the white mask. So the compiled program carries the eight masks and
+sets the byte itself, rather than calling a ROM entry whose address could not
+be confirmed.
+
+That was right and still drew nothing, because **the plotting routine reads a
+different byte**. `PEEK` reaches ROM where the emulator's own memory dump does
+not, so the bytes at `$F457` came back and disassembled to:
+
+    JSR $F411 : LDA $1C : EOR ($26),Y : AND $30 : EOR ($26),Y : STA ($26),Y : RTS
+
+The colour comes from `$30`, not `$E4`. Setting only `$E4` left every point
+drawn in whatever `$30` held, which after `HGR` is zero. The mask goes to both
+now.
+
+The same four lines showed the other thing: **`$F457` calls `HPOSN` itself**.
+Every point was being positioned twice, which was harmless only by luck.
+
+The habit this project keeps returning to, pointing the other way for once:
+the remembered ROM addresses looked like the risky part and the emitted code
+like the sure thing, and reading the ROM showed the code was right and the
+model of what those routines *do* was wrong.
