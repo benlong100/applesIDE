@@ -198,17 +198,32 @@ eject:
 # refuses to hand back an image whose SYS file does not match the binary; this
 # is the same check one step further along, against what actually landed on
 # the card.
+#
+# BOTH PROGRAMS ARE CHECKED. It used to verify the editor alone, and said
+# "verified" having looked at half the card -- which reads as a statement
+# about the card. The compiler cannot go stale the way the test disk's did,
+# since dist builds a fresh image every time, but a check that covers one of
+# two files should not be reported as though it covered the card.
+#
+# Both are reported before the target fails, so a bad card names everything
+# wrong with it in one go rather than one thing per run.
 card: dist
 	@$(TOOLS)/tocard.sh "$(or $(VOL),$(error set VOL to the card's volume name, e.g. make card VOL='NO NAME'))" $(DISTIMG)
-	@$(AC) -g "/Volumes/$(VOL)/$(notdir $(DISTIMG))" $(NAME) > $(BUILD)/.cardcheck 2>/dev/null; \
-	 if cmp -s $(BUILD)/.cardcheck $(BIN); then \
-	   echo "verified: $(NAME) on the card is the one in $(BUILD)"; \
-	 else \
-	   echo "ERROR: the card's $(NAME) is NOT the current build" >&2; \
-	   echo "  card:  $$(stat -f%z $(BUILD)/.cardcheck 2>/dev/null || echo absent) bytes" >&2; \
-	   echo "  build: $$(stat -f%z $(BIN)) bytes" >&2; \
-	   exit 1; \
-	 fi
+	@ok=1; \
+	 for pair in "$(NAME):$(BIN)" "ASIDECC.SYSTEM:$(CCBIN)"; do \
+	   f=$${pair%%:*}; b=$${pair#*:}; \
+	   $(AC) -g "/Volumes/$(VOL)/$(notdir $(DISTIMG))" $$f > $(BUILD)/.cardcheck 2>/dev/null; \
+	   if cmp -s $(BUILD)/.cardcheck $$b; then \
+	     echo "verified: $$f on the card is the one in $(BUILD)"; \
+	   else \
+	     echo "ERROR: the card's $$f is NOT the current build" >&2; \
+	     echo "  card:  $$(stat -f%z $(BUILD)/.cardcheck 2>/dev/null || echo absent) bytes" >&2; \
+	     echo "  build: $$(stat -f%z $$b) bytes" >&2; \
+	     ok=0; \
+	   fi; \
+	 done; \
+	 rm -f $(BUILD)/.cardcheck; \
+	 [ $$ok = 1 ]
 
 tools:
 	@$(TOOLS)/bootstrap.sh
