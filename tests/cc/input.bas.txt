@@ -1,0 +1,9 @@
+10 INPUT A
+20 PRINT "[";A;"]"
+30 INPUT "PR";B$
+40 PRINT "[";B$;"]"
+50 INPUT C,D
+60 PRINT "[";C;"][";D;"]"
+70 INPUT E$
+80 PRINT "[";E$;"]"
+90 PRINT "DONEINP"

@@ -146,7 +146,13 @@ $(CCBIN): $(wildcard src/cc/*.S) | $(BUILD)
 	@grep -iE '^\s+(Error|Warning)' $(BUILD)/cc-merlin32.log && exit 1 || true
 	@mv src/cc/ASIDECC.SYSTEM $(CCBIN)
 	@rm -f src/cc/_FileInformation.txt
-	@echo "assembled src/cc/cc.S -> $(CCBIN) ($$(stat -f%z $(CCBIN)) bytes)"
+	@sz=$$(stat -f%z $(CCBIN)); \
+	if [ $$sz -gt 24576 ]; then \
+		echo "ASIDECC.SYSTEM is $$sz bytes: it runs from \$$2000 into its own"; \
+		echo "tables at \$$8000. The editor has a budget check and this did not."; \
+		exit 1; \
+	fi; \
+	echo "assembled src/cc/cc.S -> $(CCBIN) ($$sz bytes, ends \$$$$(printf %X $$((8192+sz))), tables at \$$8000)"
 
 cc: $(CCBIN)
 

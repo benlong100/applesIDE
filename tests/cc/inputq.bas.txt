@@ -1,0 +1,6 @@
+10 DIM Q(3)
+20 INPUT Q(2)
+30 PRINT "[";Q(2);"]"
+40 INPUT A$
+50 PRINT "[";A$;"]"
+60 PRINT "DONEIQ"

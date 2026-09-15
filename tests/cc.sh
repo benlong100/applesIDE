@@ -116,10 +116,26 @@ to_basic
 #
 # And a program whose output fills the screen is refused outright rather than
 # silently compared on what is left of it. A truncation is not a result.
-capture() {                        # command -> what it printed, one line each
+# A program that asks gets answered, from tests/cc/<name>.in, one line per
+# INPUT. BOTH RUNS ARE GIVEN THE SAME ANSWERS, which is what makes an
+# interactive program testable at all: the prompts are part of the screen, so
+# a compiled INPUT that printed ? where Applesoft prints nothing shows up as a
+# difference like any other.
+#
+# `IFS= read -r` on purpose: a trailing space is meaningful here. Applesoft
+# keeps the trailing spaces of an unquoted string item and strips the leading
+# ones, and the test that says so has to be able to send them.
+capture() {                        # command [answers] -> what it printed
     "$V" line "HOME" >/dev/null
     "$V" settle 4 >/dev/null
     "$V" line "$1" >/dev/null
+    if [ -n "$2" ] && [ -f "$2" ]; then
+        local ln
+        while IFS= read -r ln; do
+            "$V" settle 3 >/dev/null
+            "$V" line "$ln" >/dev/null
+        done < "$2"
+    fi
     local i
     for i in $(seq 1 400); do
         "$V" screen 2>/dev/null | grep -qE "^DONE|\\?.*ERROR" && break
@@ -135,11 +151,15 @@ capture() {                        # command -> what it printed, one line each
 }
 
 fail=0
-for n in "${NAMES[@]}"; do
+for idx in "${!NAMES[@]}"; do
+    n="${NAMES[$idx]}"
+    # the answers file sits beside the source it answers
+    ANSWERS="${SRCS[$idx]%.bas.txt}.in"
+    [ -f "$ANSWERS" ] || ANSWERS=""
     printf '%-10s ' "$n"
     "$V" line "LOAD $n" >/dev/null
     "$V" settle 6 >/dev/null
-    interp=$(capture "RUN")
+    interp=$(capture "RUN" "$ANSWERS")
 
     "$V" line "-ASIDECC.SYSTEM" >/dev/null
     # A WEDGED MACHINE IS NOT TWENTY MORE FAILURES. When a compiled program
@@ -171,7 +191,7 @@ for n in "${NAMES[@]}"; do
         *) echo "did not compile: $msg"; fail=1; continue;;
     esac
 
-    comp=$(capture "BRUN C$n")
+    comp=$(capture "BRUN C$n" "$ANSWERS")
     if [ "$interp" = "$comp" ]; then
         echo "agrees  ($(echo "$interp" | wc -l | tr -d ' ') lines)"
     else

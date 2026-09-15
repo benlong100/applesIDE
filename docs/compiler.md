@@ -970,3 +970,60 @@ and now this. The pattern worth naming: **an instrument that is wrong in a
 plausible direction costs more than no instrument at all**, because it does not
 merely fail to answer, it argues for a specific wrong answer, and it keeps
 arguing as long as you keep asking it.
+
+## INPUT
+
+Asked of the machine before any of it was written, because INPUT's rules are
+close enough to DATA's to invite assuming they are the same, and they are not:
+
+| | |
+|---|---|
+| `INPUT A` | prints `?` |
+| `INPUT "P";A` | prints `P` and **no** question mark |
+| an unquoted item | loses its **leading** spaces, keeps its **trailing** ones |
+| a quoted item | is what lies between the quotes, commas included |
+| too few items | `??`, and asks again, keeping what it already assigned |
+| a bad number | `?REENTER`, then **the whole statement runs again** |
+| items left over | `?EXTRA IGNORED` |
+
+`DATA` trims an unquoted item at both ends; `INPUT` trims only the front. Two
+rules that look alike and are not, which is the entire argument for asking
+rather than remembering.
+
+The last two shaped the code. `?REENTER` re-runs the statement, so `GINPUT`
+records where its own output began and the bad-number path jumps back there —
+backwards, inside one statement, so the address is already known in both
+passes and none of the forward-reference machinery is involved.
+
+**What says a number is bad** is not the conversion, which cannot fail: `FIN`
+parses what it can and stops, so `ABC` quietly becomes zero. What says so is
+*where it stopped*. If `TXTPTR` did not reach the end of the item there was
+something left over that is not part of a number, and that is the `?REENTER`.
+
+**An input string is copied, a DATA string is not.** A `DATA` item can be
+pointed at where it lies, because it lies in the program and never moves. An
+input line cannot: the next `INPUT` reads over it.
+
+The copy is its own helper rather than the slice helper, and the reason is the
+collector. Allocating may collect, the collector walks the roots, and `SDA` is
+a root — at that moment pointing into `$0200`, which is not in the heap and
+belongs to no block. Whether this collector skips a root aimed outside the
+heap is a question with a right answer, but it is not one the code needs to
+ask: `HICOPY` sets the length to zero before allocating and keeps the buffer
+position in scratch instead.
+
+**The high bit comes off every character.** `GETLN` returns high ASCII and
+every string this compiler makes is low, so a line left as it arrived would
+compare unequal to an identical literal and print as inverse text.
+
+`tests/cc.sh` answers a program that asks, from `tests/cc/<name>.in`, giving
+both runs the same input. The prompts are part of the screen being compared,
+so a compiled `INPUT` that printed `?` where Applesoft prints nothing is a
+difference like any other.
+
+### A size check the compiler did not have
+
+The editor's build refuses a binary that will not fit its budget; the
+compiler's did not have one. It runs from `$2000` and its tables are at
+`$8000`, so there are 24,576 bytes to grow into and nothing was watching. The
+build says where it ends now, and stops if it would reach the tables.

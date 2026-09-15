@@ -64,7 +64,8 @@ FDEPTH       equ   8                ; nested FOR loops
 *    13 how many descriptors are left to look at, 14-15 which part of a
 *    string a slice wants, 16-17 a POKE's address across its value,
 *    18-19 how far through the DATA a READ has got.
-SCRASZ       equ   20
+SCRASZ       equ   26               ; $14-$17 the input line and its split,
+*                                     $18/$19 an item on its way to the heap
 
 TFORK        equ   $81
 TNEXT        equ   $82
@@ -96,6 +97,7 @@ TVAL         equ   $e5
 TREAD        equ   $87
 TRESTORE     equ   $ae
 TDATAK       equ   $83
+TINPUT       equ   $84
 TPOKE        equ   $b9
 TCALL        equ   $8c
 GETADR       equ   $e752            ; FAC -> unsigned 16 bits in $50 and $51
@@ -706,6 +708,875 @@ MSGDATA2     asc   "?OUT OF DATA ERROR"
              dfb   $00
 MSGLONG      asc   "?STRING TOO LONG ERROR"
              dfb   $00
+
+*--- Both carry their own return: what follows them is a fresh prompt.
+MSGREENT     asc   "?REENTER"
+             dfb   $8d
+             dfb   $00
+MSGEXTRA     asc   "?EXTRA IGNORED"
+             dfb   $8d
+             dfb   $00
+
+*--------------------------------------
+* EMHINPUT -- one line from the keyboard, ready to be split
+*
+* GETLN1 rather than GETLN: it reads without printing a prompt of its own, and
+* the prompt is the caller's business -- INPUT A prints ? and INPUT "P";A
+* prints P and no question mark, which is the machine's rule and not a choice
+* made here.
+*
+* THE HIGH BIT COMES OFF EVERY CHARACTER. GETLN returns high ascii and every
+* string this compiler makes is low, so a line left as it arrived would
+* compare unequal to an identical literal and print as inverse text.
+*
+*   31 bytes
+*--------------------------------------
+EMHINPUT     lda   #$20
+             jsr   EMIT
+             lda   #$6f
+             jsr   EMIT
+             lda   #$fd
+             jsr   EMIT
+             lda   #$8e
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$cc
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$0c
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$29
+             jsr   EMIT
+             lda   #$7f
+             jsr   EMIT
+             lda   #$99
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HINPUT
+             clc
+             adc   #$08
+             sta   TMPP
+             lda   HINPUT+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$14
+             jsr   EMSCOFS
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHNEXTI -- the next item on the line, as a descriptor in SDA
+*
+* Applesoft's splitting, established on the machine: items are separated by
+* commas; an unquoted item loses its LEADING spaces and keeps its trailing
+* ones; a quoted one is what lies between the quotes, commas included.
+*
+* That is deliberately NOT what DATA does -- DATA trims both ends. Two rules
+* that look alike and are not, which is why both were asked of the machine
+* rather than assumed from the other.
+*
+* Running out mid-statement prints ?? and reads another line, keeping what has
+* already been assigned.
+*
+*   165 bytes
+*--------------------------------------
+EMHNEXTI     lda   #$ad
+             jsr   EMIT
+             lda   #$14
+             jsr   EMSCOFS
+             lda   #$cd
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$90
+             jsr   EMIT
+             lda   #$10
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$bf
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$fd
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$bf
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$fd
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   HINPUT
+             jsr   EMIT
+             lda   HINPUT+1
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HNEXTI
+             clc
+             adc   #$00
+             sta   TMPP
+             lda   HNEXTI+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$ac
+             jsr   EMIT
+             lda   #$14
+             jsr   EMSCOFS
+             lda   #$cc
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$04
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HNEXTI
+             clc
+             adc   #$1b
+             sta   TMPP
+             lda   HNEXTI+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$cc
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   #$22
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$30
+             jsr   EMIT
+             lda   #$8c
+             jsr   EMIT
+             lda   #$16
+             jsr   EMSCOFS
+             lda   #$cc
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   #$2c
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$04
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HNEXTI
+             clc
+             adc   #$3a
+             sta   TMPP
+             lda   HNEXTI+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$98
+             jsr   EMIT
+             lda   #$38
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$16
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$16
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$cc
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$8c
+             jsr   EMIT
+             lda   #$14
+             jsr   EMSCOFS
+             lda   #$60
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$8c
+             jsr   EMIT
+             lda   #$16
+             jsr   EMSCOFS
+             lda   #$cc
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   #$22
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$04
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HNEXTI
+             clc
+             adc   #$6b
+             sta   TMPP
+             lda   HNEXTI+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$98
+             jsr   EMIT
+             lda   #$38
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$16
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$16
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$cc
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$0e
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$cc
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$08
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   #$2c
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$f3
+             jsr   EMIT
+             lda   #$8c
+             jsr   EMIT
+             lda   #$14
+             jsr   EMSCOFS
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHIVAL -- an item as a number, and whether it really was one
+*
+* FIN parses as much as it can and stops, so it cannot itself say that ABC is
+* not a number: it just makes zero. What says so is where it stopped -- if
+* TXTPTR did not reach the end of the item, there was something left that is
+* not part of a number, and the caller prints ?REENTER and starts the
+* statement again.
+*
+*   123 bytes
+*--------------------------------------
+EMHIVAL      lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$08
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$a8
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$f2
+             jsr   EMIT
+             lda   #$e2
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$60
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$b8
+             jsr   EMIT
+             lda   #$48
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$48
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$6d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$69
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$48
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$38
+             jsr   EMIT
+             lda   #$e9
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$b8
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$e9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$4a
+             jsr   EMIT
+             lda   #$ec
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$6d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$69
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$17
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #$b8
+             jsr   EMIT
+             lda   #$c5
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$0b
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$c5
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$d0
+             jsr   EMIT
+             lda   #$05
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$17
+             jsr   EMSCOFS
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$68
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$68
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$b9
+             jsr   EMIT
+             lda   #$68
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$b8
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$17
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$38
+             jsr   EMIT
+             lda   #$60
+             jsr   EMIT
+             lda   #$18
+             jsr   EMIT
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHPMSG -- print a message and come back
+*
+* The error exit prints one and stops; INPUT wants the printing without the
+* stopping.
+*
+*   23 bytes
+*--------------------------------------
+EMHPMSG      lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$84
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMIT
+             lda   #$a4
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$08
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #$ed
+             jsr   EMIT
+             lda   #$fd
+             jsr   EMIT
+             lda   #$e6
+             jsr   EMIT
+             lda   #$1c
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HPMSG
+             clc
+             adc   #$08
+             sta   TMPP
+             lda   HPMSG+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHIREENT -- ?REENTER
+*
+*   7 bytes
+*--------------------------------------
+EMHIREENT    lda   #$a9
+             jsr   EMIT
+             lda   MREENT
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   MREENT+1
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HPMSG
+             jsr   EMIT
+             lda   HPMSG+1
+             jmp   EMIT
+
+*--------------------------------------
+* EMHIEXTRA -- ?EXTRA IGNORED, if anything on the line went unread
+*
+*   16 bytes
+*--------------------------------------
+EMHIEXTRA    lda   #$ad
+             jsr   EMIT
+             lda   #$14
+             jsr   EMSCOFS
+             lda   #$cd
+             jsr   EMIT
+             lda   #$15
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   MEXTRA
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   MEXTRA+1
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HPMSG
+             jsr   EMIT
+             lda   HPMSG+1
+             jsr   EMIT
+             lda   #$60
+             jmp   EMIT
+
+*--------------------------------------
+* EMHICOPY -- an input item into a string of its own
+*
+* DATA items can be pointed at where they lie, because they lie in the
+* program and never move. An input line cannot: the next INPUT reads over it.
+* So this allocates and copies, which is what Applesoft does too.
+*
+* SDA IS EMPTIED BEFORE THE ALLOCATION, and that is the whole point of writing
+* this rather than calling the slice helper. Allocating may collect, the
+* collector walks the roots, and SDA is a root -- pointing at $0200, which is
+* not in the heap and belongs to no block. A root aimed outside the heap is
+* not a question worth asking of the collector, so it is not asked: the
+* length goes to zero first and the pointer is kept in scratch instead.
+*
+*   63 bytes
+*--------------------------------------
+EMHICOPY     lda   #$ad
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$18
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$60
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$19
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$18
+             jsr   EMSCOFS
+             lda   #$20
+             jsr   EMIT
+             lda   HALLOC
+             jsr   EMIT
+             lda   HALLOC+1
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$84
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$8c
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$18
+             jsr   EMSCOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$ae
+             jsr   EMIT
+             lda   #$19
+             jsr   EMSCOFS
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$cc
+             jsr   EMIT
+             lda   #$18
+             jsr   EMSCOFS
+             lda   #$b0
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMIT
+             lda   #$bd
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$91
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMIT
+             lda   #$e8
+             jsr   EMIT
+             lda   #$c8
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HICOPY
+             clc
+             adc   #$2f
+             sta   TMPP
+             lda   HICOPY+1
+             adc   #$00
+             sta   TMPP+1
+             jsr   EMADDR
+             lda   #$60
+             jmp   EMIT
+
 
 *--------------------------------------
 * EMHERR -- say what went wrong at run time, and stop
@@ -2788,6 +3659,15 @@ GENPASS      lda   #$00
              sta   MDATA
              sta   HPOKE
              sta   HCALL
+             sta   HINPUT
+             sta   HNEXTI
+             sta   HIVAL
+             sta   HPMSG
+             sta   HIREENT
+             sta   HIEXTRA
+             sta   MREENT
+             sta   MEXTRA
+             sta   HICOPY
              sta   MOOM
              sta   MLONG
              lda   #>CODEORG
@@ -2812,6 +3692,15 @@ GENPASS      lda   #$00
              sta   MDATA+1
              sta   HPOKE+1
              sta   HCALL+1
+             sta   HINPUT+1
+             sta   HNEXTI+1
+             sta   HIVAL+1
+             sta   HPMSG+1
+             sta   HIREENT+1
+             sta   HIEXTRA+1
+             sta   MREENT+1
+             sta   MEXTRA+1
+             sta   HICOPY+1
              sta   MOOM+1
              sta   MLONG+1
 :keep
@@ -3023,6 +3912,9 @@ GENPASS      lda   #$00
              lda   USES
              and   #UHEAP
              bne   :heap
+             lda   USES2            ; a string INPUT allocates too
+             and   #$40
+             bne   :heap
              jmp   :nohmsg
 :heap
              lda   PC
@@ -3052,6 +3944,9 @@ GENPASS      lda   #$00
              lda   USES
              and   #UHEAP
              bne   :wanterr
+             lda   USES2
+             and   #$40
+             bne   :wanterr
              lda   FDATA
              beq   :noerr
 :wanterr     lda   PC
@@ -3064,6 +3959,9 @@ GENPASS      lda   #$00
 *--- and the rest of it belongs to the heap alone
              lda   USES
              and   #UHEAP
+             bne   :heap2
+             lda   USES2
+             and   #$40
              bne   :heap2
              jmp   :noheap
 :heap2       lda   PC
@@ -3190,6 +4088,66 @@ GENPASS      lda   #$00
              jsr   EMDATA
 :nodata
 
+*--- The six an INPUT is made of, in an order where each one's address is
+*    already recorded by the time the next refers to it.
+             lda   USES2
+             and   #$20
+             bne   :inp
+             jmp   :noinput
+:inp         lda   PC
+             sta   MREENT
+             lda   PC+1
+             sta   MREENT+1
+             lda   #<MSGREENT
+             ldy   #>MSGREENT
+             jsr   EMMSG
+             lda   PC
+             sta   MEXTRA
+             lda   PC+1
+             sta   MEXTRA+1
+             lda   #<MSGEXTRA
+             ldy   #>MSGEXTRA
+             jsr   EMMSG
+             lda   PC
+             sta   HPMSG
+             lda   PC+1
+             sta   HPMSG+1
+             jsr   EMHPMSG
+             lda   PC
+             sta   HIREENT
+             lda   PC+1
+             sta   HIREENT+1
+             jsr   EMHIREENT
+             lda   PC
+             sta   HIEXTRA
+             lda   PC+1
+             sta   HIEXTRA+1
+             jsr   EMHIEXTRA
+             lda   PC
+             sta   HINPUT
+             lda   PC+1
+             sta   HINPUT+1
+             jsr   EMHINPUT
+             lda   PC
+             sta   HNEXTI
+             lda   PC+1
+             sta   HNEXTI+1
+             jsr   EMHNEXTI
+             lda   PC
+             sta   HIVAL
+             lda   PC+1
+             sta   HIVAL+1
+             jsr   EMHIVAL
+             lda   USES2            ; only a string INPUT wants the copier
+             and   #$40
+             beq   :noinput
+             lda   PC
+             sta   HICOPY
+             lda   PC+1
+             sta   HICOPY+1
+             jsr   EMHICOPY
+:noinput
+
 *--- ASC allocates nothing, so it is not part of that group
              lda   USES
              and   #$80
@@ -3265,9 +4223,9 @@ GENSTMT      lda   #$00
              cmp   #TEND
              beq   :end
              cmp   #TREM
-             beq   :rem
+             beq   :remj
              cmp   #TDIMK
-             beq   :dim
+             beq   :dimj
              cmp   #TON
              beq   :on
              cmp   #TPOKE
@@ -3278,6 +4236,8 @@ GENSTMT      lda   #$00
              beq   :rest
              cmp   #TDATAK
              beq   :datak
+             cmp   #TINPUT
+             beq   :input
              cmp   #TCALL
              beq   :call
              cmp   #TFORK
@@ -3307,6 +4267,9 @@ GENSTMT      lda   #$00
 :next        jmp   GNEXT
 :on          jmp   GON
 :poke        jmp   GPOKE
+:input       jmp   GINPUT
+:dimj        jmp   :dim             ; the body is at the end: this is in reach
+:remj        jmp   :rem
 :read        jmp   GREAD
 :rest        jmp   GRESTORE
 :datak       jmp   GDATA
@@ -3893,6 +4856,236 @@ GRESTORE     lda   #$10
              jsr   EMSCOFS
              clc
              rts
+
+*--------------------------------------
+* GINPUT -- INPUT [ "prompt" ; ] var [ , var ]...
+*
+* All of it asked of the machine rather than remembered, because INPUT's rules
+* are close enough to DATA's to invite guessing and different in two places:
+*
+*   INPUT A       prints ?        INPUT "P";A   prints P and no ?
+*   an unquoted item loses its LEADING spaces and keeps its trailing ones
+*   too few items prints ?? and asks again, keeping what it already has
+*   a bad number prints ?REENTER and RUNS THE WHOLE STATEMENT AGAIN
+*   anything left over prints ?EXTRA IGNORED
+*
+* The last two shape the code. ?REENTER re-runs the statement, so the first
+* thing done here is remember where the statement's code begins and the
+* bad-number path jumps back to it -- backwards, inside one statement, so the
+* address is already known in both passes and needs none of the machinery a
+* forward reference does.
+*--------------------------------------
+GINPUT       lda   #$20
+             jsr   NEED2
+             lda   PC               ; where ?REENTER comes back to
+             sta   INPPC
+             lda   PC+1
+             sta   INPPC+1
+
+             jsr   PEEK
+             bcs   :qmark
+             cmp   #$22
+             bne   :qmark
+
+*--- a prompt of its own, and then NO question mark
+             jsr   EXPR
+             bcs   :badj
+             lda   ISSTR
+             beq   :badj            ; INPUT 3;A is not a prompt
+             lda   #$02
+             jsr   NEED
+             lda   #$20
+             jsr   EMIT
+             lda   HSPR
+             jsr   EMIT
+             lda   HSPR+1
+             jsr   EMIT
+             lda   #$00
+             sta   ISSTR
+             jsr   NEXTB
+             bcs   :badj
+             cmp   #';'
+             bne   :badj
+             jmp   :line
+:badj        jmp   :bad
+
+*--- LDA #'?' : JSR COUT
+:qmark       lda   #$a9
+             jsr   EMIT
+             lda   #$bf
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<COUT
+             jsr   EMIT
+             lda   #>COUT
+             jsr   EMIT
+
+:line        lda   #$20             ; JSR HINPUT
+             jsr   EMIT
+             lda   HINPUT
+             jsr   EMIT
+             lda   HINPUT+1
+             jsr   EMIT
+             jmp   :one
+
+:strj        jmp   :str
+:elemj       jmp   :elem
+:badj2       jmp   :bad
+
+:one         jsr   NEXTB
+             bcs   :badj2
+             sta   CH
+             jsr   ISALNUM
+             bcs   :badj2
+             jsr   GETNAME
+             bcs   :badj2
+             lda   CH
+             cmp   #'$'
+             beq   :strj
+             cmp   #'('
+             beq   :elemj
+
+*--- a plain number
+             jsr   GETVAR2
+             bcs   :badj2
+             jsr   PUTBACK
+             lda   VARI
+             pha
+             jsr   EMNEXTI
+             jsr   EMIVAL
+             pla
+             sta   TMPA
+             jsr   VADDR
+             jsr   EMSTP
+             jmp   :more
+
+*--- a string, which has to be copied out of the line before the next INPUT
+*    reads over it
+:str         lda   #$40             ; the heap, for the copy
+             jsr   NEED2
+             jsr   SVFIND
+             bcs   :badj2
+             jsr   SVADDR
+             lda   TMPP
+             sta   DSTSV
+             lda   TMPP+1
+             sta   DSTSV+1
+             jsr   EMNEXTI
+             lda   #$20             ; JSR HICOPY
+             jsr   EMIT
+             lda   HICOPY
+             jsr   EMIT
+             lda   HICOPY+1
+             jsr   EMIT
+             jsr   SDAADDR
+             lda   TMPP
+             sta   SRCA
+             lda   TMPP+1
+             sta   SRCA+1
+             lda   DSTSV
+             sta   DSTA
+             lda   DSTSV+1
+             sta   DSTA+1
+             jsr   EMSDESC
+             jmp   :more
+
+*--- Under the string block's JMP, so nothing falls into it.
+:badj3       jmp   :bad
+
+*--- an element, whose address is worked out first: reading the item runs the
+*    parser over the accumulator, exactly as it does for READ
+:elem        jsr   GETARR
+             bcs   :badj3
+             jsr   EMSUBS
+             bcs   :badj3
+             lda   #$85             ; STA ZPELEM
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$84
+             jsr   EMIT
+             lda   #ZPELEM+1
+             jsr   EMIT
+             jsr   EMNEXTI
+             jsr   EMIVAL
+             lda   #$a6             ; LDX ZPELEM
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$a4
+             jsr   EMIT
+             lda   #ZPELEM+1
+             jsr   EMIT
+             lda   #$20             ; JSR MOVMF
+             jsr   EMIT
+             lda   #<MOVMF
+             jsr   EMIT
+             lda   #>MOVMF
+             jsr   EMIT
+
+:more        jsr   PEEK
+             bcs   :done
+             cmp   #$2c
+             bne   :done
+             jsr   NEXTB
+             jmp   :one
+
+*--- and say so if the line had more on it than was asked for
+:done        lda   #$20
+             jsr   EMIT
+             lda   HIEXTRA
+             jsr   EMIT
+             lda   HIEXTRA+1
+             jsr   EMIT
+             clc
+             rts
+:bad         lda   #$06
+             jsr   SETBAD
+             sec
+             rts
+
+*--------------------------------------
+* EMNEXTI -- JSR the item reader
+*--------------------------------------
+EMNEXTI      lda   #$20
+             jsr   EMIT
+             lda   HNEXTI
+             jsr   EMIT
+             lda   HNEXTI+1
+             jmp   EMIT
+
+*--------------------------------------
+* EMIVAL -- the item as a number, or ?REENTER and round again
+*
+*    0  JSR HIVAL    3
+*    3  BCC ok       2   -> 11
+*    5  JSR HIREENT  3
+*    8  JMP INPPC    3
+*   11  ...          <- ok
+*--------------------------------------
+EMIVAL       lda   #$20
+             jsr   EMIT
+             lda   HIVAL
+             jsr   EMIT
+             lda   HIVAL+1
+             jsr   EMIT
+             lda   #$90             ; BCC over the two that go back
+             jsr   EMIT
+             lda   #$06
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   HIREENT
+             jsr   EMIT
+             lda   HIREENT+1
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   INPPC
+             jsr   EMIT
+             lda   INPPC+1
+             jmp   EMIT
 
 *--------------------------------------
 * GREAD -- READ a, b$, c(i)
@@ -6798,6 +7991,16 @@ DEMI         ds    2                ; walking them out
 DQUOTE       ds    1
 HPOKE        ds    2
 HCALL        ds    2
+HINPUT       ds    2                ; a line from the keyboard
+HNEXTI       ds    2                ; and the next item on it
+HIVAL        ds    2
+HPMSG        ds    2
+HIREENT      ds    2
+HIEXTRA      ds    2
+MREENT       ds    2
+MEXTRA       ds    2
+HICOPY       ds    2
+INPPC        ds    2                ; where this INPUT began, for ?REENTER
 MOOM         ds    2                ; where the two messages landed
 MLONG        ds    2
 SLICEF       ds    1                ; which of the three is being compiled
