@@ -1195,3 +1195,23 @@ six skipped the one with a trailing comment after the opcode — the same shape
 that once made `dumcheck.py` miss an equate with a comment on it. Counting the
 opcodes afterwards is what caught it, which is the habit worth keeping: after
 a mechanical edit, count what changed rather than trusting that it all did.
+
+## VTAB, HTAB, and the screen switches
+
+`VTAB`, `HTAB`, `HOME`, `TEXT`, `INVERSE`, `NORMAL`, `FLASH`. Applesoft counts
+rows and columns from one and the monitor counts from zero, so each of the
+first two is the expression less one: `VTAB` stores `CV` and calls the
+monitor's `VTABZ` to work out the line's address, `HTAB` writes `CHPOS`.
+
+An argument outside the legal range is `?ILLEGAL QUANTITY` in Applesoft and is
+not checked here.
+
+### The statement list was full
+
+`GENSTMT`'s keyword tests reached their targets with little to spare, and
+adding to the front of the list pushed the ones at the back out of branch
+range — four separate build failures, each naming a different innocent
+statement. The answer was not more trampolines but a second list, which the
+first falls through to when it does not recognise a keyword. It costs one jump
+for the keywords that reach it, leaves the first list alone, and is where
+anything added later should go.

@@ -101,6 +101,19 @@ TRESTORE     equ   $ae
 TDATAK       equ   $83
 TINPUT       equ   $84
 TDEFK        equ   $b8
+TVTAB        equ   $a2
+THTAB        equ   $96
+THOME        equ   $97
+TTEXTK       equ   $89
+TINVERSE     equ   $9e
+TNORMAL      equ   $9d
+TFLASH       equ   $9f
+CV           equ   $25              ; the cursor's row, and the monitor's
+VTABZ        equ   $fc22            ; way of acting on it
+CHPOS        equ   $24
+HOMEROM      equ   $fc58
+TEXTROM      equ   $fb39
+INVFLG       equ   $32
 TFNK         equ   $c2
 TPOKE        equ   $b9
 TCALL        equ   $8c
@@ -4324,10 +4337,11 @@ GENSTMT      lda   #$00
              cmp   #TNEXT
              beq   :next
              cmp   #$80
-             bcs   :unsup           ; some other keyword: not this milestone
+             bcs   :second          ; some other keyword: try the second list
              jsr   ISALNUM
              bcs   :unsup
              jmp   GLET             ; a bare name: an implied LET
+:second      jmp   GSTMT2
 
 :let         jsr   NEXTB
              bcs   :unsup
@@ -5458,6 +5472,149 @@ EMSAPUT      lda   #$ad
              inc   SDI
              jmp   :one
 :done        rts
+
+*--------------------------------------
+* GSTMT2 -- the statements that did not fit in GENSTMT's list
+*
+* Not a matter of taste: that list's branches reach their targets with little
+* to spare, and adding a test to the front of it pushes the ones at the back
+* out of range. A second list costs one jump for the keywords that reach it
+* and leaves the first one alone.
+*--------------------------------------
+GSTMT2       lda   CH
+             cmp   #TVTAB
+             beq   :vtab
+             cmp   #THTAB
+             beq   :htab
+             cmp   #THOME
+             beq   :homek
+             cmp   #TTEXTK
+             beq   :textk
+             cmp   #TINVERSE
+             beq   :invk
+             cmp   #TNORMAL
+             beq   :normk
+             cmp   #TFLASH
+             beq   :flashk
+             lda   #$05             ; STATEMENT NOT YET
+             jsr   SETBAD
+             sec
+             rts
+:vtab        jmp   GVTAB
+:htab        jmp   GHTAB
+:homek       jmp   GHOME
+:textk       jmp   GTEXT
+:invk        jmp   GINVERSE
+:normk       jmp   GNORMAL
+:flashk      jmp   GFLASH
+
+*--------------------------------------
+* VTAB and HTAB, and the switches that take no argument
+*
+* Applesoft counts rows and columns from one and the monitor counts from zero,
+* so each of these is the expression less one. What the compiled program does
+* with it is what the monitor does: CV and then VTABZ to work out the line's
+* address, or CHPOS on its own.
+*
+* An argument outside 1 to 24 (or 1 to 40) is ?ILLEGAL QUANTITY in Applesoft
+* and is not checked here; the agreement tests cover the range a program
+* actually uses.
+*--------------------------------------
+GVTAB        jsr   EMTABV
+             bcs   :bad
+             lda   #$8d             ; STA CV
+             jsr   EMIT
+             lda   #CV
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$20             ; JSR VTABZ
+             jsr   EMIT
+             lda   #<VTABZ
+             jsr   EMIT
+             lda   #>VTABZ
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+GHTAB        jsr   EMTABV
+             bcs   :bad
+             lda   #$85             ; STA CHPOS -- zero page
+             jsr   EMIT
+             lda   #CHPOS
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--- the argument, as a byte one less than it was written
+EMTABV       jsr   NEXPR
+             bcs   :no
+             lda   #$20             ; JSR AYINT
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+             lda   #$a5             ; LDA FACLO -- zero page
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$38             ; SEC : SBC #1
+             jsr   EMIT
+             lda   #$e9
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             clc
+             rts
+:no          sec
+             rts
+
+GHOME        lda   #<HOMEROM
+             ldy   #>HOMEROM
+             jmp   EMCALLAY
+
+GTEXT        lda   #<TEXTROM
+             ldy   #>TEXTROM
+             jmp   EMCALLAY
+
+GINVERSE     lda   #$3f
+             jmp   EMINVF
+
+GNORMAL      lda   #$ff
+             jmp   EMINVF
+
+GFLASH       lda   #$7f
+             jmp   EMINVF
+
+*--- JSR the routine whose address is in A and Y
+EMCALLAY     sta   TMPP
+             sty   TMPP+1
+             lda   #$20
+             jsr   EMIT
+             lda   TMPP
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+             clc
+             rts
+
+*--- LDA #flag : STA INVFLG, which is all three of them are
+EMINVF       sta   TMPP
+             lda   #$a9
+             jsr   EMIT
+             lda   TMPP
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #INVFLG
+             jsr   EMIT
+             clc
+             rts
 
 *--------------------------------------
 * GDEF -- DEF FN name ( parameter ) = expression
