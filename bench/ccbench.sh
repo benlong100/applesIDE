@@ -20,6 +20,16 @@
 set -e
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+# ONE AT A TIME. Two of these share one emulator and interleave their
+# keystrokes into it: the run crawls and the answers are meaningless, but they
+# are meaningless in a way that reads as a compiler bug. A stale run from an
+# interrupted session is the usual cause, so say so rather than join in.
+if pgrep -f "bash $0" | grep -qv "^$$\$"; then
+    echo "another $0 is already running -- kill it first:" >&2
+    pgrep -fl "bash $0" >&2
+    exit 1
+fi
 V=tools/vii.sh
 AC=tools/ac
 DIST=build/APPLESIDE-DIST.po

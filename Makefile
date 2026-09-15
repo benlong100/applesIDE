@@ -60,6 +60,10 @@ endif
 
 all: $(BIN)
 
+# scopecheck alongside it, for the other thing Merlin accepts in silence: a
+# :local label that is nowhere in the scope it is used from. `jmp :dim`
+# outlived the routine it named and assembled without a word.
+#
 # dumcheck first: a dum block declares addresses without emitting anything, so
 # two of them can claim the same bytes and Merlin says nothing. That is how
 # SCRLOST came to sit on OLDGAP's low byte and switch off the cursor-only
@@ -74,6 +78,7 @@ $(BIN): $(wildcard src/*.S) $(LANGTXT) $(TOOLS)/genlang.py $(TOOLS)/genhelp.py $
 	@python3 $(TOOLS)/genlang.py $(LANGTXT) > src/lang.S
 	@python3 $(TOOLS)/genhelp.py $(LANGARG) > src/helpdata.S
 	@python3 $(TOOLS)/dumcheck.py
+	@python3 $(TOOLS)/scopecheck.py src
 	@$(MERLIN) $(ASMINC) $(SRC) > $(BUILD)/merlin32.log 2>&1 || \
 		{ echo "--- Merlin32 failed ---"; cat $(BUILD)/merlin32.log; exit 1; }
 	@grep -iE '^\s+(Error|Warning)' $(BUILD)/merlin32.log && exit 1 || true
@@ -135,6 +140,7 @@ CCBIN  := $(BUILD)/ASIDECC.SYSTEM
 
 $(CCBIN): $(wildcard src/cc/*.S) | $(BUILD)
 	@python3 $(TOOLS)/dumcheck.py src/cc
+	@python3 $(TOOLS)/scopecheck.py src/cc
 	@$(MERLIN) $(ASMINC) src/cc/cc.S > $(BUILD)/cc-merlin32.log 2>&1 || \
 		{ echo "--- Merlin32 failed ---"; cat $(BUILD)/cc-merlin32.log; exit 1; }
 	@grep -iE '^\s+(Error|Warning)' $(BUILD)/cc-merlin32.log && exit 1 || true

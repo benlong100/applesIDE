@@ -16,6 +16,16 @@
 set -e
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+# ONE AT A TIME. Two of these share one emulator and interleave their
+# keystrokes into it: the run crawls and the answers are meaningless, but they
+# are meaningless in a way that reads as a compiler bug. A stale run from an
+# interrupted session is the usual cause, so say so rather than join in.
+if pgrep -f "bash $0" | grep -qv "^$$\$"; then
+    echo "another $0 is already running -- kill it first:" >&2
+    pgrep -fl "bash $0" >&2
+    exit 1
+fi
 V=tools/vii.sh
 AC=tools/ac
 DIST=build/APPLESIDE-DIST.po
@@ -26,8 +36,16 @@ export VII_SPEED=maximum          # correctness, not timing: go as fast as it wi
 [ -f build/ASIDECC.SYSTEM ] || { echo "no compiler -- run: make cc" >&2; exit 1; }
 
 mkdir -p build/bench
+# One program by name -- tests/cc.sh data -- for when a single failure is being
+# chased and a full pass costs twenty minutes.
+SRCS=(tests/cc/*.bas.txt)
+if [ -n "$1" ]; then
+    SRCS=("tests/cc/$1.bas.txt")
+    [ -f "${SRCS[0]}" ] || { echo "no such program: ${SRCS[0]}" >&2; exit 1; }
+fi
+
 NAMES=()
-for src in tests/cc/*.bas.txt; do
+for src in "${SRCS[@]}"; do
     n=$(basename "$src" .bas.txt | tr 'a-z' 'A-Z')
     n=${n:0:7}                     # the compiler prepends a C; ProDOS allows 15
     python3 - "$src" "build/bench/$n.bas" <<'PY'
@@ -52,7 +70,22 @@ done
 osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1 || true
 sleep 2
 cp "$DIST" "$IMG"
+# DELETE IT FIRST. `ac -p` on a name that is already in the catalogue ADDS a
+# second entry rather than replacing it, and ProDOS runs the first one it
+# finds -- so the image built from the distribution disk, which already ships
+# a compiler, kept running THAT one no matter what had just been assembled.
+# Every result here was a verdict on whatever `make dist` last baked in.
+#
+# It looks exactly like a fix not working: the source is right, the binary is
+# right, and the machine disagrees.
+"$AC" -d "$IMG" ASIDECC.SYSTEM 2>/dev/null || true
 "$AC" -p "$IMG" ASIDECC.SYSTEM SYS 0x2000 < build/ASIDECC.SYSTEM
+
+# and say so if a stale one survived anyway
+if [ "$("$AC" -l "$IMG" | grep -c ASIDECC.SYSTEM)" -ne 1 ]; then
+    echo "more than one ASIDECC.SYSTEM on $IMG -- the wrong one will run" >&2
+    exit 1
+fi
 for n in "${NAMES[@]}"; do
     "$AC" -p "$IMG" "$n" BAS 0x0801 < "build/bench/$n.bas"
 done

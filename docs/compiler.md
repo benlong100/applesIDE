@@ -895,3 +895,70 @@ program at a time. It also sizes `VMAX*2` rather than silently calling it
 zero, and reads an equate that has a comment after it — so the editor's
 `SCRW`-sized blocks are being checked for the first time as well. The symptom
 was an output file named `CS300`.
+
+### Two more, from the DATA work
+
+**Merlin silently accepts a local label that does not exist.** A slice while
+adding `DATA` deleted the `DIM` parser; the `jmp :dim` that reached it stayed
+behind, and the assembler said nothing — no error, no warning, and a binary
+came out the other end. Every array then got the default eleven elements, so a
+`DIM A(20)` wrote the last ten over the program's own code.
+
+The test suite passed that program. `ARRAYS` printed every number correctly
+and was recorded as agreeing, because code that has already run is code whose
+corruption you cannot see. It only surfaced as the *next* thing the machine
+was asked to do hanging — a failure with no visible connection to arrays at
+all. The layout had to be read back out of the compiled binary to find it:
+arrays started at `$605A`, the code at `$6091`, and fifty-five bytes is
+eleven elements where twenty-one were wanted.
+
+`tools/scopecheck.py` now reports a local label used in one global label's
+scope and defined in another. Run against the whole tree it found a second
+real case immediately — `:mbad` sitting above `FMID`'s own label, and so in
+the previous routine's scope.
+
+**A prologue cannot consult a tally the code generator has not filled in
+yet.** Helpers are emitted after all the code, so asking "did anything use the
+string collector?" works there. The prologue is emitted first, and its
+question — "does this program use `DATA`?" — was always answered no, because
+no `READ` had been compiled at the point it asked. The data pointer was never
+initialised and `READ` fetched from address zero. The size was consistent
+across passes, so nothing complained; the program simply printed nothing.
+
+Anything the prologue needs must be a fact pass 1 established, so `FDATA` is
+set there, by the scan that already walks every token. The helper block and
+the prologue now test the same flag, which is also what keeps the table and
+the pointer that addresses it from disagreeing about whether to exist.
+
+### The test disk was running a different compiler
+
+`ac -p` on a filename that is already in the catalogue **adds a second entry
+rather than replacing it**, and ProDOS runs the first one it finds. The test
+image is copied from the distribution disk, which already ships a compiler —
+so `-ASIDECC.SYSTEM` ran the one `make dist` last baked in, and the freshly
+assembled binary sat further down the catalogue, never executed.
+
+The image had two files of the same name, seventeen thousand two hundred and
+ninety-two bytes and seventeen thousand three hundred and twelve, and it was
+the older one that ran.
+
+This is the worst shape a harness fault can take, because it is indis-
+tinguishable from a fix that does not work. The source was right, the
+assembled binary was right, and the machine disagreed — so the evidence all
+pointed at the compiler. Reading the compiled output back and finding the
+prologue's data-pointer setup missing only confirmed the false conclusion; the
+bytes really were missing, because a compiler that predated the fix had
+written them.
+
+What settled it was comparing the binary on the disk against the one on the
+host: same name, different length. `tests/cc.sh` now deletes the file before
+adding it, and refuses to run if more than one survives.
+
+That makes four faults this project has traced to its instruments rather than
+its programs — the screen capture that dropped a row once output scrolled, the
+benchmark that timed `BRUN` and so charged the compiled side for loading
+itself, the process patterns that matched the very shell doing the matching,
+and now this. The pattern worth naming: **an instrument that is wrong in a
+plausible direction costs more than no instrument at all**, because it does not
+merely fail to answer, it argues for a specific wrong answer, and it keeps
+arguing as long as you keep asking it.

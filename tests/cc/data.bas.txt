@@ -1,0 +1,19 @@
+10 DATA A, B ,  C  ,"D E"
+20 DATA 12 , 3.5,,X
+30 READ A$,B$,C$,D$
+40 PRINT "[";A$;"][";B$;"][";C$;"][";D$;"]"
+50 READ X,Y
+60 PRINT X;" ";Y
+70 READ E$,F$
+80 PRINT "[";E$;"][";F$;"]"
+90 DIM Q(5)
+100 DATA 5,6,7
+110 FOR I = 0 TO 2
+120 READ Q(I)
+130 NEXT
+140 PRINT Q(0) + Q(1) + Q(2)
+150 RESTORE
+160 READ G$
+170 PRINT "[";G$;"]"
+180 PRINT LEN(A$)
+190 PRINT "DONEDATA"

@@ -46,6 +46,8 @@ CODEORG      equ   $6000
 TFOR         equ   $81
 TDATA        equ   $83
 TDIM         equ   $86
+TREADK       equ   $87
+TRESTORK     equ   $ae
 TGOTO        equ   $ab
 TGOSUB       equ   $b0
 TREM         equ   $b2
@@ -64,6 +66,11 @@ PASS1        lda   #$00
              sta   NFORS
              sta   NARR
              sta   NSVARS
+             sta   DBP
+             sta   DBP+1
+             sta   NDATA
+             sta   NDATA+1
+             sta   FDATA
              sta   BADFLG
              sta   BADLINE
              sta   BADLINE+1
@@ -188,6 +195,18 @@ SCANBODY     lda   #$00
              bne   :nofor
              inc   NFORS
 :nofor       lda   CH
+
+*--- WHETHER THE PROGRAM TOUCHES DATA AT ALL, which pass 1 has to answer
+*    because the prologue is emitted before a single statement is compiled --
+*    so the running tally of what the code turned out to need is still empty
+*    when the prologue asks.
+             cmp   #TREADK
+             beq   :isdat
+             cmp   #TRESTORK
+             bne   :nodat
+:isdat       lda   #$01
+             sta   FDATA
+:nodat       lda   CH
              cmp   #TGOTO
              beq   :branch
              cmp   #TGOSUB
@@ -309,33 +328,32 @@ SCANBODY     lda   #$00
              sta   PBFLAG
              jmp   :next
 
-*--- DATA, and the rest of it is values rather than code, up to a colon that
-*    is not inside quotes. Without this the scanner reads DATA BOSTON as a
-*    variable called BO and DATA 144 as a constant -- neither of which the
-*    program has. Nothing is compiled from them today, because a DATA
-*    statement is refused outright, but a program full of them would run out
-*    of variables and complain about that instead of about the DATA.
-:data        lda   #$00
-             sta   DINSTR
-:dloop       jsr   RDBYTE
-             bcc   :dgot
-             sec                    ; its own exit: the routine's own is now
-             rts                    ; too far back to branch to
-:dgot        sta   CH
-             beq   :dend
-             cmp   #'"'
-             bne   :dnq
-             lda   DINSTR
-             eor   #$01
-             sta   DINSTR
-             jmp   :dloop
-:dnq         lda   DINSTR
-             bne   :dloop
-             lda   CH
-             cmp   #':'
-             bne   :dloop
-             jmp   :next            ; code again after the colon
-:dend        clc
+*--------------------------------------
+* DATA -- its items, collected as they are read
+*
+* THE SPLITTING IS DONE HERE, once, rather than by the compiled program every
+* time it READs. Applesoft's rules, read off the machine:
+*
+*   DATA A, B ,  C  ,"D E", 12 , 3.5,,X
+*
+* gives A, B, C, "D E", 12, 3.5, an empty item and X -- so an unquoted item
+* loses the spaces at both ends, a quoted one keeps everything between the
+* quotes, and two commas together mean an empty item.
+*
+* Each one goes into the buffer as a length and then its characters, and the
+* whole buffer is emitted into the compiled program with the helpers. A READ
+* walks it; RESTORE goes back to the front.
+*--------------------------------------
+:data        lda   #$01
+             sta   FDATA
+             jsr   DATACOLL
+             bcs   :deof2
+             lda   CH               ; what ended it: a colon means code again
+             beq   :dend2
+             jmp   :redo
+:dend2       clc
+             rts
+:deof2       sec
              rts
 
 *--------------------------------------
@@ -395,6 +413,204 @@ SCANBODY     lda   #$00
 :dimbad      lda   #$15             ; ONE DIMENSION ONLY
              jsr   SETBAD
              jmp   :next
+
+*--------------------------------------
+* DATACOLL -- the items on one DATA statement into DBUF
+*
+* Leaves in CH whatever ended the statement: a zero for the end of the line,
+* or the colon that closed it.
+*--------------------------------------
+DATACOLL     jsr   DSTART           ; a length byte to fill in later
+:spaces      jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+             beq   :done
+             cmp   #':'
+             beq   :done
+             cmp   #' '
+             beq   :spaces
+             cmp   #$2c
+             beq   :empty
+             cmp   #'"'
+             beq   :quoted
+
+*--- unquoted: everything up to a comma or the end, with the spaces at the
+*    far end taken off afterwards
+:plain       jsr   DPUT
+:ploop       jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+             beq   :endit
+             cmp   #':'
+             beq   :endit
+             cmp   #$2c
+             beq   :nextit
+             jsr   DPUT
+             jmp   :ploop
+
+*--- quoted: everything up to the closing quote, exactly as it stands
+:quoted      jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+             beq   :endit
+             cmp   #'"'
+             beq   :qend
+             jsr   DPUT
+             jmp   :quoted
+:qend        jsr   RDBYTE           ; whatever follows the closing quote
+             bcs   :eof
+             sta   CH
+             beq   :endit
+             cmp   #$2c
+             beq   :nextit
+             jmp   :endit
+
+*--- two commas together: an item with nothing in it
+:empty
+:nextit      jsr   DTRIM
+             jsr   DSTART
+             jmp   :spaces
+
+:endit       jsr   DTRIM
+             clc
+             rts
+:done        jsr   DTRIM
+             clc
+             rts
+:eof         sec
+             rts
+
+*--- start an item: remember where its length byte goes, and leave room
+DSTART       lda   DBP
+             sta   DITEM
+             lda   DBP+1
+             sta   DITEM+1
+             lda   #$00
+             jmp   DPUTB
+
+*--- finish one: take the trailing spaces off and write the length
+DTRIM        lda   DBP              ; while the last character is a space
+             sec
+             sbc   #$01
+             sta   TMPP
+             lda   DBP+1
+             sbc   #$00
+             sta   TMPP+1
+:back        lda   TMPP+1           ; ...and there is still an item to shrink
+             cmp   DITEM+1
+             bne   :look
+             lda   TMPP
+             cmp   DITEM
+             beq   :len
+:look        lda   TMPP
+             clc
+             adc   #<DBUF
+             sta   DBUFP
+             lda   TMPP+1
+             adc   #>DBUF
+             sta   DBUFP+1
+             ldy   #$00
+             lda   (DBUFP),y
+             cmp   #' '
+             bne   :len
+             lda   TMPP             ; drop it
+             sec
+             sbc   #$01
+             sta   TMPP
+             lda   TMPP+1
+             sbc   #$00
+             sta   TMPP+1
+             lda   DBP
+             sec
+             sbc   #$01
+             sta   DBP
+             lda   DBP+1
+             sbc   #$00
+             sta   DBP+1
+             jmp   :back
+
+:len         lda   DBP              ; the length is what is past the length
+             sec                    ; byte itself
+             sbc   DITEM
+             sec
+             sbc   #$01
+             pha
+             lda   DITEM
+             clc
+             adc   #<DBUF
+             sta   DBUFP
+             lda   DITEM+1
+             adc   #>DBUF
+             sta   DBUFP+1
+             pla
+             ldy   #$00
+             sta   (DBUFP),y
+             inc   NDATA
+             bne   :ok
+             inc   NDATA+1
+:ok          rts
+
+*--- one character of an item
+DPUT         lda   CH
+DPUTB        pha
+             lda   DBP+1
+             cmp   #>DBUFMAX
+             bcc   :room
+             pla
+             lda   #$1d             ; TOO MUCH DATA
+             jsr   SETBAD
+             rts
+:room        lda   DBP
+             clc
+             adc   #<DBUF
+             sta   DBUFP
+             lda   DBP+1
+             adc   #>DBUF
+             sta   DBUFP+1
+             pla
+             ldy   #$00
+             sta   (DBUFP),y
+             inc   DBP
+             bne   :ok
+             inc   DBP+1
+:ok          rts
+
+*--------------------------------------
+* SVARADD -- VN0/VN1 into the string table
+*
+* A, A( and A$ are THREE different variables to Applesoft, which is why there
+* are three tables and not one with a type column.
+*--------------------------------------
+SVARADD      lda   #$00
+             sta   TMPA
+:find        lda   TMPA
+             cmp   NSVARS
+             bcs   :new
+             asl
+             tax
+             lda   SVTAB,x
+             cmp   VN0
+             bne   :step
+             lda   SVTAB+1,x
+             cmp   VN1
+             beq   :done
+:step        inc   TMPA
+             jmp   :find
+
+:new         lda   NSVARS
+             cmp   #SVMAX
+             bcc   :room
+             lda   #$1a             ; TOO MANY STRINGS
+             jsr   SETBAD
+             rts
+:room        asl
+             tax
+             lda   VN0
+             sta   SVTAB,x
+             lda   VN1
+             sta   SVTAB+1,x
+             inc   NSVARS
+:done        rts
 
 *--------------------------------------
 * RDNAME -- a name, from the character already in CH
@@ -473,43 +689,6 @@ SZMUL10      lda   WORD
              sta   WORD
              bcc   :done
              inc   WORD+1
-:done        rts
-
-*--------------------------------------
-* SVARADD -- VN0/VN1 into the string table
-*
-* A, A( and A$ are THREE different variables to Applesoft, which is why there
-* are three tables and not one with a type column.
-*--------------------------------------
-SVARADD      lda   #$00
-             sta   TMPA
-:find        lda   TMPA
-             cmp   NSVARS
-             bcs   :new
-             asl
-             tax
-             lda   SVTAB,x
-             cmp   VN0
-             bne   :step
-             lda   SVTAB+1,x
-             cmp   VN1
-             beq   :done
-:step        inc   TMPA
-             jmp   :find
-
-:new         lda   NSVARS
-             cmp   #SVMAX
-             bcc   :room
-             lda   #$1a             ; TOO MANY STRINGS
-             jsr   SETBAD
-             rts
-:room        asl
-             tax
-             lda   VN0
-             sta   SVTAB,x
-             lda   VN1
-             sta   SVTAB+1,x
-             inc   NSVARS
 :done        rts
 
 *--------------------------------------
@@ -1110,8 +1289,9 @@ REPORT       lda   #<MSGVARS
 *--- The arrays, with how many elements each ended up with: eleven from a
 *    bare use, or whatever a DIM said.
              lda   NARR
-             beq   :consts
-             lda   #<MSGARRS
+             bne   :showarr
+             jmp   :data2           ; the DATA report sits below the arrays
+:showarr     lda   #<MSGARRS
              ldy   #>MSGARRS
              jsr   PRSTR
              lda   NARR
@@ -1125,7 +1305,7 @@ REPORT       lda   #<MSGVARS
              sta   TMPA
 :arr         lda   TMPA
              cmp   NARR
-             bcs   :consts
+             bcs   :data2
              jsr   ASLOT
              ldy   #$00
              lda   (TMPP),y
@@ -1151,6 +1331,28 @@ REPORT       lda   #<MSGVARS
              jsr   PRCR
              inc   TMPA
              jmp   :arr
+
+*--- how many DATA items were collected, and how many bytes they take
+:data2       lda   NDATA
+             ora   NDATA+1
+             beq   :consts
+             lda   #<MSGDATA
+             ldy   #>MSGDATA
+             jsr   PRSTR
+             lda   NDATA
+             sta   WORD
+             lda   NDATA+1
+             sta   WORD+1
+             jsr   PRWORD
+             lda   #<MSGIN
+             ldy   #>MSGIN
+             jsr   PRSTR
+             lda   DBP
+             sta   WORD
+             lda   DBP+1
+             sta   WORD+1
+             jsr   PRWORD
+             jsr   PRCR
 
 *--- The constants, printed back through the ROM's own FOUT. If the digit
 *    conversion were wrong this is where it would say so, in the clearest
@@ -1232,6 +1434,10 @@ MSGVARS      asc   "VARIABLES: "
              dfb   $00
 MSGSTRS      asc   "STRINGS: "
              dfb   $00
+MSGDATA      asc   "DATA ITEMS: "
+             dfb   $00
+MSGIN        asc   " IN "
+             dfb   $00
 MSGARRS      asc   "ARRAYS: "
              dfb   $00
 MSGCONST     asc   "CONSTANTS: "
@@ -1241,6 +1447,7 @@ NUMMAX       equ   24
 VMAX         equ   128
 AMAX         equ   32
 SVMAX        equ   64
+DBUFMAX      equ   2048
 CMAX         equ   128
 LTMAX        equ   512
 
@@ -1284,6 +1491,10 @@ NFORS        ds    1
 NARR         ds    1
 NSVARS       ds    1
 SVBASE       ds    2
+DBP          ds    2                ; how much of the DATA buffer is used
+DITEM        ds    2                ; where the item being collected starts
+NDATA        ds    2                ; how many items there are
+FDATA        ds    1                ; and whether the program uses them at all
 ASIZE        ds    2                ; elements, while one is being recorded
 ADIM         ds    1                ; ...said by a DIM rather than guessed
 ARRBASE      ds    2
@@ -1296,6 +1507,7 @@ BADLINE      ds    2                ; and the one the first complaint was on
 VTAB         ds    VMAX*2
 ARRTAB       ds    AMAX*4           ; two of name, two of element count
 SVTAB        ds    SVMAX*2
+DBUF         ds    2048             ; every DATA item in the program
 CTAB         ds    CMAX*5
 LTAB         ds    LTMAX*4
              dend

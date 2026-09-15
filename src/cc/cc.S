@@ -35,6 +35,7 @@ STRPTR       equ   $08              ; 2 bytes, a message being printed
 *    at $40-$4F, of COUT's screen pointers at $24-$29, and of the floating
 *    point up at $93-$AA.
 TMPP         equ   $1a              ; 2 bytes, a table entry being reached
+DBUFP        equ   $1c              ; 2 more, for reaching into the DATA buffer
 COUT         equ   $FDED
 HOME         equ   $FC58
 
@@ -414,7 +415,8 @@ MSGTAB       da    BADSUF           ; 1
              da    BADNSTR          ; 26
              da    BADJOIN          ; 27
              da    BADMIX           ; 28
-NMSG         equ   28
+             da    BADDATA          ; 29
+NMSG         equ   29
 
 BADSUF       asc   "NO STRINGS OR ARRAYS"
              dfb   $00
@@ -471,6 +473,8 @@ BADNSTR      asc   "TOO MANY STRINGS"
 BADJOIN      asc   "NO STRING JOIN YET"
              dfb   $00
 BADMIX       asc   "STRING AGAINST NUMBER"
+             dfb   $00
+BADDATA      asc   "TOO MUCH DATA"
              dfb   $00
 
 *--------------------------------------
@@ -866,7 +870,7 @@ BQPARM       ds    7
 *--- Two ProDOS buffers, a window into the source and one out to the output
 *    file. They were at $1800, which stopped fitting the moment there were two
 *    of them: $1E00 onwards is the compiler's own code.
-             dum   $9000
+             dum   $a000
 IOBUF        ds    1024             ; ProDOS wants these page aligned
 IOBUF2       ds    1024
 DATBUF       ds    512

@@ -62,8 +62,9 @@ FDEPTH       equ   8                ; nested FOR loops
 *    5 its length, 6-7 where the collector is moving to, 8-9 the best
 *    descriptor it has found, 10-11 that string's address, 12 its length,
 *    13 how many descriptors are left to look at, 14-15 which part of a
-*    string a slice wants, 16-17 a POKE's address across its value.
-SCRASZ       equ   18
+*    string a slice wants, 16-17 a POKE's address across its value,
+*    18-19 how far through the DATA a READ has got.
+SCRASZ       equ   20
 
 TFORK        equ   $81
 TNEXT        equ   $82
@@ -92,6 +93,9 @@ TCHR         equ   $e7
 TSTR         equ   $e4
 TPEEK        equ   $e2
 TVAL         equ   $e5
+TREAD        equ   $87
+TRESTORE     equ   $ae
+TDATAK       equ   $83
 TPOKE        equ   $b9
 TCALL        equ   $8c
 GETADR       equ   $e752            ; FAC -> unsigned 16 bits in $50 and $51
@@ -649,6 +653,35 @@ EMHASC       lda   #$ad
              jmp   EMIT
 
 *--------------------------------------
+* EMDATA -- every DATA item, as pass 1 collected them, and an $FF to stop
+*--------------------------------------
+EMDATA       lda   #$00
+             sta   DEMI
+             sta   DEMI+1
+:loop        lda   DEMI+1
+             cmp   DBP+1
+             bcc   :more
+             lda   DEMI
+             cmp   DBP
+             bcs   :end
+:more        lda   DEMI
+             clc
+             adc   #<DBUF
+             sta   DBUFP
+             lda   DEMI+1
+             adc   #>DBUF
+             sta   DBUFP+1
+             ldy   #$00
+             lda   (DBUFP),y
+             jsr   EMIT
+             inc   DEMI
+             bne   :loop
+             inc   DEMI+1
+             jmp   :loop
+:end         lda   #$ff
+             jmp   EMIT
+
+*--------------------------------------
 * EMMSG -- a run-time message: high ASCII, a return, and a zero
 *--------------------------------------
 EMMSG        sta   STRPTR
@@ -668,6 +701,8 @@ EMMSG        sta   STRPTR
              jmp   EMIT
 
 MSGOOM       asc   "?OUT OF MEMORY ERROR"
+             dfb   $00
+MSGDATA2     asc   "?OUT OF DATA ERROR"
              dfb   $00
 MSGLONG      asc   "?STRING TOO LONG ERROR"
              dfb   $00
@@ -2505,6 +2540,135 @@ EMHVAL       lda   #$ad
              jmp   EMIT
 
 *--------------------------------------
+* EMHNEXTD -- the next DATA item, as a descriptor in SDA
+*
+* The items were split and trimmed by pass 1 and sit in the compiled program
+* as a length and then characters, one after another, ended by a length of
+* $FF. So READing a string allocates nothing at all: the descriptor points
+* straight at the item, which lives in the program's own text and never moves.
+*
+* READing a number is this and then HVAL, which is the same routine VAL uses
+* -- it zeroes the byte past the item for the duration, which here is the
+* NEXT item's length byte, and puts it back afterwards.
+*--------------------------------------
+EMHNEXTD     lda   #$ad
+             jsr   EMIT
+             lda   #$12
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$13
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$b1
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMIT
+             lda   #$c9
+             jsr   EMIT
+             lda   #$ff
+             jsr   EMIT
+             lda   #$f0
+             jsr   EMIT
+             lda   #$2f
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$12
+             jsr   EMSCOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$69
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$13
+             jsr   EMSCOFS
+             lda   #$69
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+             lda   #$18
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$12
+             jsr   EMSCOFS
+             lda   #$6d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$8d
+             jsr   EMIT
+             lda   #$12
+             jsr   EMSCOFS
+             lda   #$ad
+             jsr   EMIT
+             lda   #$13
+             jsr   EMSCOFS
+             lda   #$69
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$13
+             jsr   EMSCOFS
+             lda   #$ee
+             jsr   EMIT
+             lda   #$12
+             jsr   EMSCOFS
+             lda   #$d0
+             jsr   EMIT
+             lda   #$03
+             jsr   EMIT
+             lda   #$ee
+             jsr   EMIT
+             lda   #$13
+             jsr   EMSCOFS
+             lda   #$60
+             jsr   EMIT
+             lda   #$a9
+             jsr   EMIT
+             lda   MDATA
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   MDATA+1
+             jsr   EMIT
+             lda   #$4c
+             jsr   EMIT
+             lda   HERR
+             jsr   EMIT
+             lda   HERR+1
+             jmp   EMIT
+
+*--------------------------------------
 * NEED -- record that the program uses something
 *
 * A compiled program used to carry the array helper, the string helpers, the
@@ -2600,8 +2764,9 @@ GENPASS      lda   #$00
 *    at all. The same shape as a forward GOTO, and it needs the same care.
              lda   PASSNO
              cmp   #$02
-             bne   :keep
-             lda   #<CODEORG
+             beq   :setup
+             jmp   :keep            ; the list below has outgrown a branch
+:setup       lda   #<CODEORG
              sta   HARR
              sta   HSCMP
              sta   HSPR
@@ -2618,6 +2783,9 @@ GENPASS      lda   #$00
              sta   HSLICE
              sta   HPEEK
              sta   HVAL
+             sta   HNEXTD
+             sta   DTAB
+             sta   MDATA
              sta   HPOKE
              sta   HCALL
              sta   MOOM
@@ -2639,6 +2807,9 @@ GENPASS      lda   #$00
              sta   HSLICE+1
              sta   HPEEK+1
              sta   HVAL+1
+             sta   HNEXTD+1
+             sta   DTAB+1
+             sta   MDATA+1
              sta   HPOKE+1
              sta   HCALL+1
              sta   MOOM+1
@@ -2728,6 +2899,30 @@ GENPASS      lda   #$00
              jsr   EMIT
              lda   #$02
              jsr   EMSCOFS
+
+*--- and the DATA pointer at the first item. DTAB is not known until the
+*    items have been emitted, which is after all of this -- so it is resolved
+*    the way a forward GOTO is.
+*--- FDATA, not the running tally: see pass 1. The tally is still empty here.
+             lda   FDATA
+             beq   :nodat
+             lda   #$a9
+             jsr   EMIT
+             lda   DTAB
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$12
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   DTAB+1
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$13
+             jsr   EMSCOFS
+:nodat
 
 *--- remember where the stack was, so END can unwind a GOSUB
              lda   #$ba             ; TSX
@@ -2955,7 +3150,26 @@ GENPASS      lda   #$00
              lda   PC+1
              sta   HVAL+1
              jsr   EMHVAL
-:noval
+:noval       lda   FDATA            ; the same answer the prologue used, so the
+             beq   :nodata           ; table is there if the pointer was set
+             lda   PC
+             sta   MDATA
+             lda   PC+1
+             sta   MDATA+1
+             lda   #<MSGDATA2
+             ldy   #>MSGDATA2
+             jsr   EMMSG
+             lda   PC
+             sta   HNEXTD
+             lda   PC+1
+             sta   HNEXTD+1
+             jsr   EMHNEXTD
+             lda   PC                ; and the items themselves
+             sta   DTAB
+             lda   PC+1
+             sta   DTAB+1
+             jsr   EMDATA
+:nodata
 
 *--- ASC allocates nothing, so it is not part of that group
              lda   USES
@@ -3039,6 +3253,12 @@ GENSTMT      lda   #$00
              beq   :on
              cmp   #TPOKE
              beq   :poke
+             cmp   #TREAD
+             beq   :read
+             cmp   #TRESTORE
+             beq   :rest
+             cmp   #TDATAK
+             beq   :datak
              cmp   #TCALL
              beq   :call
              cmp   #TFORK
@@ -3068,6 +3288,9 @@ GENSTMT      lda   #$00
 :next        jmp   GNEXT
 :on          jmp   GON
 :poke        jmp   GPOKE
+:read        jmp   GREAD
+:rest        jmp   GRESTORE
+:datak       jmp   GDATA
 :call        jmp   GCALL
 
 *--- DIM generates nothing at all: pass 1 read the sizes and the space is
@@ -3597,6 +3820,180 @@ GNEXT        lda   #$ff             ; no name given: the innermost loop
              jsr   EMJ2
              clc
              rts
+
+*--------------------------------------
+* GDATA -- a DATA statement generates nothing
+*
+* Pass 1 took its items; all that is left is to step over exactly the same
+* bytes, which means honouring the quotes the same way -- a colon inside one
+* does not end the statement.
+*--------------------------------------
+GDATA        lda   #$00
+             sta   DQUOTE
+:loop        jsr   NEXTB
+             bcs   :bad
+             sta   CH
+             beq   :done
+             cmp   #'"'
+             bne   :notq
+             lda   DQUOTE
+             eor   #$01
+             sta   DQUOTE
+             jmp   :loop
+:notq        lda   DQUOTE
+             bne   :loop
+             lda   CH
+             cmp   #':'
+             bne   :loop
+:done        jsr   PUTBACK
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* GRESTORE -- back to the first item
+*--------------------------------------
+GRESTORE     lda   #$10
+             jsr   NEED2
+             lda   #$a9
+             jsr   EMIT
+             lda   DTAB
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$12
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   DTAB+1
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$13
+             jsr   EMSCOFS
+             clc
+             rts
+
+*--------------------------------------
+* GREAD -- READ a, b$, c(i)
+*
+* A string item needs nothing allocated: its characters are in the compiled
+* program and never move, so the descriptor can point straight at them. A
+* numeric one goes through the same parser VAL uses.
+*--------------------------------------
+GREAD        lda   #$10             ; before the loop deliberately: the flag
+             jsr   NEED2             ; is wanted once, and :one is branched to
+             jmp   :one
+:badj        jmp   :bad             ; the exit is past the whole of the body
+:one         jsr   NEXTB
+             bcs   :badj
+             sta   CH
+             jsr   ISALNUM
+             bcs   :badj
+             jsr   GETNAME
+             bcs   :badj
+             lda   CH
+             cmp   #'$'
+             beq   :str
+             cmp   #'('
+             beq   :elem
+
+*--- a plain number
+             jsr   GETVAR2
+             bcs   :badj
+             jsr   PUTBACK
+             lda   VARI
+             pha
+             jsr   EMNEXTD
+             jsr   EMVAL
+             pla
+             sta   TMPA
+             jsr   VADDR
+             jsr   EMSTP
+             jmp   :more
+
+*--- a string: three bytes from the item's descriptor into the variable
+:str         jsr   SVFIND
+             bcs   :badj
+             jsr   SVADDR
+             lda   TMPP
+             sta   DSTSV
+             lda   TMPP+1
+             sta   DSTSV+1
+             jsr   EMNEXTD
+             jsr   SDAADDR
+             lda   TMPP
+             sta   SRCA
+             lda   TMPP+1
+             sta   SRCA+1
+             lda   DSTSV
+             sta   DSTA
+             lda   DSTSV+1
+             sta   DSTA+1
+             jsr   EMSDESC
+             jmp   :more
+
+*--- an element: its address is worked out first and kept, because reading
+*    the item runs the parser over the accumulator
+:elem        jsr   GETARR
+             bcs   :badj
+             jsr   EMSUBS
+             bcs   :badj
+             lda   #$85             ; STA ZPELEM
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$84
+             jsr   EMIT
+             lda   #ZPELEM+1
+             jsr   EMIT
+             jsr   EMNEXTD
+             jsr   EMVAL
+             lda   #$a6             ; LDX ZPELEM
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$a4
+             jsr   EMIT
+             lda   #ZPELEM+1
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<MOVMF
+             jsr   EMIT
+             lda   #>MOVMF
+             jsr   EMIT
+
+:more        jsr   PEEK
+             bcs   :done
+             cmp   #$2c
+             bne   :done
+             jsr   NEXTB
+             jmp   :one
+:done        clc
+             rts
+:bad         lda   #$06
+             jsr   SETBAD
+             sec
+             rts
+
+*--- JSR the two helpers a READ is made of
+EMNEXTD      lda   #$20
+             jsr   EMIT
+             lda   HNEXTD
+             jsr   EMIT
+             lda   HNEXTD+1
+             jmp   EMIT
+
+EMVAL        lda   #$08
+             jsr   NEED2
+             lda   #$20
+             jsr   EMIT
+             lda   HVAL
+             jsr   EMIT
+             lda   HVAL+1
+             jmp   EMIT
 
 *--------------------------------------
 * GPOKE -- POKE address, value
@@ -5413,14 +5810,15 @@ SLOK         lda   #$01
              clc
              rts
 
-*--- And MID$ has one of its own again: the slice block is over a branch's
-*    reach end to end.
-:mbad        sec
-             rts
-
 *--- MID$: the start, which goes on the stack too because working out the
 *    count can reach another MID$ through a LEN
-FMID         jsr   EMAYINT
+*--- Its failure exit belongs INSIDE this routine. It was sitting above the
+*    label, which put it in the previous one's scope -- it resolved to the
+*    right address only because it happened to sit just before FMID.
+FMID         jmp   :go
+:mbad        sec
+             rts
+:go          jsr   EMAYINT
              lda   #$a5
              jsr   EMIT
              lda   #FACLO
@@ -6374,6 +6772,11 @@ HGC          ds    2
 HSLICE       ds    2
 HPEEK        ds    2
 HVAL         ds    2
+HNEXTD       ds    2
+DTAB         ds    2                ; where the DATA items landed
+MDATA        ds    2
+DEMI         ds    2                ; walking them out
+DQUOTE       ds    1
 HPOKE        ds    2
 HCALL        ds    2
 MOOM         ds    2                ; where the two messages landed
