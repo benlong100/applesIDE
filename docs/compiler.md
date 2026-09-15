@@ -263,17 +263,25 @@ each one interpreted and then compiled, in the same session on the same disk.
 
 | program | interpreted | compiled | speedup | answer |
 |---|---|---|---|---|
-| BENCH1 | 33.79s | 6.04s | 5.6× | 4501500 |
-| BENCH2 | 66.73s | 6.03s | 11.1× | 4501500 |
-| BENCH3 | 38.78s | 6.11s | 6.3× | 4501500 |
-| BENCH4 | 71.48s | 6.13s | 11.7× | 4501500 |
-| BENCH5 | 26.84s | 4.46s | 6.0× | 3000 |
+| BENCH1 | 33.72s | 6.00s | 5.6× | 4501500 |
+| BENCH2 | 66.73s | 6.10s | 10.9× | 4501500 |
+| BENCH3 | 38.82s | 6.05s | 6.4× | 4501500 |
+| BENCH4 | 71.53s | 6.15s | 11.6× | 4501500 |
+| BENCH5 | 26.80s | 4.41s | 6.1× | 3000 |
+
+Re-measured after the DIM fix and after the benchmark was made to use the
+compiler it had just built rather than the one on the distribution disk. The
+figures moved by hundredths, which is the answer to the question worth asking
+of a harness fault: it had been measuring a compiler one commit old, not one
+generation old, so the numbers it gave were near enough to be believed and
+near enough to be right. They were still not measurements of the thing they
+named.
 
 Every answer is the interpreter's own.
 
-**The compiled times barely move across the first four** — 6.04 to 6.14, a
-spread of a tenth of a second across programs whose interpreted times run from
-33 to 71 seconds. That is the whole claim made visible: what differs between
+**The compiled times barely move across the first four** — 6.00 to 6.15, a
+spread of fifteen hundredths of a second across programs whose interpreted
+times run from 33 to 71 seconds. That is the whole claim made visible: what differs between
 them is the line search and the variable scan, and compiling does not reduce
 that work, it removes it. BENCH4 is the realistically shaped one and gains
 most.
