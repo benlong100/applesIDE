@@ -1,0 +1,12 @@
+10 DIM A$(8)
+20 FOR I = 0 TO 8
+30 A$(I) = "X"
+40 NEXT
+50 FOR J = 1 TO 40
+60 FOR I = 0 TO 8
+70 A$(I) = A$(I) + "Y"
+80 NEXT
+90 NEXT
+100 PRINT LEN(A$(0));" ";LEN(A$(8))
+110 PRINT A$(4)
+120 PRINT "DONESG"

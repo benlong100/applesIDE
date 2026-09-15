@@ -1099,3 +1099,55 @@ The bug underneath it was found the other way round and took one look: every
 call compiled to `JSR` the function's *save slot* instead of its body, because
 the body address was parked in `CPT` and `EMCOPY5` uses `CPT` as scratch for
 the addresses it emits.
+
+## Arrays of strings
+
+The elements go **immediately after the string variables**, inside the run the
+collector already walks. Every element is a descriptor and therefore a root,
+so putting them anywhere else would have meant teaching the collector a second
+range; putting them here meant giving it a larger count. That the layout was
+already arranged as one unbroken run is what made this a small change.
+
+The count is a single byte, so `LAYOUT` refuses a program whose descriptors
+pass 255 rather than emitting one that has wrapped. A collector told to walk 3
+of 259 descriptors would move a string out from under the other 256.
+
+`tests/cc/sgc` is the test that checks the claim rather than the syntax: three
+hundred and sixty allocations of growing strings against a heap that cannot
+hold them, so collection happens repeatedly with array elements live, and
+`A$(I) = A$(I) + "Y"` makes the aliasing case that broke the collector once
+before — a descriptor whose old and new values name the same text.
+
+### Three bugs, sorted by what found them
+
+**Reading found one.** `SAADDR` recomputes the descriptor total for every
+subscript, and the helpers are emitted after the code, so the collector would
+have been handed whatever partial sum the last element reference left behind.
+It would have walked too few roots: silent corruption, not a crash. The total
+is taken once now, in `LAYOUT`.
+
+**The size guard found the second.** `SASUM` reaches the table through
+`SLOTN`, which works in `TMPP` — so adding its result to `TMPP` put the
+program's data fifteen thousand bytes further on. The guard turned what would
+have been a compiled program that overwrote ProDOS into a refusal with an
+address in it.
+
+**Only the machine could find the third.** A loop counter in `X` across `JSR
+EMIT`. `EMIT` discards in pass 2 and writes the file in pass 3, and makes no
+promise about `X`, so the same loop ended in one pass and never ended in the
+other — a hang that appears halfway through compiling and not at all in the
+half that ran first. The codebase already counts in memory in its other emit
+loops; this did not.
+
+Markers printed around each step of the element read said `ABCD` in pass 2 and
+`ABC` in pass 3. Two runs: one to learn it was pass 3 and which line, one to
+learn which routine. That is the shape to reach for first when a symptom
+cannot be reconciled with the source — it was reached for late with the `:go`
+scope bug and early here, and the difference was six emulator runs.
+
+### And one about an existing contract
+
+`PUTBACK` hands back `CH`, not the accumulator. A lookahead therefore has to
+store what it read before pushing it back, which is what `EPRIM` does a few
+lines away and what both new ones failed to do — so they handed back the `$`
+that `GETNAME` had left there, and the `=` after it was never seen.
