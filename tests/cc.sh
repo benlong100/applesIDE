@@ -181,9 +181,9 @@ for idx in "${!NAMES[@]}"; do
     fi
     "$V" line "$n" >/dev/null
     for i in $(seq 1 900); do
-        "$V" screen 2>/dev/null | grep -qE "WROTE|STOPPED|CANNOT" && break
+        "$V" screen 2>/dev/null | grep -qE "WROTE|STOPPED|CANNOT|TOO BIG" && break
     done
-    msg=$("$V" screen | grep -E "WROTE|STOPPED|CANNOT" | tail -1)
+    msg=$("$V" screen | grep -E "WROTE|STOPPED|CANNOT|TOO BIG" | tail -1)
     "$V" text " " >/dev/null
     to_basic
     case "$msg" in

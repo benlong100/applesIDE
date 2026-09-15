@@ -432,7 +432,8 @@ MSGTAB       da    BADSUF           ; 1
              da    BADFNARG         ; 33
              da    BADDEFH          ; 34
              da    BADDEFB          ; 35
-NMSG         equ   35
+             da    BADSDESC         ; 36
+NMSG         equ   36
 
 BADSUF       asc   "NO STRINGS OR ARRAYS"
              dfb   $00
@@ -503,6 +504,8 @@ BADFNARG     asc   "FN WANTS ONE NUMBER IN BRACKETS"
 BADDEFH      asc   "DEF FN HEADER"
              dfb   $00
 BADDEFB      asc   "DEF FN BODY"
+             dfb   $00
+BADSDESC     asc   "TOO MANY STRINGS AT ONCE"
              dfb   $00
 
 *--------------------------------------

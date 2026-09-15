@@ -1,0 +1,11 @@
+10 DIM A$(5)
+20 A$(0) = "ZERO"
+30 A$(1) = "ONE"
+40 A$(3) = "THREE"
+50 FOR I = 0 TO 3
+60 PRINT I;"[";A$(I);"]"
+70 NEXT
+80 B$ = A$(1) + "-" + A$(3)
+90 PRINT "[";B$;"]"
+100 PRINT LEN(A$(0))
+110 PRINT "DONESA"

@@ -64,7 +64,7 @@ FDEPTH       equ   8                ; nested FOR loops
 *    13 how many descriptors are left to look at, 14-15 which part of a
 *    string a slice wants, 16-17 a POKE's address across its value,
 *    18-19 how far through the DATA a READ has got.
-SCRASZ       equ   26               ; $14-$17 the input line and its split,
+SCRASZ       equ   28               ; $1a/$1b: an array element being assigned to               ; $14-$17 the input line and its split,
 *                                     $18/$19 an item on its way to the heap
 
 TFORK        equ   $81
@@ -358,10 +358,16 @@ EMSCOFS      clc
              sta   TMPP+1
              jmp   EMADDR
 
-*--- and the count of descriptors the collector has to walk
+*--- and the count of descriptors the collector has to walk: SDA, SDB, every
+*    string variable, and every element of every array of strings. ONE BYTE,
+*    which is why LAYOUT refuses a program whose total passes 255 rather than
+*    emitting a count that has wrapped -- a collector that walks 3 of 259
+*    descriptors would move a string out from under the other 256.
 EMNDESC      lda   NSVARS
              clc
              adc   #$02
+             clc
+             adc   NSAEL
              jmp   EMIT
 
 *--- emit an absolute address of SDESCA + A
@@ -3616,6 +3622,40 @@ ARRBEND
 HELPSZ       equ   ARRBEND-ARRBLOB
 
 *--------------------------------------
+* SARRBLOB -- base + 3 * index, for an array of strings
+*
+* The same shape as the one above with one doubling instead of two, because a
+* descriptor is three bytes where a float is five. Entered and left the same
+* way, and just as free of anything absolute, so it needs no fixing up either.
+*--------------------------------------
+SARRBLOB     dfb   $85,ZPB          ; STA base lo
+             dfb   $84,ZPB+1        ; STY base hi
+             dfb   $a5,FACLO
+             dfb   $85,ZPB+2
+             dfb   $a5,FACHI
+             dfb   $85,ZPB+3
+             dfb   $06,ZPB+2        ; ASL, ROL: once round is twice
+             dfb   $26,ZPB+3
+             dfb   $18              ; CLC -- and the index once more is three
+             dfb   $a5,ZPB+2
+             dfb   $65,FACLO
+             dfb   $85,ZPB+2
+             dfb   $a5,ZPB+3
+             dfb   $65,FACHI
+             dfb   $85,ZPB+3
+             dfb   $18              ; CLC -- then the base
+             dfb   $a5,ZPB+2
+             dfb   $65,ZPB
+             dfb   $85,ZPB+2
+             dfb   $a5,ZPB+3
+             dfb   $65,ZPB+1
+             dfb   $a8              ; TAY: the high byte
+             dfb   $a5,ZPB+2        ; and the low in A
+             dfb   $60
+SARRBEND
+SHELPSZ      equ   SARRBEND-SARRBLOB
+
+*--------------------------------------
 * GENPASS -- run one pass over the source. PASSNO says which.
 *--------------------------------------
 GENPASS      lda   #$00
@@ -3670,6 +3710,7 @@ GENPASS      lda   #$00
              sta   MREENT
              sta   MEXTRA
              sta   HICOPY
+             sta   HSARR
              sta   MOOM
              sta   MLONG
              lda   #>CODEORG
@@ -3703,6 +3744,7 @@ GENPASS      lda   #$00
              sta   MREENT+1
              sta   MEXTRA+1
              sta   HICOPY+1
+             sta   HSARR+1
              sta   MOOM+1
              sta   MLONG+1
 :keep
@@ -3886,6 +3928,23 @@ GENPASS      lda   #$00
              cmp   #HELPSZ
              bcc   :hb
 :noarr
+             lda   USES2
+             and   #$80
+             beq   :nosarr
+             lda   PC
+             sta   HSARR
+             lda   PC+1
+             sta   HSARR+1
+             lda   #$00
+             sta   EMI
+:sb          ldy   EMI
+             lda   SARRBLOB,y
+             jsr   EMIT
+             inc   EMI
+             lda   EMI
+             cmp   #SHELPSZ
+             bcc   :sb
+:nosarr
 
 *--- comparing two strings, and printing one
              lda   USES
@@ -4378,8 +4437,18 @@ GLET         jsr   GETNAME
 * loads and three stores and A$ = "X" is the characters plus six. Nothing is
 * copied and nothing is allocated.
 *--------------------------------------
-GLETSTR      jsr   SVFIND
-             bcs   :bad
+GLETSTR
+             jmp   :head
+:sarrj       jmp   :sarr            ; the element case is past the plain one
+:badj        jmp   :bad
+:head        jsr   NEXTB            ; a bracket after the $ makes it an array
+             bcs   :plain
+             sta   CH               ; PUTBACK hands back CH, not A
+             cmp   #'('
+             beq   :sarrj
+             jsr   PUTBACK
+:plain       jsr   SVFIND
+             bcs   :badj
              jsr   SVADDR
              lda   TMPP             ; keep where it goes; the value is built
              sta   DSTSV            ; in SDA and copied here at the end
@@ -4413,6 +4482,36 @@ GLETSTR      jsr   SVFIND
 *--- ESUM has consumed any joins, so the statement really should be over
 *    here; what used to complain about a trailing + now compiles it.
              clc
+             rts
+
+*--- Into an element of an array of strings. The element's address is worked
+*    out first and PUT AWAY, because building the value can allocate, and an
+*    allocation can collect: what moves is the text, never the descriptor, so
+*    the address stays good -- but the accumulator and the zero page it is
+*    held in do not survive an expression.
+:sarr        jsr   SAFIND
+             bcs   :sabad
+             jsr   EMSSUBS
+             bcs   :sabad
+             jsr   EMSASAVE
+             jsr   NEXTB
+             bcs   :sabad
+             cmp   #TEQ
+             bne   :sabad
+             lda   #$00
+             sta   ISSTR
+             jsr   ESUM
+             bcs   :sabad
+             lda   ISSTR
+             beq   :sanotstr
+             lda   #$00
+             sta   ISSTR
+             jsr   EMSAPUT
+             clc
+             rts
+:sanotstr    lda   #$1c             ; STRING AGAINST NUMBER
+             jsr   SETBAD
+:sabad       sec
              rts
 
 :notstr      lda   #$1c             ; STRING AGAINST NUMBER
@@ -5091,6 +5190,178 @@ EMIVAL       lda   #$20
              jsr   EMIT
              lda   INPPC+1
              jmp   EMIT
+
+*--------------------------------------
+* SAFIND -- the array of strings named in VN0/VN1
+*--------------------------------------
+SAFIND       lda   #$00
+             sta   TMPA
+:loop        lda   TMPA
+             cmp   NSARR
+             bcs   :no
+             jsr   SASLOT
+             ldy   #$00
+             lda   (TMPP),y
+             cmp   VN0
+             bne   :step
+             iny
+             lda   (TMPP),y
+             cmp   VN1
+             beq   :yes
+:step        inc   TMPA
+             jmp   :loop
+:yes         clc
+             rts
+:no          sec
+             rts
+
+*--------------------------------------
+* SAADDR -- TMPP <- where the elements of string array TMPA begin
+*--------------------------------------
+SAADDR       jsr   SASUM            ; the ones before it, in bytes
+             lda   SABASE
+             clc
+             adc   SATOT
+             sta   TMPP
+             lda   SABASE+1
+             adc   SATOT+1
+             sta   TMPP+1
+             rts
+
+*--------------------------------------
+* EMSSUBS -- the subscript of an array of strings, leaving the element's
+*            address in A and Y
+*--------------------------------------
+EMSSUBS      lda   TMPA
+             pha
+             jsr   NEXPR
+             bcs   :drop
+             jsr   NEXTB
+             bcs   :drop
+             cmp   #')'
+             bne   :dropbad
+             lda   #$20             ; JSR AYINT
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+             pla
+             sta   TMPA
+             jsr   SAADDR
+             lda   #$a9
+             jsr   EMIT
+             lda   TMPP
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   TMPP+1
+             jsr   EMIT
+             lda   #$80
+             jsr   NEED2
+             lda   #$20             ; JSR the three-byte address helper
+             jsr   EMIT
+             lda   HSARR
+             jsr   EMIT
+             lda   HSARR+1
+             jsr   EMIT
+             clc
+             rts
+:dropbad     pla
+             lda   #$0c
+             jsr   SETBAD
+             sec
+             rts
+:drop        pla
+             sec
+             rts
+
+*--------------------------------------
+* EMSAGET -- the descriptor at the address in A and Y, into SDA
+*--------------------------------------
+*    THE COUNTER LIVES IN MEMORY, NOT IN X. EMIT does nothing in pass 2 and
+*    writes to the file in pass 3, and it does not promise to bring X back --
+*    so a loop counting in X round a JSR EMIT ends in pass 2 and never ends in
+*    pass 3. Which is exactly what it did.
+EMSAGET      lda   #$85
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$84
+             jsr   EMIT
+             lda   #ZPELEM+1
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             sta   SDI
+:one         lda   #$b1             ; LDA (ZPELEM),Y
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$8d             ; STA SDA + n
+             jsr   EMIT
+             lda   SDI
+             jsr   EMSDOFS
+             lda   SDI
+             cmp   #$02
+             beq   :done
+             lda   #$c8             ; INY
+             jsr   EMIT
+             inc   SDI
+             jmp   :one
+:done        rts
+
+*--------------------------------------
+* EMSAPUT -- SDA into the descriptor whose address was put by EMSASAVE
+*--------------------------------------
+EMSASAVE     lda   #$8d
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMSCOFS
+             lda   #$8c
+             jsr   EMIT
+             lda   #$1b
+             jmp   EMSCOFS
+
+EMSAPUT      lda   #$ad
+             jsr   EMIT
+             lda   #$1a
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$1b
+             jsr   EMSCOFS
+             lda   #$85
+             jsr   EMIT
+             lda   #ZPELEM+1
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             sta   SDI
+:one         lda   #$ad             ; LDA SDA + n
+             jsr   EMIT
+             lda   SDI
+             jsr   EMSDOFS
+             lda   #$91             ; STA (ZPELEM),Y
+             jsr   EMIT
+             lda   #ZPELEM
+             jsr   EMIT
+             lda   SDI
+             cmp   #$02
+             beq   :done
+             lda   #$c8             ; INY
+             jsr   EMIT
+             inc   SDI
+             jmp   :one
+:done        rts
 
 *--------------------------------------
 * GDEF -- DEF FN name ( parameter ) = expression
@@ -7386,7 +7657,13 @@ FMID
 *--- A string variable: its descriptor is copied to wherever this expression
 *    wants one. The $ was read by GETNAME and is part of the name, so unlike
 *    a plain variable there is nothing to hand back.
-SVARP        jsr   SVFIND
+SVARP        jsr   NEXTB            ; what follows the $ says which kind
+             bcs   :plain
+             sta   CH               ; PUTBACK hands back CH, not A
+             cmp   #'('
+             beq   :arr
+             jsr   PUTBACK
+:plain       jsr   SVFIND
              bcc   :vok
              sec                    ; and one of its own: EPRIM is long enough
              rts                    ; now that no shared exit is in reach
@@ -7404,6 +7681,23 @@ SVARP        jsr   SVFIND
              lda   #$00
              sta   PENDOK
              clc
+             rts
+
+*--- An element of one. Its address is only known when the program runs, so
+*    the descriptor is copied through a pointer rather than from a fixed
+*    address the way a plain string variable is.
+:arr         jsr   SAFIND
+             bcs   :arrbad
+             jsr   EMSSUBS
+             bcs   :arrbad
+             jsr   EMSAGET
+             lda   #$01
+             sta   ISSTR
+             lda   #$00
+             sta   PENDOK
+             clc
+             rts
+:arrbad      sec
              rts
 
 *--- Remember where it is rather than loading it. See ESUM.
@@ -8136,9 +8430,53 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              sta   ACCN
              jsr   BUMP
 
+*--- THE ARRAYS OF STRINGS GO HERE, still inside the run. Every element is a
+*    descriptor and therefore a root, so putting them anywhere else would give
+*    the collector two ranges to walk instead of one. Three bytes an element,
+*    the same as a plain string variable, and for the same reason.
+             lda   TMPP
+             sta   SABASE
+             lda   TMPP+1
+             sta   SABASE+1
+             lda   NSARR
+             sta   TMPA
+             jsr   SASUM            ; SATOT = the elements of all of them
+             lda   SAELT            ; kept once: every later call is partial
+             sta   NSAEL
+             lda   SAELT+1
+             sta   NSAEL+1
+
+*--- FROM SABASE, NOT TMPP. SASUM reaches the table through SLOTN, which
+*    works in TMPP, so by the time it returns TMPP is pointing at a table
+*    entry up at $8000 rather than at the layout. Adding to that put the
+*    program's data fifteen thousand bytes further on and the size guard
+*    caught it -- which is the only reason this was a refusal and not a
+*    program that overwrote ProDOS.
+             lda   SABASE
+             clc
+             adc   SATOT
+             sta   TMPP
+             lda   SABASE+1
+             adc   SATOT+1
+             sta   TMPP+1
+
 *--- and past the roots, everything else the string runtime works in:
 *    MID$'s start, the heap pointer, the join's destination and length, and
 *    the collector's own five.
+*--- THE COLLECTOR COUNTS ITS ROOTS IN ONE BYTE. Two, plus the string
+*    variables, plus every element of every array of strings.
+             lda   NSAEL+1
+             bne   :toomany
+             lda   NSAEL
+             clc
+             adc   NSVARS
+             bcs   :toomany
+             adc   #$02
+             bcs   :toomany
+             jmp   :roomok
+:toomany     lda   #$24             ; TOO MANY STRINGS AT ONCE
+             jsr   SETBAD
+:roomok
              lda   TMPP
              sta   SCRA
              lda   TMPP+1
@@ -8161,6 +8499,62 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              lda   ARRBASE+1
              adc   ATOT+1
              sta   CODESTA+1
+             rts
+
+*--------------------------------------
+* SASUM -- SATOT = the bytes taken by string arrays 0 to TMPA-1, and NSAEL
+*          the number of descriptors in them
+*
+* Three a time round rather than a multiply, as ASUM does five: this runs once
+* per array per pass, not once per subscript.
+*--------------------------------------
+SASUM        lda   #$00
+             sta   SATOT
+             sta   SATOT+1
+             sta   SAELT
+             sta   SAELT+1
+             sta   SAI
+:each        lda   SAI
+             cmp   TMPA
+             bcs   :done
+             sta   TMPA2
+             jsr   SASLOTG
+             ldy   #$02
+             lda   (TMPP),y
+             sta   ACOUNT
+             iny
+             lda   (TMPP),y
+             sta   ACOUNT+1
+             lda   SAELT            ; a running count, not the kept one
+             clc
+             adc   ACOUNT
+             sta   SAELT
+             lda   SAELT+1
+             adc   ACOUNT+1
+             sta   SAELT+1
+             ldx   #$03             ; three bytes for each of them
+:three       lda   SATOT
+             clc
+             adc   ACOUNT
+             sta   SATOT
+             lda   SATOT+1
+             adc   ACOUNT+1
+             sta   SATOT+1
+             dex
+             bne   :three
+             inc   SAI
+             jmp   :each
+:done        rts
+
+*--- SASLOT reads TMPA; this one reads TMPA2, so the loop above can keep its
+*    own index without the slot routine treading on it
+SASLOTG      lda   TMPA
+             pha
+             lda   TMPA2
+             sta   TMPA
+             jsr   SASLOT
+             pla
+             sta   TMPA
              rts
 
 *--------------------------------------
@@ -8270,6 +8664,15 @@ LEFTA        ds    2                ; a bitwise operator's left side
 LOGBR        ds    1                ; which way a logical operator branches
 LOGFALL      ds    1                ; and which constant goes where
 LOGTGT       ds    1
+SABASE       ds    2                ; where the arrays of strings begin
+SATOT        ds    2                ; and how many bytes they take
+NSAEL        ds    2                ; how many descriptors that is
+SAELT        ds    2                ; SASUM's running count of them
+ACOUNT       ds    2                ; one array's element count
+TMPA2        ds    1
+SAI          ds    1                ; SASUM's own index
+SDI          ds    1                ; and the descriptor byte being emitted
+HSARR        ds    2                ; the three-byte address helper
 HARR         ds    2                ; where the address helper landed
 FINPC        ds    2                ; and the end of the whole thing
 HSCMP        ds    2                ; the string comparison helper

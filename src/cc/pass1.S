@@ -74,6 +74,7 @@ PASS1        lda   #$00
              sta   NDATA+1
              sta   FDATA
              sta   NDEFS
+             sta   NSARR
              sta   BADFLG
              sta   BADLINE
              sta   BADLINE+1
@@ -286,8 +287,15 @@ SCANBODY     lda   #$00
              beq   :sarray
              jsr   SVARADD
              jmp   :redo
-:sarray      lda   #$19             ; NO STRING ARRAYS YET
-             jsr   SETBAD
+*--- An array of strings used without a DIM: eleven, as a numeric one gets,
+*    and a DIM later replaces it. The bracket is consumed and what is inside
+*    it goes on being read as code.
+:sarray      lda   #$0b
+             sta   ASIZE
+             lda   #$00
+             sta   ASIZE+1
+             sta   ADIM
+             jsr   SARRADD
              jmp   :next
 :seof        sec
              rts
@@ -374,23 +382,23 @@ SCANBODY     lda   #$00
 * second number were not there.
 *--------------------------------------
 :dim         jsr   RDBYTE
-             bcs   :dimeof
+             bcs   :dimeofj
              sta   CH
              jsr   ISALNUM
-             bcs   :dimbad
+             bcs   :dimbadj
              jsr   RDNAME           ; leaves what ended it in CH
-             bcs   :dimeof
+             bcs   :dimeofj
              lda   CH
              cmp   #'$'             ; DIM A$(5): a string array, and saying
              beq   :dimstr          ; 'one dimension only' about it was no
              cmp   #'('             ; help at all
-             bne   :dimbad
+             bne   :dimbadj
 
              jsr   RDSIZE           ; the number inside the bracket
-             bcs   :dimeof
+             bcs   :dimeofj
              lda   CH
              cmp   #')'
-             bne   :dimbad
+             bne   :dimbadj
 
              inc   WORD             ; DIM A(20) holds twenty-one
              bne   :dimset
@@ -410,13 +418,42 @@ SCANBODY     lda   #$00
              beq   :dim
              jmp   :redo
 
+*--- near exits: the real ones are past the string block now
+:dimbadj     jmp   :dimbad
+:dimeofj     jmp   :dimeof
 :dimdone     clc
              rts
 :dimeof      sec
              rts
-:dimstr      lda   #$19             ; NO STRING ARRAYS YET
-             jsr   SETBAD
-             jmp   :next
+*--- DIM A$(20): the same reading as a numeric one, into the other table.
+:dimstr      jsr   RDBYTE
+             bcs   :dimeof
+             sta   CH
+             cmp   #'('
+             bne   :dimbad
+             jsr   RDSIZE
+             bcs   :dimeof
+             lda   CH
+             cmp   #')'
+             bne   :dimbad
+             inc   WORD             ; DIM A$(20) holds twenty-one
+             bne   :dsset
+             inc   WORD+1
+:dsset       lda   WORD
+             sta   ASIZE
+             lda   WORD+1
+             sta   ASIZE+1
+             lda   #$01
+             sta   ADIM
+             jsr   SARRADD
+             jsr   RDBYTE           ; DIM A$(5),B$(6) -- another may follow
+             bcs   :dimdonj
+             sta   CH
+             cmp   #$2c
+             beq   :dimtop
+             jmp   :redo
+:dimtop      jmp   :dim             ; the top is out of a branch's reach now
+:dimdonj     jmp   :dimdone
 :dimbad      lda   #$15             ; ONE DIMENSION ONLY
              jsr   SETBAD
              jmp   :next
@@ -852,6 +889,65 @@ ARRADD       lda   #$00
              lda   ASIZE+1
              sta   (TMPP),y
 :done        rts
+
+*--------------------------------------
+* SARRADD -- an array of strings into SATAB, by name
+*
+* Its own table, not ARRTAB: A, A$ and A$( are three different things that can
+* all be live at once, and an element here is a three-byte descriptor rather
+* than five bytes of float.
+*--------------------------------------
+SARRADD      lda   #$00
+             sta   TMPA
+:find        lda   TMPA
+             cmp   NSARR
+             bcs   :new
+             jsr   SASLOT
+             ldy   #$00
+             lda   (TMPP),y
+             cmp   VN0
+             bne   :step
+             iny
+             lda   (TMPP),y
+             cmp   VN1
+             beq   :have
+:step        inc   TMPA
+             jmp   :find
+
+:new         lda   NSARR
+             cmp   #SAMAX
+             bcc   :room
+             lda   #$16             ; TOO MANY ARRAYS
+             jsr   SETBAD
+             rts
+:room        jsr   SASLOT
+             ldy   #$00
+             lda   VN0
+             sta   (TMPP),y
+             iny
+             lda   VN1
+             sta   (TMPP),y
+             inc   NSARR
+             jmp   :size
+
+*--- A DIM replaces a guess; a guess must not replace a DIM.
+:have        lda   ADIM
+             beq   :done
+:size        ldy   #$02
+             lda   ASIZE
+             sta   (TMPP),y
+             iny
+             lda   ASIZE+1
+             sta   (TMPP),y
+:done        rts
+
+*--- TMPP <- SATAB + 4 * TMPA
+SASLOT       lda   #<SATAB
+             sta   SLOTB
+             lda   #>SATAB
+             sta   SLOTB+1
+             lda   #$04
+             jmp   SLOTN
 
 *--- TMPP <- ARRTAB + 4 * TMPA
 ASLOT        lda   #<ARRTAB
@@ -1563,6 +1659,7 @@ MSGCONST     asc   "CONSTANTS: "
 NUMMAX       equ   24
 VMAX         equ   128
 AMAX         equ   32
+SAMAX        equ   16
 DFMAX        equ   16
 SVMAX        equ   64
 DBUFMAX      equ   2048
@@ -1614,6 +1711,7 @@ DITEM        ds    2                ; where the item being collected starts
 NDATA        ds    2                ; how many items there are
 FDATA        ds    1                ; and whether the program uses them at all
 NDEFS        ds    1                ; how many DEF FN there are
+NSARR        ds    1                ; and how many arrays of strings
 FNBASE       ds    2                ; where their saved parameters live
 ASIZE        ds    2                ; elements, while one is being recorded
 ADIM         ds    1                ; ...said by a DIM rather than guessed
@@ -1631,4 +1729,5 @@ DBUF         ds    2048             ; every DATA item in the program
 CTAB         ds    CMAX*5
 LTAB         ds    LTMAX*4
 DFTAB        ds    DFMAX*7
+SATAB        ds    SAMAX*4
              dend
