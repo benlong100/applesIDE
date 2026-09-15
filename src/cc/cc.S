@@ -370,6 +370,16 @@ BADSAY       lda   BADFLG
              lda   MSGTAB,x
              ldy   MSGTAB+1,x
              jsr   PRSTR
+
+*--- AND THE NUMBER. The words are for the person reading; the number says
+*    which of several places that share a wording actually stopped, which the
+*    words cannot.
+             lda   #$a0
+             jsr   COUT
+             lda   #$a3
+             jsr   COUT
+             lda   BADFLG
+             jsr   PRHEX
              jsr   PRCR
              jmp   FINISH
 
@@ -416,7 +426,13 @@ MSGTAB       da    BADSUF           ; 1
              da    BADJOIN          ; 27
              da    BADMIX           ; 28
              da    BADDATA          ; 29
-NMSG         equ   29
+             da    BADDEF           ; 30
+             da    BADNFN           ; 31
+             da    BADNOFN          ; 32
+             da    BADFNARG         ; 33
+             da    BADDEFH          ; 34
+             da    BADDEFB          ; 35
+NMSG         equ   35
 
 BADSUF       asc   "NO STRINGS OR ARRAYS"
              dfb   $00
@@ -475,6 +491,18 @@ BADJOIN      asc   "NO STRING JOIN YET"
 BADMIX       asc   "STRING AGAINST NUMBER"
              dfb   $00
 BADDATA      asc   "TOO MUCH DATA"
+             dfb   $00
+BADDEF       asc   "DEF FN NOT LIKE THAT"
+             dfb   $00
+BADNFN       asc   "TOO MANY FUNCTIONS"
+             dfb   $00
+BADNOFN      asc   "NO SUCH FUNCTION"
+             dfb   $00
+BADFNARG     asc   "FN WANTS ONE NUMBER IN BRACKETS"
+             dfb   $00
+BADDEFH      asc   "DEF FN HEADER"
+             dfb   $00
+BADDEFB      asc   "DEF FN BODY"
              dfb   $00
 
 *--------------------------------------

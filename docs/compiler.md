@@ -1027,3 +1027,75 @@ The editor's build refuses a binary that will not fit its budget; the
 compiler's did not have one. It runs from `$2000` and its tables are at
 `$8000`, so there are 24,576 bytes to grow into and nothing was watching. The
 build says where it ends now, and stops if it would reach the tables.
+
+## DEF FN
+
+Asked of the machine first, as usual, and the answers decided the design:
+
+| probe | result |
+|---|---|
+| `X=99`, `DEF FN S(X)=X*X+Y`, `Y=10`, `FN S(3)` | `19` |
+| `PRINT X` afterwards | **`99`** |
+| `Y=100`, `FN S(3)` again | `109` |
+| `DEF FN T(Z)=FN S(Z)+1`, `FN T(2)` | `105` |
+
+`X` surviving as 99 is the one that shapes the code. The parameter is an
+ordinary variable — no special slot, no substitution while compiling the body
+— and the **call site** saves it into five bytes of its own, sets it to the
+argument, calls the body, and puts it back. The restore is two memory copies,
+which do not disturb the answer sitting in FAC.
+
+The body is compiled where it stands and jumped over. The jump is forward and
+its target is unknown until the body is compiled, which is the shape of a
+forward `GOTO` and takes the same answer: pass 2 records where the body ended,
+pass 3 emits it, and both emit three bytes either way.
+
+What the call knows about the function goes on the compiler's stack before the
+argument is compiled, because the argument may itself be a call — `FN T(FN
+S(2))` — and the inner one would otherwise overwrite the outer one's recorded
+address.
+
+### A local label on a global label's own line belongs to the PREVIOUS scope
+
+This cost eight runs on the machine, and every one of them looked impossible.
+`FN S(3)` reported a complaint from `GDEF`, the routine that compiles `DEF` —
+in a program with no `DEF` in it.
+
+The dispatcher was right, the token values were right, the message table was
+right, and the error codes were right. What was wrong was one instruction:
+
+    UFN          jmp   :go        <- resolved to GDEF's :go, not UFN's
+
+Merlin resolves a local label referenced **on a global label's own line** in
+the scope the label is closing, not the one it is opening. Both routines
+defined `:go`, so `UFN` jumped into the middle of `GDEF`, which then complained
+about a header that was not there. Every reference on a *later* line scoped
+correctly — `:bad`, `:nofn` and `:badp` all pointed into `UFN` — which is
+exactly what made it unreadable from the source.
+
+The disassembly said it in three lines:
+
+    6190: JMP $553F      EPRIM's FN branch -> UFN          (right)
+    553F: JMP $548F      UFN's "jmp :go"   -> GDEF's :go   (wrong)
+    554B: LDA #$24       UFN's own :go, never reached
+
+`tools/scopecheck.py` now refuses a local label on a global's own line, and
+found a second one immediately: `FMID`, whose comment already recorded a near
+miss with `:mbad` in the previous scope. It works today only because the
+routine above it happens not to define `:go`.
+
+That is the second way this assembler accepts a local label and does something
+other than what the source says. The first was accepting one that did not
+exist at all.
+
+**The lesson about method, not about Merlin:** the symptom contradicted the
+source, and the answer was to stop reading the source. Eight runs went into
+narrowing by inference — checking the dispatcher, the tokeniser's output, the
+message table, the free tally bits — when one look at the compiled bytes
+settled it. When what the machine does cannot be reconciled with what the code
+says, the code is not the thing to read.
+
+The bug underneath it was found the other way round and took one look: every
+call compiled to `JSR` the function's *save slot* instead of its body, because
+the body address was parked in `CPT` and `EMCOPY5` uses `CPT` as scratch for
+the addresses it emits.

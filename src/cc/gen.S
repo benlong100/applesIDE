@@ -98,6 +98,8 @@ TREAD        equ   $87
 TRESTORE     equ   $ae
 TDATAK       equ   $83
 TINPUT       equ   $84
+TDEFK        equ   $b8
+TFNK         equ   $c2
 TPOKE        equ   $b9
 TCALL        equ   $8c
 GETADR       equ   $e752            ; FAC -> unsigned 16 bits in $50 and $51
@@ -4238,6 +4240,8 @@ GENSTMT      lda   #$00
              beq   :datak
              cmp   #TINPUT
              beq   :input
+             cmp   #TDEFK
+             beq   :defk
              cmp   #TCALL
              beq   :call
              cmp   #TFORK
@@ -4268,6 +4272,7 @@ GENSTMT      lda   #$00
 :on          jmp   GON
 :poke        jmp   GPOKE
 :input       jmp   GINPUT
+:defk        jmp   GDEF
 :dimj        jmp   :dim             ; the body is at the end: this is in reach
 :remj        jmp   :rem
 :read        jmp   GREAD
@@ -5086,6 +5091,290 @@ EMIVAL       lda   #$20
              jsr   EMIT
              lda   INPPC+1
              jmp   EMIT
+
+*--------------------------------------
+* GDEF -- DEF FN name ( parameter ) = expression
+*
+* The body is compiled where it stands and jumped over, so the program runs
+* past a definition without executing it. The jump is forward and its target
+* is not known until the body has been compiled -- which is the same shape as
+* a forward GOTO, and takes the same answer: pass 2 records where the body
+* ended, pass 3 emits it. Both passes emit three bytes either way, so the
+* sizes agree and the address pass 2 wrote is the right one.
+*--------------------------------------
+GDEF
+             jmp   :dstart
+:badj        jmp   :bad
+:dstart      jsr   NEXTB
+             bcs   :badj
+             cmp   #TFNK
+             bne   :badj
+             jsr   NEXTB
+             bcs   :badj
+             sta   CH
+             jsr   ISALNUM
+             bcs   :badj
+             jsr   GETNAME
+             jsr   DFFIND
+             bcs   :badj
+             lda   TMPA
+             sta   DEFIDX
+
+*--- past the ( parameter ), which pass 1 has already read and allocated.
+*    GETNAME LEAVES WHAT ENDED THE NAME IN CH -- reading another byte here
+*    stepped over the bracket and found the parameter instead.
+             lda   CH
+             cmp   #'('
+             bne   :badj
+             jsr   NEXTB
+             bcs   :badj
+             sta   CH
+             jsr   ISALNUM
+             bcs   :badj
+             jsr   GETNAME
+             lda   CH
+             cmp   #')'
+             bne   :badj
+             jsr   NEXTB
+             bcs   :badj
+             cmp   #TEQ
+             bne   :badj
+
+*--- JMP past the body, to where pass 2 said it ends
+             lda   #$4c
+             jsr   EMIT
+             ldy   #$05
+             lda   (TMPP),y
+             sta   CPT
+             ldy   #$06
+             lda   (TMPP),y
+             sta   CPT+1
+             lda   CPT
+             jsr   EMIT
+             lda   CPT+1
+             jsr   EMIT
+
+             lda   DEFIDX
+             sta   TMPA
+             jsr   DFSLOT
+             ldy   #$03
+             lda   PC
+             sta   (TMPP),y
+             iny
+             lda   PC+1
+             sta   (TMPP),y
+
+             jsr   NEXPR
+             bcs   :bodybad
+             lda   #$60             ; RTS: the value is in FAC
+             jsr   EMIT
+
+             lda   DEFIDX
+             sta   TMPA
+             jsr   DFSLOT
+             ldy   #$05
+             lda   PC
+             sta   (TMPP),y
+             iny
+             lda   PC+1
+             sta   (TMPP),y
+             clc
+             rts
+:bad         lda   #$1e
+             jsr   SETBAD
+             sec
+             rts
+:bodybad     lda   #$23             ; DEF FN BODY
+             jsr   SETBAD
+             sec
+             rts
+
+*--------------------------------------
+* UFN -- FN name ( expression )
+*
+* FN S(3) LEAVES X AT WHATEVER IT WAS, asked of the machine rather than
+* assumed, so the parameter is an ordinary variable that the call site saves
+* and puts back. Nothing in the body needs to know, which is why the parameter
+* needs no special kind of slot and no substitution while compiling.
+*
+* What is kept about the function goes on the stack before the argument is
+* compiled, because the argument may itself be a call -- FN T(FN S(2)) does
+* work -- and a second call would otherwise overwrite the first one's answer.
+*--------------------------------------
+UFN
+             jmp   :ustart
+:badj        jmp   :bad
+:nofnj       jmp   :nofn
+:badpj       jmp   :badp            ; the same, with four things still pushed
+:ustart      jsr   NEXTB
+             bcs   :badj
+             sta   CH
+             jsr   ISALNUM
+             bcs   :badj
+             jsr   GETNAME
+             jsr   DFFIND
+             bcs   :nofnj           ; called before its DEF ran, or never defined
+             ldy   #$02
+             lda   (TMPP),y
+             pha                    ; which variable the parameter is
+             ldy   #$03
+             lda   (TMPP),y
+             pha
+             ldy   #$04
+             lda   (TMPP),y
+             pha                    ; and where the body is
+             lda   TMPA
+             pha                    ; and which function, for its save slot
+
+             lda   CH               ; GETNAME already read the bracket
+             cmp   #'('
+             bne   :badpj
+             jsr   NEXPR            ; the argument
+             bcs   :badpj
+             jsr   NEXTB
+             bcs   :badpj
+             cmp   #')'
+             bne   :badpj
+
+             pla
+             sta   TMPA
+             jsr   FNSADDR          ; the function's five-byte save slot
+             lda   TMPP
+             sta   DSTA
+             lda   TMPP+1
+             sta   DSTA+1
+             pla
+             sta   UFNADR+1
+             pla
+             sta   UFNADR           ; the body address, low then high
+             pla
+             sta   TMPA             ; the parameter's variable
+             jsr   VADDR
+             lda   TMPP
+             sta   SRCA
+             lda   TMPP+1
+             sta   SRCA+1
+
+*--- the parameter goes into the slot, the argument into the parameter
+             jsr   EMCOPY5
+             lda   #$a2             ; LDX #lo
+             jsr   EMIT
+             lda   SRCA
+             jsr   EMIT
+             lda   #$a0             ; LDY #hi
+             jsr   EMIT
+             lda   SRCA+1
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<MOVMF
+             jsr   EMIT
+             lda   #>MOVMF
+             jsr   EMIT
+
+             lda   #$20             ; JSR the body
+             jsr   EMIT
+             lda   UFNADR
+             jsr   EMIT
+             lda   UFNADR+1
+             jsr   EMIT
+
+*--- and back it goes, which does not disturb the answer in FAC
+             lda   DSTA
+             sta   CPT
+             lda   DSTA+1
+             sta   CPT+1
+             lda   SRCA
+             sta   DSTA
+             lda   SRCA+1
+             sta   DSTA+1
+             lda   CPT
+             sta   SRCA
+             lda   CPT+1
+             sta   SRCA+1
+             jsr   EMCOPY5
+             lda   #$00
+             sta   ISSTR
+             clc
+             rts
+:badp        pla
+             pla
+             pla
+             pla
+:bad         lda   #$21             ; FN WANTS ONE NUMBER IN BRACKETS
+             jsr   SETBAD
+             sec
+             rts
+:nofn        lda   #$20             ; NO SUCH FUNCTION
+             jsr   SETBAD
+             sec
+             rts
+
+*--------------------------------------
+* DFFIND -- the function named in VN0/VN1: TMPA its index, TMPP its entry
+*--------------------------------------
+DFFIND       lda   #$00
+             sta   TMPA
+:find        lda   TMPA
+             cmp   NDEFS
+             bcs   :no
+             jsr   DFSLOT
+             ldy   #$00
+             lda   (TMPP),y
+             cmp   VN0
+             bne   :step
+             iny
+             lda   (TMPP),y
+             cmp   VN1
+             beq   :yes
+:step        inc   TMPA
+             jmp   :find
+:yes         clc
+             rts
+:no          sec
+             rts
+
+*--------------------------------------
+* EMCOPY5 -- five bytes from SRCA to DSTA, as ten instructions
+*
+* A float is five bytes and there is no shorter way to move one that does not
+* disturb FAC, which is holding the answer by the time this runs the second
+* time.
+*--------------------------------------
+EMCOPY5      lda   #$00
+             sta   EMI
+:loop        lda   EMI
+             cmp   #$05
+             bcs   :done
+             lda   #$ad             ; LDA abs
+             jsr   EMIT
+             lda   SRCA
+             clc
+             adc   EMI
+             sta   CPT
+             lda   SRCA+1
+             adc   #$00
+             sta   CPT+1
+             lda   CPT
+             jsr   EMIT
+             lda   CPT+1
+             jsr   EMIT
+             lda   #$8d             ; STA abs
+             jsr   EMIT
+             lda   DSTA
+             clc
+             adc   EMI
+             sta   CPT
+             lda   DSTA+1
+             adc   #$00
+             sta   CPT+1
+             lda   CPT
+             jsr   EMIT
+             lda   CPT+1
+             jsr   EMIT
+             inc   EMI
+             jmp   :loop
+:done        rts
 
 *--------------------------------------
 * GREAD -- READ a, b$, c(i)
@@ -6607,6 +6896,8 @@ EPRIM        lda   #$00
              beq   :slicej
              cmp   #TMID
              beq   :slicej
+             cmp   #TFNK
+             beq   :ufnj
              cmp   #$80
              bcs   :fn
              cmp   #'"'
@@ -6637,6 +6928,7 @@ EPRIM        lda   #$00
 :peekj       jmp   FPEEK
 :valj        jmp   FVAL
 :slicej      jmp   FSLICE
+:ufnj        jmp   UFN
 
 :paren       jsr   EXPR
              bcs   :bad2
@@ -7027,7 +7319,8 @@ SLOK         lda   #$01
 *--- Its failure exit belongs INSIDE this routine. It was sitting above the
 *    label, which put it in the previous one's scope -- it resolved to the
 *    right address only because it happened to sit just before FMID.
-FMID         jmp   :go
+FMID
+             jmp   :go
 :mbad        sec
              rts
 :go          jsr   EMAYINT
@@ -7801,6 +8094,16 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              sta   ACCN
              jsr   BUMP
              lda   TMPP
+             sta   FNBASE           ; five bytes per DEF FN, holding the
+             lda   TMPP+1           ; caller's parameter while the body runs
+             sta   FNBASE+1
+
+             lda   #$05
+             sta   ACCSZ
+             lda   NDEFS
+             sta   ACCN
+             jsr   BUMP
+             lda   TMPP
              sta   SPSAVEA
              lda   TMPP+1
              sta   SPSAVEA+1
@@ -7932,7 +8235,7 @@ PUTBACK      lda   CH
              sta   PBFLAG
              rts
 
-             dum   $14a0
+             dum   $14b0            ; pass 1's block has grown to $14a0
 PASSNO       ds    1
 PC           ds    2                ; where the next emitted byte will live
 ENDPC        ds    2
@@ -7988,6 +8291,10 @@ HNEXTD       ds    2
 DTAB         ds    2                ; where the DATA items landed
 MDATA        ds    2
 DEMI         ds    2                ; walking them out
+DEFIDX       ds    1                ; which function is being compiled
+CPT          ds    2                ; an address being emitted a byte at a time
+UFNADR       ds    2                ; the body of the function being called, which
+*                                     CANNOT live in CPT: EMCOPY5 works there
 DQUOTE       ds    1
 HPOKE        ds    2
 HCALL        ds    2

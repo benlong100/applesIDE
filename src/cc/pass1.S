@@ -47,6 +47,8 @@ TFOR         equ   $81
 TDATA        equ   $83
 TDIM         equ   $86
 TREADK       equ   $87
+TDEF         equ   $b8
+TFN          equ   $c2
 TRESTORK     equ   $ae
 TGOTO        equ   $ab
 TGOSUB       equ   $b0
@@ -71,6 +73,7 @@ PASS1        lda   #$00
              sta   NDATA
              sta   NDATA+1
              sta   FDATA
+             sta   NDEFS
              sta   BADFLG
              sta   BADLINE
              sta   BADLINE+1
@@ -162,6 +165,8 @@ SCANBODY     lda   #$00
              beq   :dataj
              cmp   #TDIM
              beq   :dimj
+             cmp   #TDEF
+             beq   :defj
              cmp   #$80
              bcs   :token
 
@@ -212,12 +217,14 @@ SCANBODY     lda   #$00
              cmp   #TGOSUB
              beq   :branch
              cmp   #TTHEN
-             bne   :next
+             bne   :nextj
 :branch      lda   #$01
              sta   LINEREF
              jmp   :next
+:nextj       jmp   :next            ; the loop top is out of reach from here now
 :dataj       jmp   :data            ; the block sits at the end of the routine
 :dimj        jmp   :dim
+:defj        jmp   :def
 
 *--- REM, and the rest of the line is a comment
 :rem         jsr   RDBYTE
@@ -413,6 +420,108 @@ SCANBODY     lda   #$00
 :dimbad      lda   #$15             ; ONE DIMENSION ONLY
              jsr   SETBAD
              jmp   :next
+
+*--------------------------------------
+* DEF FN name ( parameter ) = expression
+*
+* The name is its own kind of thing -- FN A and the variable A are unrelated,
+* which is the machine's rule -- so it gets a table of its own. What goes in
+* it is the name, the index of the variable the parameter uses, and later the
+* two addresses pass 2 works out.
+*
+* THE PARAMETER IS AN ORDINARY VARIABLE, allocated here like any other. It has
+* to be: FN S(3) leaves X at whatever it was before, asked of the machine and
+* not assumed, so the call site saves it and puts it back. Nothing about the
+* body needs to know.
+*--------------------------------------
+:def         jsr   RDBYTE
+             bcs   :defeof
+             cmp   #TFN
+             bne   :defbad
+             jsr   RDBYTE
+             bcs   :defeof
+             sta   CH
+             jsr   ISALNUM
+             bcs   :defbad
+             jsr   RDNAME
+             lda   CH
+             cmp   #'('
+             bne   :defbad
+             jsr   DFADD            ; leaves the entry in TMPP
+             lda   BADFLG
+             bne   :defdone
+
+             jsr   RDBYTE
+             bcs   :defeof
+             sta   CH
+             jsr   ISALNUM
+             bcs   :defbad
+             jsr   RDNAME
+             lda   CH
+             cmp   #')'
+             bne   :defbad
+             jsr   VARADD           ; the parameter, index in TMPA
+             lda   BADFLG
+             bne   :defdone
+             ldy   #$02
+             lda   TMPA
+             sta   (TMPP),y         ; which variable the parameter is
+:defdone     jmp   :redo            ; the = and the body scan as ordinary code
+:defeof      sec
+             rts
+:defbad      lda   #$22             ; DEF FN HEADER -- pass 1's complaint
+             jsr   SETBAD
+             clc
+             rts
+
+*--------------------------------------
+* DFADD -- the function's name into DFTAB, and its entry into TMPP
+*--------------------------------------
+DFADD        lda   #$00
+             sta   TMPA
+:find        lda   TMPA
+             cmp   NDEFS
+             bcs   :new
+             jsr   DFSLOT
+             ldy   #$00
+             lda   (TMPP),y
+             cmp   VN0
+             bne   :step
+             iny
+             lda   (TMPP),y
+             cmp   VN1
+             beq   :done            ; defined twice: the later one wins
+:step        inc   TMPA
+             jmp   :find
+:new         lda   NDEFS
+             cmp   #DFMAX
+             bcc   :room
+             lda   #$1f             ; TOO MANY FUNCTIONS
+             jsr   SETBAD
+             rts
+:room        jsr   DFSLOT
+             ldy   #$00
+             lda   VN0
+             sta   (TMPP),y
+             iny
+             lda   VN1
+             sta   (TMPP),y
+             inc   NDEFS
+:done        jsr   DFSLOT
+             rts
+
+*--------------------------------------
+* DFSLOT -- TMPP <- the seven bytes of function TMPA
+*
+*   0,1  the name          2  which variable the parameter is
+*   3,4  where its body is  5,6  and where the body ends
+*--------------------------------------
+DFSLOT       lda   #<DFTAB
+             sta   SLOTB
+             lda   #>DFTAB
+             sta   SLOTB+1
+             lda   #$07
+             jmp   SLOTN
 
 *--------------------------------------
 * DATACOLL -- the items on one DATA statement into DBUF
@@ -1403,6 +1512,14 @@ VADDR        lda   VARBASE
              lda   #$05
              jmp   SLOTN
 
+*--- TMPP <- the five bytes function TMPA keeps its caller's parameter in
+FNSADDR      lda   FNBASE
+             sta   SLOTB
+             lda   FNBASE+1
+             sta   SLOTB+1
+             lda   #$05
+             jmp   SLOTN
+
 *--------------------------------------
 * PRFAC -- the accumulator as a decimal number, the way Applesoft would
 *
@@ -1446,6 +1563,7 @@ MSGCONST     asc   "CONSTANTS: "
 NUMMAX       equ   24
 VMAX         equ   128
 AMAX         equ   32
+DFMAX        equ   16
 SVMAX        equ   64
 DBUFMAX      equ   2048
 CMAX         equ   128
@@ -1495,6 +1613,8 @@ DBP          ds    2                ; how much of the DATA buffer is used
 DITEM        ds    2                ; where the item being collected starts
 NDATA        ds    2                ; how many items there are
 FDATA        ds    1                ; and whether the program uses them at all
+NDEFS        ds    1                ; how many DEF FN there are
+FNBASE       ds    2                ; where their saved parameters live
 ASIZE        ds    2                ; elements, while one is being recorded
 ADIM         ds    1                ; ...said by a DIM rather than guessed
 ARRBASE      ds    2
@@ -1510,4 +1630,5 @@ SVTAB        ds    SVMAX*2
 DBUF         ds    2048             ; every DATA item in the program
 CTAB         ds    CMAX*5
 LTAB         ds    LTMAX*4
+DFTAB        ds    DFMAX*7
              dend
