@@ -142,7 +142,23 @@ for n in "${NAMES[@]}"; do
     interp=$(capture "RUN")
 
     "$V" line "-ASIDECC.SYSTEM" >/dev/null
-    "$V" await "COMPILE WHICH FILE" 120 >/dev/null || { echo "compiler did not start"; fail=1; continue; }
+    # A WEDGED MACHINE IS NOT TWENTY MORE FAILURES. When a compiled program
+    # hangs, the prompt never comes back, and every program after it sat out
+    # its full two-minute timeout against the same dead screen -- seven of
+    # them, which is where a run that should have taken ten minutes spent
+    # twenty-five. Reboot once and carry on; give up if that does not help.
+    if ! "$V" await "COMPILE WHICH FILE" 120 >/dev/null; then
+        echo "compiler did not start -- rebooting"
+        "$V" boot "$IMG" >/dev/null
+        "$V" await "ApplesIDE" 180 >/dev/null && "$V" text " " >/dev/null
+        "$V" settle 15 >/dev/null; "$V" caps true >/dev/null
+        "$V" oa "Q" >/dev/null
+        to_basic
+        "$V" line "-ASIDECC.SYSTEM" >/dev/null
+        "$V" await "COMPILE WHICH FILE" 120 >/dev/null || {
+            echo "still wedged after a reboot -- stopping" >&2; exit 1; }
+        fail=1
+    fi
     "$V" line "$n" >/dev/null
     for i in $(seq 1 900); do
         "$V" screen 2>/dev/null | grep -qE "WROTE|STOPPED|CANNOT" && break

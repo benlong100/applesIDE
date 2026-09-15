@@ -3023,7 +3023,7 @@ GENPASS      lda   #$00
              lda   USES
              and   #UHEAP
              bne   :heap
-             jmp   :noheap
+             jmp   :nohmsg
 :heap
              lda   PC
              sta   MOOM
@@ -3041,13 +3041,32 @@ GENPASS      lda   #$00
              ldy   #>MSGLONG
              jsr   EMMSG
 
-             lda   PC
+:nohmsg
+*--- THE ERROR EXIT IS NOT THE HEAP'S ALONE. Running out of DATA reports
+*    through it too, so it is wanted by any program that READs -- and one
+*    that READs without ever building a string left it unemitted. The JMP
+*    then went to the placeholder pass 2 seeds these with, which is the
+*    program's own entry, so OUT OF DATA restarted the program instead of
+*    saying so. Nothing in the suite runs out of items, which is why it went
+*    unseen; the disassembly of a compiled READ is what showed it.
+             lda   USES
+             and   #UHEAP
+             bne   :wanterr
+             lda   FDATA
+             beq   :noerr
+:wanterr     lda   PC
              sta   HERR
              lda   PC+1
              sta   HERR+1
              jsr   EMHERR
+:noerr
 
-             lda   PC
+*--- and the rest of it belongs to the heap alone
+             lda   USES
+             and   #UHEAP
+             bne   :heap2
+             jmp   :noheap
+:heap2       lda   PC
              sta   HGC
              lda   PC+1
              sta   HGC+1
