@@ -192,6 +192,18 @@ for idx in "${!NAMES[@]}"; do
     esac
 
     comp=$(capture "BRUN C$n" "$ANSWERS")
+
+    # DELETED AS SOON AS IT HAS BEEN RUN. A ProDOS root directory holds 51
+    # entries, and a compiled output for every test program plus the sources
+    # plus the system files reached exactly that: the last two programs of the
+    # run could not write their output and reported it as a compiler failure,
+    # CANNOT WRITE THE OUTPUT, CODE 49 -- which is volume directory full, and
+    # says nothing about the compiler at all. Each one goes as soon as its
+    # answer has been read, so the count stays where it was when twenty
+    # programs fitted.
+    "$V" line "DELETE C$n" >/dev/null
+    "$V" settle 3 >/dev/null
+
     if [ "$interp" = "$comp" ]; then
         echo "agrees  ($(echo "$interp" | wc -l | tr -d ' ') lines)"
     else
