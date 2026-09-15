@@ -48,7 +48,18 @@ echo
 osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1 || true
 sleep 2
 cp "$DIST" "$IMG"
+
+# DELETE IT FIRST -- see tests/cc.sh. `ac -p` on a name already in the
+# catalogue adds a SECOND entry, and ProDOS runs the first, so the compiler
+# shipped on the distribution disk did the compiling and the one just built
+# sat further down the catalogue untouched. Every figure taken this way was a
+# measurement of whatever `make dist` last baked in.
+"$AC" -d "$IMG" ASIDECC.SYSTEM 2>/dev/null || true
 "$AC" -p "$IMG" ASIDECC.SYSTEM SYS 0x2000 < build/ASIDECC.SYSTEM
+if [ "$("$AC" -l "$IMG" | grep -c ASIDECC.SYSTEM)" -ne 1 ]; then
+    echo "more than one ASIDECC.SYSTEM on $IMG -- the wrong one will compile" >&2
+    exit 1
+fi
 for b in BENCH1 BENCH2 BENCH3 BENCH4 BENCH5; do
     "$AC" -p "$IMG" "$b" BAS 0x0801 < "build/bench/$b.bas"
 done
