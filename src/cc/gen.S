@@ -64,7 +64,7 @@ FDEPTH       equ   8                ; nested FOR loops
 *    13 how many descriptors are left to look at, 14-15 which part of a
 *    string a slice wants, 16-17 a POKE's address across its value,
 *    18-19 how far through the DATA a READ has got.
-SCRASZ       equ   36               ; $1a/$1b an array element being assigned
+SCRASZ       equ   38               ; $24 a PLOT's column, kept across its row               ; $1a/$1b an array element being assigned
 *                                     to, $1c-$23 the running subscript and
 *                                     the multiply a comma in one needs               ; $14-$17 the input line and its split,
 *                                     $18/$19 an item on its way to the heap
@@ -114,6 +114,19 @@ CHPOS        equ   $24
 HOMEROM      equ   $fc58
 TEXTROM      equ   $fb39
 INVFLG       equ   $32
+TGR          equ   $88
+TCOLOR       equ   $a0
+TPLOT        equ   $8d
+SETGR        equ   $fb40            ; low-res, mixed, cleared
+SETCOL       equ   $f864            ; the colour in A, into both nibbles
+PLOTROM      equ   $f800            ; row in A, column in Y
+THLIN        equ   $8e
+TVLIN        equ   $8f
+TAT          equ   $c5
+HLINROM      equ   $f819            ; row in A, from Y to H2
+VLINROM      equ   $f828            ; from A to V2, in column Y
+H2           equ   $2c
+V2           equ   $2d
 TFNK         equ   $c2
 TPOKE        equ   $b9
 TCALL        equ   $8c
@@ -5474,6 +5487,146 @@ EMSAPUT      lda   #$ad
 :done        rts
 
 *--------------------------------------
+* GR, COLOR= and PLOT
+*
+* The ROM does the work: SETGR puts the screen in low resolution with four
+* lines of text left at the bottom, SETCOL spreads the colour across both
+* nibbles of a byte, and PLOT wants the row in A and the column in Y.
+*
+* THE COLUMN IS KEPT IN SCRATCH, not on the stack, because what sits between
+* the two coordinates is a whole expression and expressions use the stack.
+*--------------------------------------
+GGR          lda   #<SETGR
+             ldy   #>SETGR
+             jmp   EMCALLAY
+
+GCOLOR       jsr   EMCOORD
+             bcs   :bad
+             lda   #$20
+             jsr   EMIT
+             lda   #<SETCOL
+             jsr   EMIT
+             lda   #>SETCOL
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+GPLOT        jsr   EMCOORD          ; the column
+             bcs   :bad
+             lda   #$8d             ; STA the scratch
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             jsr   NEXTB
+             bcs   :bad
+             cmp   #$2c
+             bne   :badsyn
+             jsr   EMCOORD          ; the row
+             bcs   :bad
+             lda   #$ac             ; LDY the column back
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             lda   #$20
+             jsr   EMIT
+             lda   #<PLOTROM
+             jsr   EMIT
+             lda   #>PLOTROM
+             jsr   EMIT
+             clc
+             rts
+:badsyn      lda   #$0c
+             jsr   SETBAD
+:bad         sec
+             rts
+
+*--------------------------------------
+* HLIN a,b AT c  and  VLIN a,b AT c
+*
+* The ROM draws both: HLINE wants the row in A, the first column in Y and the
+* last in H2; VLINE wants the first row in A, the column in Y and the last row
+* in V2. Each reads three expressions, and the first is kept in scratch across
+* the other two for the same reason PLOT's column is.
+*--------------------------------------
+GHLIN        jsr   EMLINE3
+             bcs   :bad
+             lda   #$85             ; STA H2 -- zero page
+             jsr   EMIT
+             lda   #H2
+             jsr   EMIT
+             jsr   EMATV            ; the row, left in A
+             bcs   :bad
+             lda   #$ac             ; LDY the first column back
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             lda   #$20
+             jsr   EMIT
+             lda   #<HLINROM
+             jsr   EMIT
+             lda   #>HLINROM
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+GVLIN        jsr   EMLINE3
+             bcs   :bad
+             lda   #$85             ; STA V2
+             jsr   EMIT
+             lda   #V2
+             jsr   EMIT
+             jsr   EMATV            ; the column
+             bcs   :bad
+             lda   #$a8             ; TAY -- the column goes in Y
+             jsr   EMIT
+             lda   #$ad             ; and the first row comes back into A
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             lda   #$20
+             jsr   EMIT
+             lda   #<VLINROM
+             jsr   EMIT
+             lda   #>VLINROM
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--- the first two of the three: the first into scratch, the second left in A
+EMLINE3      jsr   EMCOORD
+             bcs   :no
+             lda   #$8d
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             jsr   NEXTB
+             bcs   :no
+             cmp   #$2c
+             bne   :syn
+             jmp   EMCOORD
+:syn         lda   #$0c
+             jsr   SETBAD
+:no          sec
+             rts
+
+*--- AT, and then the third
+EMATV        jsr   NEXTB
+             bcs   :no
+             cmp   #TAT
+             bne   :syn
+             jmp   EMCOORD
+:syn         lda   #$0c
+             jsr   SETBAD
+:no          sec
+             rts
+
+*--------------------------------------
 * GSTMT2 -- the statements that did not fit in GENSTMT's list
 *
 * Not a matter of taste: that list's branches reach their targets with little
@@ -5496,6 +5649,16 @@ GSTMT2       lda   CH
              beq   :normk
              cmp   #TFLASH
              beq   :flashk
+             cmp   #TGR
+             beq   :grk
+             cmp   #TCOLOR
+             beq   :colk
+             cmp   #TPLOT
+             beq   :plotk
+             cmp   #THLIN
+             beq   :hlink
+             cmp   #TVLIN
+             beq   :vlink
              lda   #$05             ; STATEMENT NOT YET
              jsr   SETBAD
              sec
@@ -5507,6 +5670,11 @@ GSTMT2       lda   CH
 :invk        jmp   GINVERSE
 :normk       jmp   GNORMAL
 :flashk      jmp   GFLASH
+:grk         jmp   GGR
+:colk        jmp   GCOLOR
+:plotk       jmp   GPLOT
+:hlink       jmp   GHLIN
+:vlink       jmp   GVLIN
 
 *--------------------------------------
 * VTAB and HTAB, and the switches that take no argument
@@ -5550,8 +5718,8 @@ GHTAB        jsr   EMTABV
 :bad         sec
              rts
 
-*--- the argument, as a byte one less than it was written
-EMTABV       jsr   NEXPR
+*--- an expression as a byte in the accumulator
+EMCOORD      jsr   NEXPR
              bcs   :no
              lda   #$20             ; JSR AYINT
              jsr   EMIT
@@ -5563,6 +5731,15 @@ EMTABV       jsr   NEXPR
              jsr   EMIT
              lda   #FACLO
              jsr   EMIT
+             clc
+             rts
+:no          sec
+             rts
+
+*--- and the same, one less: rows and columns are counted from one by
+*    Applesoft and from zero by the monitor
+EMTABV       jsr   EMCOORD
+             bcs   :no
              lda   #$38             ; SEC : SBC #1
              jsr   EMIT
              lda   #$e9

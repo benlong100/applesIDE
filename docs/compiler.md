@@ -1215,3 +1215,38 @@ statement. The answer was not more trampolines but a second list, which the
 first falls through to when it does not recognise a keyword. It costs one jump
 for the keywords that reach it, leaves the first list alone, and is where
 anything added later should go.
+
+## Low-resolution graphics
+
+`GR`, `COLOR=`, `PLOT`, `HLIN ... AT`, `VLIN ... AT`. The ROM does the drawing:
+`SETGR` for the mode, `SETCOL` to spread a colour across both nibbles, and
+`PLOT`/`HLINE`/`VLINE` with the coordinates in the registers they expect. The
+first coordinate of each is kept in scratch rather than on the stack, because
+what sits between it and the next one is a whole expression, and expressions
+use the stack.
+
+### Testing something that does not print
+
+The agreement harness compares the text screen, and these statements draw
+somewhere else. So the test draws, reads the screen memory back with `PEEK`,
+returns to `TEXT`, and prints the numbers — the comparison is still ordinary
+text, but what it is comparing is what the two programs drew.
+
+Two harness faults came out of that, both mine, and both because the graphics
+page is less uniform than it looks:
+
+**Leftover pixels are text.** Once `TEXT` switches back, the cleared graphics
+area is reinterpreted as characters — `$00` is an inverse `@` — and the two
+runs had scrolled that leftover by one row. The numbers all matched; the test
+was comparing scroll history. The screen is read before it is cleared, so
+clearing it before printing removes the noise without weakening the check.
+
+**`$400-$7FF` is not all screen.** Every 128-byte block holds an eight-byte
+hole that is never displayed — sixty-four bytes in all — used by peripheral
+firmware and ProDOS, and their contents differ between two runs for reasons
+that have nothing to do with the program. Summing the whole page therefore
+compares that too. Summing forty bytes from each line base covers every byte a
+statement can draw to and no byte it cannot.
+
+Both times the real signal was already visible: the individually sampled bytes
+agreed, and only the totals that included non-drawing memory did not.
