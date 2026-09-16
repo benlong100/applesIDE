@@ -1297,3 +1297,60 @@ X and Y; `$F53A` reads the column from A and X and the row from Y. Peeked out
 of the ROM and disassembled — it opens by subtracting `$E0` and `$E1`, the
 position `HPOSN` last stored, which is what makes it a line *from where the
 pen is* rather than between two given points.
+
+## Three things to reach for sooner
+
+Each of these was arrived at late in a session that had already spent runs on
+the same bug. They are written down because the cost of not using them is
+measured in emulator runs, and each run is a minute and a half.
+
+### 1. Read the ROM with PEEK
+
+The emulator's own memory dump stops at `$BFFF` and refuses anything above it,
+so the ROM looks unreadable. It is not: `PEEK` reaches it from the Apple side.
+A program that prints twenty-eight bytes from an address, disassembled here,
+answers what a routine actually does.
+
+This settled three separate faults in one afternoon, each after a remembered
+address had failed:
+
+- `SETHCOL`'s address could not be confirmed, so `HCOLOR=` now sets the mask
+  itself from a table the compiled program carries.
+- The plotting routine reads its colour from `$30`, not the `$E4` that
+  `HCOLOR=` writes. Setting only `$E4` drew every point in black.
+- The line routine's registers are the reverse of `HPOSN`'s.
+
+The general form: **when a ROM call does not do what it is supposed to, read
+it.** Not another remembered address, and not another guess at the convention.
+
+### 2. Print a marker before reasoning about which routine ran
+
+When the machine's behaviour contradicts the source, the source is not the
+thing to read. A unique error code, or a letter printed at each step, names
+the routine in one run.
+
+The two occasions to compare: the `:go` scope bug took **eight** runs of
+re-reading a dispatcher, token table and message table that were all correct,
+because the conclusion "this cannot happen" kept sending me back to the text.
+The string-array hang took **two** — one to learn it was pass 3 and which
+line, one more to learn it was `EMSAGET`.
+
+A marker also answers questions inference cannot. `ABCD` in pass 2 and `ABC`
+in pass 3 named the routine *and* the fact that the passes differed, which is
+what identified a loop counter held in `X` across `JSR EMIT`.
+
+### 3. Disassemble the compiled output
+
+The source says what was meant; the output says what was emitted. Two bugs
+were obvious on sight and invisible in the source:
+
+- `ADC $8DA1` — an absolute opcode given a one-byte zero-page operand, so the
+  instruction swallowed the byte after it.
+- `JSR $6066` — a call to a function's save slot rather than its body,
+  because the address had been parked in a variable another routine used as
+  scratch.
+
+`tools/ac -g <image> <file>` pulls a compiled program off the disk and the
+scratch disassembler reads it. Worth doing whenever a compiled program does
+something a compiler bug would not obviously explain — running to the wrong
+place, printing nothing, returning at once.
