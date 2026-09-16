@@ -1481,14 +1481,29 @@ CONSTADD     lda   #$00
              rts
 
 *--- TMPP <- CTAB + 5 * TMPA
-CSLOT        lda   TMPA
+*
+*    THE DOUBLING CARRIES. Written as asl, asl, clc, adc it threw the overflow
+*    away: the second asl puts the top bit in carry and the clc that followed
+*    discarded it, so from entry 64 -- where four times the index passes 255 --
+*    every constant landed on top of an earlier one. Entry 64 wrote over entry
+*    12, and a program with more than sixty-three constants quietly corrupted
+*    its own table. Every test program had far fewer.
+*
+*    This is the fifth copy of a multiply SLOTN was written to replace, and
+*    the comment there says the other four had already drifted. It was missed
+*    because it is spelled differently.
+CSLOT        lda   #$00
+             sta   TMPP+1
+             lda   TMPA
              sta   TMPB
              asl
+             rol   TMPP+1
              asl
+             rol   TMPP+1
              clc
              adc   TMPB
              sta   TMPP
-             lda   #$00
+             lda   TMPP+1
              adc   #$00
              sta   TMPP+1
              lda   TMPP

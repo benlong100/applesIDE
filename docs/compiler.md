@@ -1354,3 +1354,43 @@ were obvious on sight and invisible in the source:
 scratch disassembler reads it. Worth doing whenever a compiled program does
 something a compiler bug would not obviously explain — running to the wrong
 place, printing nothing, returning at once.
+
+## The constant table was corrupting itself past sixty-three entries
+
+Found by a user's program, not by the suite, and it had been there all along.
+
+`CSLOT` works out where constant N lives as `CTAB + 5*N`, and did it by hand:
+
+    lda TMPA / sta TMPB / asl / asl / clc / adc TMPB
+
+The second `asl` puts the top bit into carry and **the `clc` that follows
+throws it away**. So from entry 64 — where four times the index first passes
+255 — the address wraps and every constant lands on top of an earlier one.
+Entry 64 wrote over entry 12.
+
+Nothing complained, because nothing was out of range: the address computed was
+a perfectly legal address for a different entry. Pass 1 stored the value, pass
+2 looked it up and found something else there, and reported `CANNOT READ THAT`
+against whichever line happened to need the lost constant.
+
+`SLOTN` exists precisely because this multiply had been written by hand four
+times and drifted. `CSLOT` was a fifth copy, spelled differently enough to
+escape that cleanup, and it now carries properly.
+
+**Why thirty-three passing tests never found it.** The largest test program
+has a couple of dozen constants. Sixty-four distinct numeric literals is a
+real program — `LITTLE` reaches a hundred and twenty-four, most of them from
+lines that poke a machine-code routine in byte by byte. A limit that only
+bites at scale needs a test at scale, and the suite has none.
+
+### And the codes that shared a message
+
+Seven sites raised `$0c`, all reporting `CANNOT READ THAT`, which named the
+category and hid the place. They are three messages now — `CANNOT READ THAT`
+for an expression that will not parse, `BAD SUBSCRIPT` for an array index, and
+`BAD FUNCTION ARGUMENT` for the brackets around one.
+
+Finding the site took giving all eleven a distinct number temporarily. Codes
+above `NMSG` already print as a bare number, so that needed no message table
+at all — a fallback built for unknown codes turning out to be the fastest
+debugging tool in the compiler.

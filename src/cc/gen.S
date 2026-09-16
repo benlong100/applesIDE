@@ -130,6 +130,12 @@ THGR         equ   $91
 THCOLOR      equ   $92
 THPLOT       equ   $93
 HGRROM       equ   $f3e2            ; page one, mixed, cleared
+TPDL         equ   $d8
+TSCRN        equ   $d7
+TGETK        equ   $be
+PREAD        equ   $fb1e            ; paddle X, count back in Y
+SCRNROM      equ   $f871            ; row in A, column in Y, colour back in A
+RDKEY        equ   $fd0c
 HCOLBYTE     equ   $e4              ; where HCOLOR= puts the mask...
 HPLOTCOL     equ   $30              ; ...and where the plotting reads it
 HPOSN        equ   $f411            ; row in A, column in X and Y
@@ -4272,15 +4278,16 @@ GENPASS      lda   #$00
              lda   PC+1
              sta   HIVAL+1
              jsr   EMHIVAL
-             lda   USES2            ; only a string INPUT wants the copier
-             and   #$40
-             beq   :noinput
+:noinput
+             lda   USES2            ; a string INPUT wants the copier, and so
+             and   #$40             ; does GET: it is not part of INPUT
+             beq   :nohicopy
              lda   PC
              sta   HICOPY
              lda   PC+1
              sta   HICOPY+1
              jsr   EMHICOPY
-:noinput
+:nohicopy
 
 *--- ASC allocates nothing, so it is not part of that group
              lda   USES
@@ -5422,7 +5429,7 @@ EMSSUBS      lda   TMPA
              clc
              rts
 :dropbad     pla
-             lda   #$0c
+             lda   #$27
              jsr   SETBAD
              sec
              rts
@@ -5568,7 +5575,7 @@ GPLOT        jsr   EMCOORD          ; the column
              jsr   EMIT
              clc
              rts
-:badsyn      lda   #$0c
+:badsyn      lda   #$28
              jsr   SETBAD
 :bad         sec
              rts
@@ -5641,7 +5648,7 @@ EMLINE3      jsr   EMCOORD
              cmp   #$2c
              bne   :syn
              jmp   EMCOORD
-:syn         lda   #$0c
+:syn         lda   #$28
              jsr   SETBAD
 :no          sec
              rts
@@ -5652,7 +5659,7 @@ EMATV        jsr   NEXTB
              cmp   #TAT
              bne   :syn
              jmp   EMCOORD
-:syn         lda   #$0c
+:syn         lda   #$28
              jsr   SETBAD
 :no          sec
              rts
@@ -5828,9 +5835,220 @@ GHPLOT
              jmp   :toloop
 :done        clc
              rts
-:badsyn      lda   #$0c
+:badsyn      lda   #$28
              jsr   SETBAD
 :bad         sec
+             rts
+
+*--------------------------------------
+* GET -- one key, not echoed, into a string variable
+*
+* THE CHARACTER GOES THROUGH THE HEAP, for the same reason an input line does:
+* two GETs in a row would otherwise hand two variables the same address, and
+* the second keypress would change what the first had already been given.
+*
+* It is written where HICOPY reads from -- the input buffer at $0200 -- so the
+* copier that INPUT already carries does the allocating.
+*
+* A numeric GET is refused. Applesoft takes the key as a digit and complains
+* if it is not one, and a compiler that quietly did something else with it
+* would be worse than one that says so.
+*--------------------------------------
+GGET
+             jmp   :go
+:badj        jmp   :bad             ; the exits are past the whole of it
+:nostrj      jmp   :notstr
+:go          jsr   NEXTB
+             bcs   :badj
+             sta   CH
+             jsr   ISALNUM
+             bcs   :badj
+             jsr   GETNAME
+             lda   CH
+             cmp   #'$'
+             bne   :nostrj
+
+             lda   #$40             ; the heap, for the copy
+             jsr   NEED2
+             jsr   SVFIND
+             bcs   :badj
+             jsr   SVADDR
+             lda   TMPP
+             sta   DSTSV
+             lda   TMPP+1
+             sta   DSTSV+1
+
+             lda   #$20             ; JSR RDKEY
+             jsr   EMIT
+             lda   #<RDKEY
+             jsr   EMIT
+             lda   #>RDKEY
+             jsr   EMIT
+             lda   #$29             ; AND #$7F -- our strings are low ascii
+             jsr   EMIT
+             lda   #$7f
+             jsr   EMIT
+             lda   #$8d             ; STA $0200, where HICOPY reads
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+
+             lda   #$a9             ; a descriptor for that one character
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$00
+             jsr   EMSDOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSDOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   #$02
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSDOFS
+
+             lda   #$20             ; JSR HICOPY
+             jsr   EMIT
+             lda   HICOPY
+             jsr   EMIT
+             lda   HICOPY+1
+             jsr   EMIT
+
+             jsr   SDAADDR
+             lda   TMPP
+             sta   SRCA
+             lda   TMPP+1
+             sta   SRCA+1
+             lda   DSTSV
+             sta   DSTA
+             lda   DSTSV+1
+             sta   DSTA+1
+             jsr   EMSDESC
+             clc
+             rts
+:notstr      lda   #$25             ; GET WANTS A STRING
+             jsr   SETBAD
+:bad         sec
+             rts
+
+*--------------------------------------
+* PDL and SCRN(, both of which hand back a number the ROM works out
+*
+* Read out of the ROM rather than remembered: PREAD wants the paddle in X and
+* leaves its count in Y, and SCRN wants the row in A and the column in Y and
+* halves the row itself. Both answers are a byte, so GIVAYF turns one into a
+* float with nothing in the high half.
+*--------------------------------------
+FPDL         jsr   FARGOPEN
+             bcs   :bad
+             lda   #$aa             ; TAX -- the paddle number
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<PREAD
+             jsr   EMIT
+             lda   #>PREAD
+             jsr   EMIT
+             jmp   EMBYTEFAC
+:bad         sec
+             rts
+
+FSCRN        jsr   NEXPR            ; the column
+             bcs   :bad
+             lda   #$20
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$8d             ; kept across the row's expression
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             jsr   NEXTB
+             bcs   :bad
+             cmp   #$2c
+             bne   :badsyn
+             jsr   EMCOORD          ; the row, left in A
+             bcs   :bad
+             jsr   FARGCLOSE
+             bcs   :bad
+             lda   #$ac             ; LDY the column back
+             jsr   EMIT
+             lda   #$24
+             jsr   EMSCOFS
+             lda   #$20
+             jsr   EMIT
+             lda   #<SCRNROM
+             jsr   EMIT
+             lda   #>SCRNROM
+             jsr   EMIT
+             jmp   EMBYTEFAC
+:badsyn      lda   #$28
+             jsr   SETBAD
+:bad         sec
+             rts
+
+*--- the bracket, then one expression, then the bracket
+FARGOPEN     jsr   NEXTB
+             bcs   :no
+             cmp   #'('
+             bne   :syn
+             jsr   EMCOORD
+             bcs   :no
+             jmp   FARGCLOSE
+:syn         lda   #$28
+             jsr   SETBAD
+:no          sec
+             rts
+
+*--- and the bracket that closes one. Its own exits: the label above opens a
+*    scope, so sharing them would put these in it.
+FARGCLOSE    jsr   NEXTB
+             bcs   :no
+             cmp   #')'
+             bne   :syn
+             clc
+             rts
+:syn         lda   #$28
+             jsr   SETBAD
+:no          sec
+             rts
+
+*--- the byte in A as a float, and the expression is numeric
+EMBYTEFAC    lda   #$a8             ; TAY -- the low half
+             jsr   EMIT
+             lda   #$a9             ; and nothing in the high
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<GIVAYF
+             jsr   EMIT
+             lda   #>GIVAYF
+             jsr   EMIT
+             lda   #$00
+             sta   ISSTR
+             sta   PENDOK
+             clc
              rts
 
 *--------------------------------------
@@ -5856,6 +6074,8 @@ GSTMT2       lda   CH
              beq   :normk
              cmp   #TFLASH
              beq   :flashk
+             cmp   #TGETK
+             beq   :getk
              cmp   #TGR
              beq   :grk
              cmp   #TCOLOR
@@ -5883,6 +6103,7 @@ GSTMT2       lda   CH
 :invk        jmp   GINVERSE
 :normk       jmp   GNORMAL
 :flashk      jmp   GFLASH
+:getk        jmp   GGET
 :grk         jmp   GGR
 :colk        jmp   GCOLOR
 :plotk       jmp   GPLOT
@@ -7815,6 +8036,10 @@ EPRIM        lda   #$00
              beq   :slicej
              cmp   #TFNK
              beq   :ufnj
+             cmp   #TPDL
+             beq   :pdlj
+             cmp   #TSCRN
+             beq   :scrnj
              cmp   #$80
              bcs   :fn
              cmp   #'"'
@@ -7828,7 +8053,7 @@ EPRIM        lda   #$00
              beq   :numj
              jsr   ISALNUM
              bcc   :varj
-:bad         lda   #$0c
+:bad         lda   #$26
              jsr   SETBAD
              sec
              rts
@@ -7846,6 +8071,8 @@ EPRIM        lda   #$00
 :valj        jmp   FVAL
 :slicej      jmp   FSLICE
 :ufnj        jmp   UFN
+:pdlj        jmp   FPDL
+:scrnj       jmp   FSCRN
 
 :paren       jsr   EXPR
              bcs   :bad2
@@ -7899,7 +8126,7 @@ EPRIM        lda   #$00
              pla
              sec
              rts
-:bad3        lda   #$0c
+:bad3        lda   #$26
              jsr   SETBAD
              sec
              rts
@@ -7916,7 +8143,7 @@ EPRIM        lda   #$00
              jsr   NUMCONV
              jsr   CFIND
              bcc   :ngot
-             lda   #$0c
+             lda   #$26             ; CANNOT READ THAT
              jsr   SETBAD
              sec
              rts
@@ -8561,7 +8788,7 @@ EMSUBS       lda   VARI
 
 :multij      jmp   :multi
 :dropbad     pla
-             lda   #$0c
+             lda   #$27             ; BAD SUBSCRIPT
              jsr   SETBAD
              sec
              rts

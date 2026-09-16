@@ -433,7 +433,11 @@ MSGTAB       da    BADSUF           ; 1
              da    BADDEFH          ; 34
              da    BADDEFB          ; 35
              da    BADSDESC         ; 36
-NMSG         equ   36
+             da    BADGET           ; 37
+             da    BADPRIM          ; 38
+             da    BADSUBS          ; 39
+             da    BADFARG          ; 40
+NMSG         equ   40
 
 BADSUF       asc   "NO STRINGS OR ARRAYS"
              dfb   $00
@@ -506,6 +510,14 @@ BADDEFH      asc   "DEF FN HEADER"
 BADDEFB      asc   "DEF FN BODY"
              dfb   $00
 BADSDESC     asc   "TOO MANY STRINGS AT ONCE"
+             dfb   $00
+BADGET       asc   "GET WANTS A STRING"
+             dfb   $00
+BADPRIM      asc   "CANNOT READ THAT"
+             dfb   $00
+BADSUBS      asc   "BAD SUBSCRIPT"
+             dfb   $00
+BADFARG      asc   "BAD FUNCTION ARGUMENT"
              dfb   $00
 
 *--------------------------------------
