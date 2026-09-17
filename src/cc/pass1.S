@@ -39,7 +39,10 @@ FMUL         equ   $e97f            ; FAC <- FAC * memory
 FDIV         equ   $ea66            ; FAC <- memory / FAC   -- NOT FAC/memory
 FOUT         equ   $ed34            ; FAC -> string at $0100
 
-CODEORG      equ   $6000
+CODEORG      equ   $6000            ; the cautious one: clear of both hi-res
+ORGHIRES     equ   $4000            ; clear of hi-res page 1 only
+ORGLOW       equ   $0c00            ; clear of both LO-res pages, $400-$BFF
+ORGCEIL      equ   $9600            ; where BASIC.SYSTEM's buffers begin
 
 *--- Applesoft's tokens, by value. tools/gentokens.py has the table these come
 *    out of: END is $80 and they run in order from there.
@@ -54,6 +57,11 @@ TGOTO        equ   $ab
 TGOSUB       equ   $b0
 TREM         equ   $b2
 TTHEN        equ   $c4
+*--- the hi-res tokens PICKORG reads. THGR, THCOLOR and THPLOT are gen.S's
+*    already -- one definition each, wherever it first went.
+THGR2        equ   $90
+TDRAWK       equ   $94
+TXDRAWK      equ   $95
 
 *--------------------------------------
 * PASS1 -- walk the program, filling the three tables
@@ -75,6 +83,19 @@ PASS1        lda   #$00
              sta   FDATA
              sta   NDEFS
              sta   NSARR
+             sta   NIVARS
+             sta   USESHR
+             sta   NSDYN
+             sta   ORGOK
+             ldx   #AMAX-1
+:dynz        sta   ADYNF,x
+             dex
+             bpl   :dynz
+             ldx   #SAMAX-1
+:sdynz       sta   SADYNF,x
+             dex
+             bpl   :sdynz
+             lda   #$00
              sta   BADFLG
              sta   BADLINE
              sta   BADLINE+1
@@ -133,6 +154,236 @@ SETBAD       pha
              rts
 
 *--------------------------------------
+* SDYNDIM -- DIM A$(N), a string array sized when the program runs
+*
+* Its own routine, not part of the DIM block: inline it put enough between
+* :dimstr and the exits it branches to that three of them stopped reaching.
+* That is the fifth routine today to need splitting for the same reason.
+*
+* Its elements are descriptors and therefore the collector's roots, so as
+* well as room for them it needs a run of its own in the collector's table.
+* Which run is settled here, in the order the DIMs are met, and the generator
+* hands the number to the allocator.
+*
+* CH holds the first character of the subscript; RDSIZE read it before
+* deciding it was not a digit.
+*
+*   out   carry set  the source ended
+*         carry clear and BADFLG set, the statement was malformed
+*--------------------------------------
+SDYNDIM      jsr   SKIPEXPR         ; past the subscript, to its bracket
+             bcs   :eof
+             lda   CH
+             cmp   #')'
+             bne   :bad
+             lda   #$00             ; nothing reserved at compile time
+             sta   ASIZE
+             sta   ASIZE+1
+             lda   #$01
+             sta   ADIM
+             jsr   SARRADD
+             lda   BADFLG
+             bne   :done
+             inc   NSDYN
+             ldx   TMPA             ; SARRADD leaves the index there
+             lda   NSDYN
+             sta   SADYNF,x
+:done        clc
+             rts
+:eof         sec
+             rts
+:bad         lda   #$15             ; ONE DIMENSION ONLY
+             jsr   SETBAD
+             clc
+             rts
+
+*--------------------------------------
+* SKIPEXPR -- past a subscript, to the bracket that closes it
+*
+* CH already holds the first character of it: RDSIZE read one before deciding
+* it was not a digit. Nesting counts, so DIM A(LEN(B$)) ends on the right
+* bracket, and a quoted string is skipped whole in case one holds a bracket.
+*--------------------------------------
+SKIPEXPR     lda   #$00
+             sta   SKDEP
+             sta   SKSTR
+:loop        lda   CH
+             beq   :eof             ; the line ended first
+             ldx   SKSTR
+             bne   :instr
+             cmp   #'"'
+             bne   :notq
+             inc   SKSTR
+             jmp   :next
+:notq        cmp   #'('
+             bne   :notopen
+             inc   SKDEP
+             jmp   :next
+:notopen     cmp   #')'
+             bne   :next
+             lda   SKDEP
+             beq   :done            ; the one that closes the subscript
+             dec   SKDEP
+             jmp   :next
+:instr       cmp   #'"'
+             bne   :next
+             lda   #$00
+             sta   SKSTR
+:next        jsr   RDBYTE
+             bcs   :eof
+             sta   CH
+             jmp   :loop
+:done        clc
+             rts
+:eof         sec
+             rts
+
+ORGPAT       asc   '$ORG='          ; SINGLE QUOTES: Merlin's "..." is HIGH
+                                    ; ascii and a REM's text is low, so the
+                                    ; double-quoted version never matched a
+                                    ; single character of it
+
+*--------------------------------------
+* UPCH -- a letter as its capital, anything else unchanged
+*--------------------------------------
+UPCH         cmp   #'a'
+             bcc   :done
+             cmp   #'z'+1
+             bcs   :done
+             sec
+             sbc   #$20
+:done        rts
+
+*--------------------------------------
+* HEXDIG -- one hex digit in A as its value, carry set if it is not one
+*--------------------------------------
+HEXDIG       cmp   #'0'
+             bcc   :no
+             cmp   #'9'+1
+             bcc   :dig
+             cmp   #'A'
+             bcc   :no
+             cmp   #'F'+1
+             bcs   :no
+             sec
+             sbc   #$07             ; 'A' becomes $0A
+:dig         and   #$0f
+             clc
+             rts
+:no          sec
+             rts
+
+*--------------------------------------
+* SKIPREM -- a REM's text, and the REM $ORG= directive that may be in it
+*
+* ITS OWN ROUTINE, not part of SCANBODY: inline, the matcher below put eighty
+* lines between SCANBODY's dispatch and the trampolines at its end, and three
+* branches that had always reached stopped reaching. Out here it costs one
+* JMP and nothing else moves.
+*--------------------------------------
+*--- A REM IS ALSO WHERE AN OVERRIDE CAN BE WRITTEN. The load address is
+*    chosen from the hi-res tokens a program uses, and that scan cannot see a
+*    program that reaches hi-res by poking the soft switches -- so REM $ORG=
+*    followed by four hex digits says outright where to put it.
+*
+*    Matched a character at a time against ORGPAT, because the source arrives
+*    as a stream and there is nothing to back up over. A mismatch restarts the
+*    match, and restarts it AT ONE rather than zero when the character that
+*    failed is itself a '$' -- otherwise "$$ORG=" would not match, and neither
+*    would the second of two directives on one line.
+SKIPREM      lda   #$00
+             sta   ORGMI
+             sta   ORGHD
+:remlp       jsr   RDBYTE
+             bcs   :eof
+             cmp   #$00
+             beq   :remend
+             jsr   UPCH             ; REM text is stored as typed
+             sta   REMCH
+             lda   ORGMI
+             cmp   #$05
+             bcs   :remhex          ; the pattern is matched: these are digits
+             tay
+             lda   REMCH
+             cmp   ORGPAT,y
+             bne   :remmiss
+             inc   ORGMI
+             jmp   :remlp
+:remmiss     lda   #$00
+             sta   ORGMI
+             sta   ORGHD            ; AND the digit count: a directive that
+                                    ; failed part way through its digits would
+                                    ; otherwise leave a tally for the next one
+                                    ; on the line to carry on from
+             lda   REMCH
+             cmp   ORGPAT           ; a '$' begins a fresh match
+             bne   :remlp
+             inc   ORGMI
+             jmp   :remlp
+
+*--- FOUR HEX DIGITS, shifted in from the top. Anything that is not one
+*    abandons the match rather than half-taking it.
+:remhex      lda   REMCH
+             jsr   HEXDIG
+             bcs   :remmiss         ; not a digit: this was not a directive
+             ldx   #$04
+:remsh       asl   ORGREQ
+             rol   ORGREQ+1
+             dex
+             bne   :remsh
+             ora   ORGREQ
+             sta   ORGREQ
+             inc   ORGHD
+             lda   ORGHD
+             cmp   #$04
+             bcc   :remlp
+             lda   #$01
+             sta   ORGOK            ; the last one wins, as a later REM should
+             lda   #$00
+             sta   ORGMI
+             sta   ORGHD
+             jmp   :remlp
+:remend      clc
+             rts
+:eof         sec
+             rts
+*--------------------------------------
+* NOTEHR -- WHICH GRAPHICS PAGES THIS PROGRAM WILL WANT, which is what decides
+* where it can be loaded. HGR2 uses the page at $4000-$5FFF as well as the one at
+*    $2000, so it needs the code above both; the rest use page 1 only.
+*
+*    DRAW and XDRAW are counted even though the compiler refuses them: if that
+*    ever changes, the shape table is a hi-res matter and this is already
+*    right. A program that reaches hi-res by poking $C057 instead of using any
+*    of these tokens is NOT visible here -- REM $ORG= is the answer to that,
+*    and PICKORG's comment says so.
+*
+* Its own routine for the same reason SKIPREM is: inline it pushed SCANBODY's
+* trampolines past a branch's reach.
+*--------------------------------------
+NOTEHR       lda   CH
+             cmp   #THGR2
+             bne   :nohg2
+             lda   #$02
+             sta   USESHR
+             jmp   :hrdone
+:nohg2       cmp   #THGR
+             beq   :hr1
+             cmp   #THCOLOR
+             beq   :hr1
+             cmp   #THPLOT
+             beq   :hr1
+             cmp   #TDRAWK
+             beq   :hr1
+             cmp   #TXDRAWK
+             bne   :hrdone
+:hr1         lda   USESHR
+             bne   :hrdone          ; HGR2 has already asked for more
+             lda   #$01
+             sta   USESHR
+:hrdone      rts
+
+*--------------------------------------
 * SCANBODY -- one line's tokens, as far as its terminating zero
 *
 * Carry set means the file ended mid-line, which is a truncated file rather
@@ -144,8 +395,8 @@ SCANBODY     lda   #$00
 
 :next        jsr   RDBYTE
              bcc   :got
-             sec                    ; its own exit: the shared one is now too
-             rts                    ; far down the routine to branch to
+:eof         sec                    ; its own exit, and the one the far end of
+             rts                    ; the routine jumps back to
 :got         sta   CH
              bne   :notend
              clc
@@ -161,8 +412,9 @@ SCANBODY     lda   #$00
 
              lda   CH
              cmp   #TREM
-             beq   :rem
-             cmp   #TDATA
+             bne   :notrem
+             jmp   SKIPREM          ; its rts returns where SCANBODY's would
+:notrem      cmp   #TDATA
              beq   :dataj
              cmp   #TDIM
              beq   :dimj
@@ -194,6 +446,8 @@ SCANBODY     lda   #$00
 *    them would put 30 in the data area of every program that says GOTO 30.
 :token       lda   #$00
              sta   LINEREF
+
+             jsr   NOTEHR           ; CH may be a hi-res token: PICKORG cares
              lda   CH
 *--- Each FOR wants two slots of its own in the compiled program, for the
 *    limit and the step, and pass 1 is where they get counted.
@@ -228,14 +482,8 @@ SCANBODY     lda   #$00
 :defj        jmp   :def
 
 *--- REM, and the rest of the line is a comment
-:rem         jsr   RDBYTE
-             bcs   :eof
-             cmp   #$00
-             bne   :rem
-             clc
-             rts
-:eof         sec
-             rts
+
+
 
 *--------------------------------------
 * A name. Two characters are significant to Applesoft, so S and SUM and
@@ -259,7 +507,7 @@ SCANBODY     lda   #$00
              cmp   #'$'
              beq   :isstr
              cmp   #'%'
-             beq   :unsup
+             beq   :isint
              cmp   #'('
              beq   :isarr
              jsr   VARADD
@@ -276,6 +524,26 @@ SCANBODY     lda   #$00
              sta   ADIM             ; a guess, not a statement of size
              jsr   ARRADD
              jmp   :next
+
+*--- AN INTEGER VARIABLE. Two bytes rather than five, and every read and
+*    write converts -- which is what Applesoft does too, and why an integer
+*    variable is no faster there than a real one. Here it saves three bytes
+*    apiece and nothing else.
+*
+*    I% and I are different variables, as they are in Applesoft, so they get a
+*    table of their own.
+:isint       jsr   RDBYTE
+             bcs   :ieof
+             sta   CH
+             cmp   #'('
+             beq   :iarr
+             jsr   IVARADD
+             jmp   :redo
+:iarr        lda   #$29             ; NO INTEGER ARRAYS YET
+             jsr   SETBAD
+             jmp   :next
+:ieof        sec
+             rts
 
 *--- A string. What comes after the $ says whether it is a plain one or an
 *    array of them, and only the plain one compiles yet -- so the byte is read
@@ -310,7 +578,7 @@ SCANBODY     lda   #$00
 :number      lda   LINEREF
              beq   :const
 :skip        jsr   RDBYTE
-             bcs   :eof
+             bcs   :eofj
              sta   CH
              jsr   ISDIGIT
              bcc   :skip
@@ -325,6 +593,12 @@ SCANBODY     lda   #$00
              lda   #$00
              sta   LINEREF
              jmp   :redo
+
+*--- UNDER THE JMP, so nothing falls into it. Put above, between the digit
+*    loop and the comma test, it ended the line scan at the first branch
+*    target a program had -- and pass 1 then found no variables at all.
+:eofj        sec
+             rts
 
 :const       jsr   RDNUM
              bcc   :cok
@@ -384,6 +658,9 @@ SCANBODY     lda   #$00
 :dim         jmp   :dstart
 :deof2       jmp   :dimeof          ; the shared exits are past the whole block
 :dbad2       jmp   :dimbad
+:dimvarj     jmp   :dimvar          ; reached only by branch: :dbad2 above is
+                                    ; an unconditional jump
+:dyndimj     jmp   :dyndim
 :dstrn       jmp   :dimstr          ; and so is the string-array case
 :dstart      jsr   RDBYTE
              bcs   :deof2
@@ -411,6 +688,8 @@ SCANBODY     lda   #$00
 
 :dnext       jsr   RDSIZE
              bcs   :deof2
+             lda   NCH
+             beq   :dyndimj         ; not a number: worked out when it runs
              inc   WORD             ; DIM A(20) holds twenty-one
              bne   :dok
              inc   WORD+1
@@ -498,7 +777,14 @@ SCANBODY     lda   #$00
              bne   :dimbad
              jsr   RDSIZE
              bcs   :dimeof
-             lda   CH
+             lda   NCH              ; NO DIGITS AT ALL means the extent was
+             bne   :dsnum           ; something else -- a variable, usually
+             jsr   SDYNDIM          ; DIM A$(N): sized when it runs
+             bcs   :dimeof
+             lda   BADFLG
+             bne   :dimdonj
+             jmp   :dstail
+:dsnum       lda   CH
              cmp   #')'
              bne   :dimbad
              inc   WORD             ; DIM A$(20) holds twenty-one
@@ -511,7 +797,7 @@ SCANBODY     lda   #$00
              lda   #$01
              sta   ADIM
              jsr   SARRADD
-             jsr   RDBYTE           ; DIM A$(5),B$(6) -- another may follow
+:dstail      jsr   RDBYTE           ; DIM A$(5),B$(6) -- another may follow
              bcs   :dimdonj
              sta   CH
              cmp   #$2c
@@ -520,6 +806,58 @@ SCANBODY     lda   #$00
 :dimtop      jmp   :dim             ; the top is out of a branch's reach now
 :dimdonj     jmp   :dimdone
 :dimbad      lda   #$15             ; ONE DIMENSION ONLY
+             jsr   SETBAD
+             jmp   :next
+
+*--- DIM A$(I) -- AN EXTENT THAT IS NOT A LITERAL NUMBER.
+*
+*    The compiled program lays its arrays out at compile time, so their sizes
+*    have to be known then; a variable extent needs an allocation this
+*    compiler does not do. Refused by name rather than compiled wrongly.
+*
+*    Its own message because the old one was ONE DIMENSION ONLY, which is
+*    what ':dimbad' says and is about something else entirely. RETRIEVE.TEXT
+*    stops at DIM A$(I) on line 55 and was told its array had too many
+*    dimensions -- it has one.
+*--- DIM A(N) -- A SIZE THAT IS NOT KNOWN UNTIL THE PROGRAM RUNS.
+*
+*    Pass 1 reserves nothing for it and notes that it is dynamic; the
+*    generator emits the allocation, and the array's base slot -- which every
+*    array has now -- is filled in at run time instead of by the prologue.
+*
+*    ONE SUBSCRIPT ONLY. DIM A(N,M) would want the extents kept to work out
+*    an element's offset, and those are not known either; refused by name
+*    rather than half-done.
+:dyndim      lda   NDIMS
+             beq   :dynok
+             jmp   :dimvar          ; a runtime size after a literal one
+:dynok
+             jsr   SKIPEXPR         ; past the subscript, to its bracket
+             bcs   :deof3
+             lda   CH
+             cmp   #')'
+             bne   :dimbadj2
+             lda   #$00             ; nothing reserved at compile time
+             sta   ASIZE
+             sta   ASIZE+1
+             lda   #$01
+             sta   ADIM
+             jsr   ARRADD
+             lda   BADFLG
+             bne   :dimdonj2
+             ldx   TMPA             ; ARRADD leaves the array's index there
+             lda   #$01
+             sta   ADYNF,x
+             jsr   DIMSLOT
+             ldy   #$00
+             lda   #$01             ; one subscript
+             sta   (TMPP),y
+             jmp   :dimmore
+:deof3       jmp   :dimeof
+:dimbadj2    jmp   :dimbad
+:dimdonj2    jmp   :dimdone
+
+:dimvar      lda   #$2a             ; DIM SIZE MUST BE A NUMBER
              jsr   SETBAD
              jmp   :next
 
@@ -1480,6 +1818,47 @@ CONSTADD     lda   #$00
              inc   NCONST
              rts
 
+*--------------------------------------
+* IVARADD -- an integer variable into IVTAB, by name
+*--------------------------------------
+IVARADD      lda   #$00
+             sta   TMPA
+:find        lda   TMPA
+             cmp   NIVARS
+             bcs   :new
+             asl
+             tax
+             lda   IVTAB,x
+             cmp   VN0
+             bne   :step
+             lda   IVTAB+1,x
+             cmp   VN1
+             beq   :done
+:step        inc   TMPA
+             jmp   :find
+:new         lda   NIVARS
+             cmp   #IVMAX
+             bcc   :room
+             lda   #$03             ; too many variables
+             jsr   SETBAD
+             rts
+:room        asl
+             tax
+             lda   VN0
+             sta   IVTAB,x
+             lda   VN1
+             sta   IVTAB+1,x
+             inc   NIVARS
+:done        rts
+
+*--- TMPP <- where integer variable TMPA lives in the compiled program
+IVADDR       lda   IVBASE
+             sta   SLOTB
+             lda   IVBASE+1
+             sta   SLOTB+1
+             lda   #$02
+             jmp   SLOTN
+
 *--- TMPP <- CTAB + 5 * TMPA
 *
 *    THE DOUBLING CARRIES. Written as asl, asl, clc, adc it threw the overflow
@@ -1775,10 +2154,15 @@ NUMMAX       equ   24
 VMAX         equ   128
 AMAX         equ   32
 SAMAX        equ   16
+IVMAX        equ   64
 MAXDIM       equ   3
 DFMAX        equ   16
 SVMAX        equ   64
-DBUFMAX      equ   2048
+DBUFMAX      equ   6912             ; $1B00. PAGE-ALIGNED ON PURPOSE: DPUT
+                                    ; compares only the high byte of DBP
+                                    ; against it, so a size that is not a
+                                    ; whole number of pages would let the
+                                    ; buffer overrun by up to 255 bytes
 CMAX         equ   128
 LTMAX        equ   512
 
@@ -1828,6 +2212,9 @@ NDATA        ds    2                ; how many items there are
 FDATA        ds    1                ; and whether the program uses them at all
 NDEFS        ds    1                ; how many DEF FN there are
 NSARR        ds    1                ; and how many arrays of strings
+NIVARS       ds    1                ; how many integer variables
+NSDYN        ds    1                ; string arrays sized at run time
+IVBASE       ds    2                ; and where they live
 NDIMS        ds    1                ; how many a DIM being read has
 DIMS         ds    MAXDIM*2         ; and the extent of each
 DTOT         ds    2                ; their product
@@ -1840,17 +2227,94 @@ ADIM         ds    1                ; ...said by a DIM rather than guessed
 ARRBASE      ds    2
 CURLINE      ds    2                ; the line being compiled
 BADLINE      ds    2                ; and the one the first complaint was on
+
+*--- WHERE THE COMPILED PROGRAM LOADS, decided from what pass 1 sees.
+USESHR       ds    1                ; 0 none, 1 hi-res page 1, 2 HGR2 as well
+ORGREQ       ds    2                ; an address a REM $ORG= asked for
+ORGOK        ds    1                ; and whether one did
+ORGMI        ds    1                ; how much of "$ORG=" has matched so far
+ORGHD        ds    1                ; how many hex digits have been taken
+REMCH        ds    1                ; the REM character being matched
+SKDEP        ds    1                ; SKIPEXPR's bracket depth
+SKSTR        ds    1                ; and whether it is inside a string
              dend
 
 *--- The tables, well clear of the compiler, its buffers and ProDOS.
-             dum   $8000
+*--- MOVED UP FROM $8000 to give the code another four kilobytes. A SYS
+*    program owns memory to $BEFF, and the tables need 5,776 bytes: $9000 to
+*    $A690, clear of the buffers below and ProDOS above.
+             dum   $9000
 VTAB         ds    VMAX*2
 ARRTAB       ds    AMAX*4           ; two of name, two of element count
 SVTAB        ds    SVMAX*2
-DBUF         ds    2048             ; every DATA item in the program
+DBUF         ds    DBUFMAX          ; every DATA item in the program. SIZED
+                                    ; FROM THE SAME EQUATE DPUT CHECKS
+                                    ; AGAINST -- they were two separate
+                                    ; numbers, and raising one without the
+                                    ; other lets the buffer run into CTAB
 CTAB         ds    CMAX*5
 LTAB         ds    LTMAX*4
 DFTAB        ds    DFMAX*7
 SATAB        ds    SAMAX*4
+IVTAB        ds    IVMAX*2
 DIMTAB       ds    AMAX*7
+ADYNF        ds    AMAX             ; which arrays are sized at runtime
+SADYNF       ds    SAMAX            ; and which arrays of strings -- holding
+                                    ; the collector run each one owns, from 1,
+                                    ; or zero for one the layout sized
              dend
+
+
+*--------------------------------------
+* PICKORG -- where this program is going to be loaded
+*
+* Called between pass 1 and LAYOUT: pass 1 has seen every token by then, and
+* not a byte has been generated, so nothing has yet been laid out from an
+* address that might change.
+*
+* $6000 was the fixed answer for a long time, chosen so that a program could
+* use hi-res without having to think about it. It costs every program the 18K
+* below it, and a real one came along that needed it: LITTLE compiles to
+* 18,426 bytes, which does not fit in the 13,824 that $6000 leaves, and uses
+* no hi-res at all.
+*
+*   HGR2          $6000   above BOTH pages          13,824 bytes
+*   other hi-res  $4000   above page 1              22,016 bytes
+*   neither       $0C00   above both LO-res pages   35,328 bytes
+*
+* $0C00 rather than $0800 because lo-res page 2 is $800-$BFF. Page 1, at
+* $400-$7FF, is below every one of these and never at risk.
+*
+* THE SCAN CANNOT SEE EVERYTHING. A program that turns hi-res on by poking
+* $C057 uses no hi-res token and would be put at $0C00, where its own drawing
+* would land on its code. That is what REM $ORG= is for, and it wins outright
+* over anything decided here.
+*--------------------------------------
+PICKORG      lda   ORGOK
+             beq   :scan
+             lda   ORGREQ           ; a REM said so: it is not this code's
+             sta   ORG              ; business to second-guess it
+             lda   ORGREQ+1
+             sta   ORG+1
+             rts
+
+:scan        lda   USESHR
+             cmp   #$02
+             beq   :both
+             cmp   #$01
+             beq   :page1
+             lda   #<ORGLOW
+             sta   ORG
+             lda   #>ORGLOW
+             sta   ORG+1
+             rts
+:page1       lda   #<ORGHIRES
+             sta   ORG
+             lda   #>ORGHIRES
+             sta   ORG+1
+             rts
+:both        lda   #<CODEORG
+             sta   ORG
+             lda   #>CODEORG
+             sta   ORG+1
+             rts

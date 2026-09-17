@@ -1,0 +1,10 @@
+10 PRINT "ABCDEFGH"; TAB( 3);"<"
+20 PRINT "AB"; TAB( 6);"<"
+30 PRINT TAB( 5);"<"
+40 PRINT "X"; TAB( 1);"<"
+50 PRINT "AB"; TAB( 12);"<"
+60 A = 7
+70 PRINT "Q"; TAB( A);"<"
+80 PRINT "AB"; TAB( A * 2);"<"
+90 PRINT TAB( 3);"1"; TAB( 9);"2"; TAB( 15);"3"
+100 PRINT "DONETAB"

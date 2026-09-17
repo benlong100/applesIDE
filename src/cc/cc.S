@@ -70,7 +70,8 @@ START        lda   #$00
 :ok
 
              jsr   PASS1
-             jsr   LAYOUT
+             jsr   PICKORG          ; after pass 1 has seen every token, and
+             jsr   LAYOUT           ; before LAYOUT fixes a single address
 
              lda   #<MSGLINES
              ldy   #>MSGLINES
@@ -97,14 +98,17 @@ START        lda   #$00
              jsr   GENPASS
              bcs   :stop
 
-*--- WILL IT FIT? A BRUN file lands at $6000 and BASIC.SYSTEM's workspace
-*    starts a little under $9600 on a //e with one file buffer open. Nothing
-*    checked, so a large enough program compiled quietly into a binary that
-*    loaded over the top of the interpreter that was loading it. Checked
-*    BEFORE the output file is created, so a program too big does not also
-*    leave half of itself on the disk.
+*--- WILL IT FIT? BASIC.SYSTEM's workspace starts a little under $9600 on a
+*    //e with one file buffer open. Nothing checked, so a large enough program
+*    compiled quietly into a binary that loaded over the top of the
+*    interpreter that was loading it. Checked BEFORE the output file is
+*    created, so a program too big does not also leave half of itself on the
+*    disk.
+*
+*    THE CEILING IS FIXED; the floor is not, since PICKORG chooses it. How
+*    much room a program gets is $9600 less wherever it was put.
              lda   FINPC+1
-             cmp   #$96
+             cmp   #>ORGCEIL
              bcc   :fits
              lda   #<MSGBIG
              ldy   #>MSGBIG
@@ -136,12 +140,12 @@ START        lda   #$00
              lda   #<MSGBYTES
              ldy   #>MSGBYTES
              jsr   PRSTR
-             lda   FINPC            ; the size is where it stopped, less $6000
-             sec
-             sbc   #<CODEORG
+             lda   FINPC            ; the size is where it stopped, less the
+             sec                     ; address it was laid out from
+             sbc   ORG
              sta   WORD
              lda   FINPC+1
-             sbc   #>CODEORG
+             sbc   ORG+1
              sta   WORD+1
              jsr   PRWORD
              jsr   PRCR
@@ -437,7 +441,9 @@ MSGTAB       da    BADSUF           ; 1
              da    BADPRIM          ; 38
              da    BADSUBS          ; 39
              da    BADFARG          ; 40
-NMSG         equ   40
+             da    BADIARR          ; 41
+             da    BADDIMV          ; 42
+NMSG         equ   42
 
 BADSUF       asc   "NO STRINGS OR ARRAYS"
              dfb   $00
@@ -519,6 +525,10 @@ BADSUBS      asc   "BAD SUBSCRIPT"
              dfb   $00
 BADFARG      asc   "BAD FUNCTION ARGUMENT"
              dfb   $00
+BADIARR      asc   "NO INTEGER ARRAYS YET"
+             dfb   $00
+BADDIMV      asc   "DIM SIZE MUST BE A NUMBER"
+             dfb   $00
 
 *--------------------------------------
 * A low-ASCII string, length byte first: a ProDOS filename as it is stored
@@ -563,6 +573,16 @@ OPENOUT      lda   SRCNAME
              jsr   MLI
              dfb   $c1              ; DESTROY: a stale file of the same name
              da    DESTPARM         ; would otherwise be appended to
+
+*--- THE LOAD ADDRESS GOES IN HERE, not into an assembled constant. It is
+*    chosen per program now, so the aux_type CREATE stamps on the file -- the
+*    address BRUN restores it to -- has to be the one this program was laid
+*    out from, or it loads somewhere its own JMPs do not point.
+             lda   ORG
+             sta   CREPARM+5
+             lda   ORG+1
+             sta   CREPARM+6
+
              jsr   MLI
              dfb   $c0              ; CREATE
              da    CREPARM
@@ -834,7 +854,7 @@ CREPARM      dfb   $07
              da    OUTNAME
              dfb   $c3              ; read, write, rename, destroy
              dfb   $06              ; BIN
-             da    CODEORG          ; so BRUN puts it back where it belongs
+             da    $0000            ; filled in by OPENOUT: see there
              dfb   $01              ; a seedling, to start with
              da    $0000            ; ProDOS dates it itself
              da    $0000
@@ -878,6 +898,10 @@ MSGNOOUT     asc   "CANNOT WRITE THE OUTPUT, CODE "
              dfb   $00
 MSGSTOP      asc   "STOPPED IN "
              dfb   $00
+MSGNOSAVE    asc   "NOTE: SAVE ON LINE "
+             dfb   $00
+MSGNOSAVE2   asc   " DOES NOTHING"
+             dfb   $8d,$00
 MSGCOLON     asc   ": "
              dfb   $00
 MSGCODE      asc   "CODE "
@@ -913,13 +937,41 @@ BQPARM       ds    7
 *--- Two ProDOS buffers, a window into the source and one out to the output
 *    file. They were at $1800, which stopped fitting the moment there were two
 *    of them: $1E00 onwards is the compiler's own code.
-             dum   $a000
+*--- THE TWO BIG ONES BACK DOWN TO LOW MEMORY, and this time below the code
+*    rather than into it. At $a800 they sat immediately above the tables,
+*    which capped those at $9000-$A7FF -- and DBUF, which every DATA item in
+*    the program is collected into, could be no bigger than 2K because of it.
+*    PHONE.LIST has 6,004 bytes of DATA and stopped at line 250, TOO MUCH
+*    DATA, having compiled everything else about it perfectly well.
+*
+*    $0800 and $0C00 are free. ProDOS's system bitmap protects pages $00-$07
+*    and $BF, and everything between belongs to whoever is running -- which
+*    here is a SYS program that owns the machine: BASIC.SYSTEM is NOT resident
+*    while the compiler runs, which is why quitting has to load it again. The
+*    variable blocks in this program start at $1400, so $1000-$13FF is spare.
+             dum   $0800
 IOBUF        ds    1024             ; ProDOS wants these page aligned
 IOBUF2       ds    1024
-DATBUF       ds    512
-OUTBUF       ds    256              ; a whole page, so a string literal's JMP
-PFXBUF       ds    64               ; is still reachable to patch
+             dend
+
+*--- and the small ones tucked under ProDOS instead of on top of the tables.
+*
+*    $BA00, NOT $BB00, AND THE ARITHMETIC MATTERS. Put at $BB00 first, having
+*    added up only the four buffers this comment used to mention: it is six,
+*    1,184 bytes, and STRBUF ran from $BEA0 to $BF9F -- a hundred and sixty
+*    bytes into ProDOS's global page. A string literal long enough to reach
+*    that far overwrote the MLI's own vectors, and the compiler came back from
+*    the next call into its message table and executed it.
+*
+*    dumcheck.py compares these blocks with each other and had nothing to say,
+*    because nothing here overlapped anything here. It knows about $BF00 now.
+*
+*    OUTBUF still begins on a page boundary, which it needs.
+             dum   $ba00
+DATBUF       ds    512              ; $BA00
+OUTBUF       ds    256              ; $BC00 -- a whole page, so a string
+PFXBUF       ds    64               ; literal's JMP is still reachable to patch
 ONLBUF       ds    16
 ONBUF        ds    80               ; an ON GOTO's targets, collected first
 STRBUF       ds    256              ; a literal, collected before it is emitted
-             dend
+             dend                   ; ends $BE9F, clear of ProDOS at $BF00

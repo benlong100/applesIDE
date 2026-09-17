@@ -43,11 +43,23 @@ FACLO        equ   $a1
 FACEXP       equ   $9d              ; zero is the only way a float is zero
 
 *--- Six bytes of zero page for the COMPILED program -- four for the address
-*    helper below, two for an element address being held across an assignment.
-*    $1A-$1F belongs to the hires routines, which a compiled program does not
-*    call; it is clear of the floating point at $9D-$A5, of COUT's screen
-*    pointers at $24-$29, and of the MLI at $40-$4F. The compiler's own TMPP
-*    sits at $1A as well, which is harmless: the two never run at once.
+*    helper below, two for an element address being held across an assignment,
+*    and the two DIM allocators borrow the same four while they run.
+*
+*    $1A-$1F is clear of the floating point at $9D-$A5, of COUT's screen
+*    pointers at $24-$29, and of the MLI at $40-$4F.
+*
+*    IT IS NOT CLEAR OF THE HI-RES ROUTINES, and the note here used to say it
+*    was on the grounds that a compiled program never calls them. It does:
+*    HGR, HPLOT and HCOLOR= compile to calls into that ROM, and BRIAN uses all
+*    three. What makes it safe is narrower and worth stating properly --
+*    nothing of ours is LIVE across such a call. The address helper is done
+*    with $1A-$1D before the statement that used it ends, ZPELEM is held only
+*    across an assignment, which cannot contain an HPLOT, and a DIM has
+*    finished allocating before anything else runs.
+*
+*    The compiler's own TMPP sits at $1A as well, which is harmless for the
+*    reason the old note gave correctly: the two never run at once.
 ZPB          equ   $1a
 ZPELEM       equ   $1e
 COUTA        equ   $fded
@@ -63,8 +75,10 @@ FDEPTH       equ   8                ; nested FOR loops
 *    descriptor it has found, 10-11 that string's address, 12 its length,
 *    13 how many descriptors are left to look at, 14-15 which part of a
 *    string a slice wants, 16-17 a POKE's address across its value,
-*    18-19 how far through the DATA a READ has got.
-SCRASZ       equ   38               ; $24 a PLOT's column, kept across its row               ; $1a/$1b an array element being assigned
+*    18-19 how far through the DATA a READ has got, 38 which of the
+*    collector's runs is being walked, 39-40 what is left of it, 41 how many
+*    runs there are.
+SCRASZ       equ   42               ; $24 a PLOT's column, kept across its row               ; $1a/$1b an array element being assigned
 *                                     to, $1c-$23 the running subscript and
 *                                     the multiply a comma in one needs               ; $14-$17 the input line and its split,
 *                                     $18/$19 an item on its way to the heap
@@ -111,6 +125,14 @@ TFLASH       equ   $9f
 CV           equ   $25              ; the cursor's row, and the monitor's
 VTABZ        equ   $fc22            ; way of acting on it
 CHPOS        equ   $24
+TTABK        equ   $c0              ; TAB( -- the token carries the bracket
+TPOPK        equ   $a1
+TSAVEK       equ   $b7
+TSTOPK       equ   $b3
+TPRNK        equ   $8a
+OUTPORT      equ   $fe95            ; the monitor's PR#: slot in A. Read off
+                                    ; the ROM rather than recalled -- it sets
+                                    ; CSW to $Cn00, or back to $F0xx for 0
 HOMEROM      equ   $fc58
 TEXTROM      equ   $fb39
 INVFLG       equ   $32
@@ -136,6 +158,7 @@ TGETK        equ   $be
 PREAD        equ   $fb1e            ; paddle X, count back in Y
 SCRNROM      equ   $f871            ; row in A, column in Y, colour back in A
 RDKEY        equ   $fd0c
+INTROM       equ   $ec23            ; FAC <- floor(FAC)
 HCOLBYTE     equ   $e4              ; where HCOLOR= puts the mask...
 HPLOTCOL     equ   $30              ; ...and where the plotting reads it
 HPOSN        equ   $f411            ; row in A, column in X and Y
@@ -2189,29 +2212,10 @@ EMHGC        lda   #$a5
              jsr   EMIT
              lda   #$0b
              jsr   EMSCOFS
-             lda   #$a9
-             jsr   EMIT
-             lda   SDESCA
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   SDESCA+1
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             jsr   EMNDESC
-             lda   #$8d
-             jsr   EMIT
-             lda   #$0d
-             jsr   EMSCOFS
+*--- WHERE THE ROOTS BEGIN, and how many: SETRUN now says, because there is
+*    more than one run of them. THIRTEEN BYTES EXACTLY, the same as the three
+*    immediate loads this replaces, so every branch offset below is untouched.
+             jsr   EMSETRUN
              lda   #$a0
              jsr   EMIT
              lda   #$00
@@ -2250,6 +2254,17 @@ EMHGC        lda   #$a5
              jsr   EMIT
              lda   #$c9
              jsr   EMIT
+
+*--- WHERE THIS BYTE LANDS, recorded as it is written rather than worked out
+*    from a count. It is the high half of the allocator's floor -- the address
+*    the string heap must not grow below -- and a runtime DIM moves that floor
+*    up as it takes memory for an array. Two hand-counted attempts at modelling
+*    this routine's layout both came out wrong; asking PC at the moment of
+*    emission cannot.
+             lda   PC
+             sta   HBNDHI
+             lda   PC+1
+             sta   HBNDHI+1
              lda   FINPC+1
              jsr   EMIT
              lda   #$90
@@ -2266,6 +2281,10 @@ EMHGC        lda   #$a5
              jsr   EMIT
              lda   #$c9
              jsr   EMIT
+             lda   PC               ; and the low half, the same way
+             sta   HBNDLO
+             lda   PC+1
+             sta   HBNDLO+1
              lda   FINPC
              jsr   EMIT
              lda   #$90
@@ -2386,10 +2405,15 @@ EMHGC        lda   #$a5
              jsr   EMIT
              lda   #$1b
              jsr   EMIT
-             lda   #$ce
+*--- one descriptor fewer, and on to the next run when this one is spent.
+*    A JSR is three bytes, exactly as the DEC it replaces was, so the BNE
+*    that follows still reaches back to the top of the walk.
+             lda   #$20             ; JSR MORE
              jsr   EMIT
-             lda   #$0d
-             jsr   EMSCOFS
+             lda   HRUNA
+             jsr   EMIT
+             lda   HRUNA+1
+             jsr   EMIT
              lda   #$d0
              jsr   EMIT
              lda   #$9c
@@ -2498,29 +2522,10 @@ EMHGC        lda   #$a5
              jsr   EMIT
              lda   #$f7
              jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   SDESCA
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   SDESCA+1
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             jsr   EMNDESC
-             lda   #$8d
-             jsr   EMIT
-             lda   #$0d
-             jsr   EMSCOFS
+*--- WHERE THE ROOTS BEGIN, and how many: SETRUN now says, because there is
+*    more than one run of them. THIRTEEN BYTES EXACTLY, the same as the three
+*    immediate loads this replaces, so every branch offset below is untouched.
+             jsr   EMSETRUN
              lda   #$a0
              jsr   EMIT
              lda   #$01
@@ -2595,10 +2600,15 @@ EMHGC        lda   #$a5
              jsr   EMIT
              lda   #$1b
              jsr   EMIT
-             lda   #$ce
+*--- one descriptor fewer, and on to the next run when this one is spent.
+*    A JSR is three bytes, exactly as the DEC it replaces was, so the BNE
+*    that follows still reaches back to the top of the walk.
+             lda   #$20             ; JSR MORE
              jsr   EMIT
-             lda   #$0d
-             jsr   EMSCOFS
+             lda   HRUNA
+             jsr   EMIT
+             lda   HRUNA+1
+             jsr   EMIT
              lda   #$d0
              jsr   EMIT
              lda   #$d4
@@ -3730,7 +3740,7 @@ GENPASS      lda   #$00
              cmp   #$02
              beq   :setup
              jmp   :keep            ; the list below has outgrown a branch
-:setup       lda   #<CODEORG
+:setup       lda   ORG
              sta   HARR
              sta   HSCMP
              sta   HSPR
@@ -3766,7 +3776,27 @@ GENPASS      lda   #$00
              sta   HCTAB
              sta   MOOM
              sta   MLONG
-             lda   #>CODEORG
+*--- WHERE THE ALLOCATOR'S FLOOR IS, before there is an allocator.
+*
+*    HDIMB always writes the new break to those two bytes, and EMHALLOC only
+*    records where they are if the heap is emitted at all -- which it is not
+*    for a program with arrays and no strings. Pointed at the array break
+*    itself, the write lands on the value it has just stored there and does
+*    nothing; pointed at a stale address it landed in screen memory, which is
+*    how this was found: a lone Q, being the low byte of the break.
+             lda   ABRKA
+             sta   HBNDLO
+             lda   ABRKA+1
+             sta   HBNDLO+1
+             lda   ABRKA
+             clc
+             adc   #$01
+             sta   HBNDHI
+             lda   ABRKA+1
+             adc   #$00
+             sta   HBNDHI+1
+
+             lda   ORG+1
              sta   HARR+1
              sta   HSCMP+1
              sta   HSPR+1
@@ -3809,10 +3839,10 @@ GENPASS      lda   #$00
              jmp   :fail            ; :fail is a long way down this routine
 :ready
 
-             lda   #<CODEORG
+             lda   ORG
              sta   PC
              sta   OUTBASE
-             lda   #>CODEORG
+             lda   ORG+1
              sta   PC+1
              sta   OUTBASE+1
 
@@ -3840,7 +3870,7 @@ GENPASS      lda   #$00
              sta   TMPA
 :con         lda   TMPA
              cmp   NCONST
-             bcs   :temps
+             bcs   :abase
              jsr   CSLOT
              lda   #$00
              sta   TMPB
@@ -3853,6 +3883,87 @@ GENPASS      lda   #$00
              bcc   :cb
              inc   TMPA
              jmp   :con
+
+*--- AND THE ARRAY BASES, in the same order LAYOUT counted them. Emitted as
+*    data rather than left to the zero fill below, because a subscript reads
+*    its array's base from here. For an array whose size is known these are
+*    fixed now; ABASES is where a runtime DIM will write instead.
+:abase       lda   #$00
+             sta   ABI
+:ab          lda   ABI
+             cmp   NARR
+             bcs   :sabase
+             sta   TMPA
+             jsr   AADDR            ; TMPP = where array TMPA's elements start
+             lda   TMPP             ; copied out before emitting: see ABTMP
+             sta   ABTMP
+             lda   TMPP+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             inc   ABI
+             jmp   :ab
+
+*--- and the bases of the arrays of strings, the same way
+:sabase      lda   #$00
+             sta   ABI
+:sab         lda   ABI
+             cmp   NSARR
+             bcs   :runtab
+             sta   TMPA
+             jsr   SAADDR           ; TMPP = where its descriptors start
+             lda   TMPP
+             sta   ABTMP
+             lda   TMPP+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             inc   ABI
+             jmp   :sab
+
+*--- and the run table. Entry 0 is the static run; the others start empty and
+*    their DIMs fill them in.
+:runtab      lda   SDESCA
+             sta   ABTMP
+             lda   SDESCA+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             jsr   EMNDESC          ; how many, as a byte...
+             lda   #$00             ; ...and its high half, room for more
+             jsr   EMIT
+             lda   NSDYN
+             sta   ABI
+             beq   :runz
+:rune        lda   #$00             ; four empty bytes per dynamic array
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             lda   #$00
+             jsr   EMIT
+             dec   ABI
+             bne   :rune
+:runz
+
+*--- and the array break, which starts where the program ends. FINPC is not
+*    known while pass 2 is running; pass 3 uses what pass 2 recorded, the same
+*    way the heap allocator's own floor does.
+:abrk        lda   FINPC
+             sta   ABTMP
+             lda   FINPC+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
 
 *--- The temporaries, the FOR slots and SPSAVE, filled to the address LAYOUT
 *    named rather than counted again here. If the two ever disagreed this
@@ -3886,6 +3997,19 @@ GENPASS      lda   #$00
              lda   #$8d
              jsr   EMIT
              lda   #$02
+             jsr   EMSCOFS
+
+*--- HOW MANY RUNS THE COLLECTOR HAS. SCRA is in the zero-filled range, so
+*    this one is stored by code rather than laid down as data.
+             lda   #$a9
+             jsr   EMIT
+             lda   NSDYN
+             clc
+             adc   #$01
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$29             ; 41
              jsr   EMSCOFS
 
 *--- and the DATA pointer at the first item. DTAB is not known until the
@@ -4044,6 +4168,22 @@ GENPASS      lda   #$00
              sta   HSPR+1
              jsr   EMHSPR
 :nospr
+             lda   USES2            ; a DIM whose size is worked out at runtime
+             and   #$10
+             beq   :nodim
+             lda   PC
+             sta   HDIMA
+             lda   PC+1
+             sta   HDIMA+1
+             jsr   EMHDIM
+:nodim       lda   NSDYN            ; and the string kind, which pass 1 counted
+             beq   :nosdim
+             lda   PC
+             sta   HSDIMA
+             lda   PC+1
+             sta   HSDIMA+1
+             jsr   EMHSDIM
+:nosdim
 
 *--- The heap and the collector, which any of the four that allocate bring in
 *    with them. In an order where each one's address is already known by the
@@ -4054,6 +4194,9 @@ GENPASS      lda   #$00
              bne   :heap
              lda   USES2            ; a string INPUT allocates too
              and   #$40
+             bne   :heap
+             lda   USES2            ; and so does a runtime DIM: it can run out
+             and   #$10             ; of room just as an allocation can
              bne   :heap
              jmp   :nohmsg
 :heap
@@ -4103,8 +4246,16 @@ GENPASS      lda   #$00
              lda   USES2
              and   #$40
              bne   :heap2
+             lda   NSDYN            ; a runtime DIM A$(N) puts a run in the
+             bne   :heap2           ; collector's table, so it needs one
              jmp   :noheap
-:heap2       lda   PC
+:heap2       lda   PC               ; the run walker FIRST: the collector
+             sta   HRUNA            ; calls it, so its address must be known
+             lda   PC+1
+             sta   HRUNA+1
+             jsr   EMHRUN
+
+             lda   PC
              sta   HGC
              lda   PC+1
              sta   HGC+1
@@ -4424,15 +4575,7 @@ GENSTMT      lda   #$00
 *    already in the file. Its arguments are skipped rather than compiled --
 *    A(20) here is a declaration, and reading it as a subscript would send
 *    the generator looking for a constant 20 that pass 1 never made.
-:dim         jsr   NEXTB
-             bcs   :unsup
-             sta   CH
-             beq   :dimend
-             cmp   #':'
-             bne   :dim
-:dimend      jsr   PUTBACK
-             clc
-             rts
+:dim         jmp   GDIM
 
 *--- A REM generates nothing at all, which is most of what a compiler has to
 *    say about a comment. Everything to the end of the line goes with it --
@@ -4483,10 +4626,13 @@ GLET         jsr   GETNAME
              lda   CH
              cmp   #'$'
              beq   GLETSTR
+             cmp   #'%'
+             beq   :intj
              cmp   #'('
              beq   :arrj
              bne   :plainlet
 :arrj        jmp   GLETARR          ; GLETSTR sits between the two now
+:intj        jmp   GLETINT
 :plainlet
              jsr   GETVAR2
              bcs   :bad
@@ -4985,7 +5131,18 @@ GNEXT        lda   #$ff             ; no name given: the innermost loop
              sta   TMPP+1
              lda   #$4c
              jsr   EMJ2
-             clc
+
+*--- NEXT S,X CLOSES TWO LOOPS, innermost first, and is the same as NEXT S
+*    followed by NEXT X. A comma here means go round again for the next name.
+*    The loop that was just closed has already been taken off the stack, so
+*    what the second name is matched against is the one outside it.
+             jsr   PEEK
+             bcs   :done
+             cmp   #$2c
+             bne   :done
+             jsr   NEXTB            ; the comma
+             jmp   GNEXT
+:done        clc
              rts
 
 *--------------------------------------
@@ -5127,7 +5284,7 @@ GINPUT       lda   #$20
              bcs   :badj2
              lda   CH
              cmp   #'$'
-             beq   :strj
+             beq   :dollar
              cmp   #'('
              beq   :elemj
 
@@ -5144,6 +5301,16 @@ GINPUT       lda   #$20
              jsr   VADDR
              jsr   EMSTP
              jmp   :more
+
+*--- A BRACKET AFTER THE $ MAKES IT AN ELEMENT, the same test GLETSTR makes.
+*    Without it INPUT A$(J) looked up a string VARIABLE called A$, did not
+*    find one, and said UNKNOWN VARIABLE about a line that names an array.
+:dollar      jsr   NEXTB
+             bcs   :str
+             sta   CH               ; PUTBACK hands back CH, not A
+             cmp   #'('
+             beq   :sarrin
+             jsr   PUTBACK
 
 *--- a string, which has to be copied out of the line before the next INPUT
 *    reads over it
@@ -5174,6 +5341,17 @@ GINPUT       lda   #$20
              sta   DSTA+1
              jsr   EMSDESC
              jmp   :more
+
+*--- INPUT A$(J) -- the same, into an element. The address is worked out and
+*    kept first, exactly as an assignment to one does it: EMSASAVE puts it in
+*    the program's own scratch rather than zero page, so it survives the copy
+*    to the heap and any collection that copy sets off. The array's
+*    descriptors do not move in a collection -- they are not in the heap --
+*    so the address stays good even for an array sized at run time.
+:sarrin      jsr   GINSARR          ; ITS OWN ROUTINE, and a JSR not a JMP: it
+             bcs   :badj3           ; has to come back to this loop, not
+             jmp   :more            ; return to whoever called GINPUT
+
 
 *--- Under the string block's JMP, so nothing falls into it.
 :badj3       jmp   :bad
@@ -5409,14 +5587,25 @@ EMSSUBS      lda   TMPA
              jsr   EMIT
              pla
              sta   TMPA
-             jsr   SAADDR
-             lda   #$a9
-             jsr   EMIT
+             jsr   SABSLOT          ; where this array's base is kept
              lda   TMPP
-             jsr   EMIT
-             lda   #$a0
-             jsr   EMIT
+             sta   ABTMP
              lda   TMPP+1
+             sta   ABTMP+1
+             lda   #$ad             ; LDA base
+             jsr   EMIT
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             lda   #$ac             ; LDY base+1
+             jsr   EMIT
+             inc   ABTMP
+             bne   :sahi
+             inc   ABTMP+1
+:sahi        lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
              jsr   EMIT
              lda   #$80
              jsr   NEED2
@@ -6092,10 +6281,34 @@ GSTMT2       lda   CH
              beq   :hcolk
              cmp   #THPLOT
              beq   :hplotk
+             cmp   #TPOPK
+             beq   :popk
+             cmp   #TSAVEK
+             beq   :savej
+             cmp   #TSTOPK
+             beq   :stopj
+             cmp   #TPRNK
+             beq   :prnj
              lda   #$05             ; STATEMENT NOT YET
              jsr   SETBAD
              sec
              rts
+*--- POP -- FORGET THE INNERMOST GOSUB, so the next RETURN goes back one
+*    level further out. GOSUB compiles to JSR and RETURN to RTS, so the thing
+*    to forget is simply the return address on the stack: two bytes of it.
+*    Nothing else of the compiled program's lives there -- a FOR's state is in
+*    slots laid out at compile time, not pushed.
+:popk        lda   #$68             ; PLA. No NEXTB: the token is already
+                                    ; read, and consuming another would take
+                                    ; the colon or the terminator with it
+             jsr   EMIT
+             lda   #$68             ; PLA
+             jsr   EMIT
+             clc
+             rts
+:savej       jmp   GSAVE
+:stopj       jmp   GSTOP
+:prnj        jmp   GPRN
 :vtab        jmp   GVTAB
 :htab        jmp   GHTAB
 :homek       jmp   GHOME
@@ -6228,6 +6441,143 @@ EMINVF       sta   TMPP
              lda   #INVFLG
              jsr   EMIT
              clc
+             rts
+
+*--------------------------------------
+* Integer variables: two bytes, converted at every touch
+*
+* AYINT one way and GIVAYF the other, which is what Applesoft does and why an
+* integer variable is no quicker there than a real one. Here it saves three
+* bytes apiece and nothing else -- but a program that says I% means I%, and
+* one that rounds where the writer wrote truncation is a wrong answer.
+*
+* Stored high byte first, as Applesoft stores them. Nothing outside the
+* compiled program reads them, so the order is a convention rather than a
+* requirement, and matching the machine costs nothing.
+*--------------------------------------
+IVARP        jsr   PEEK             ; an array of them is refused, not guessed
+             bcs   :ok
+             cmp   #'('
+             bne   :ok
+             lda   #$29
+             jsr   SETBAD
+             sec
+             rts
+*--- BOTH ADDRESSES ARE TAKEN BEFORE ANYTHING IS EMITTED. EMIT works in
+*    TMPP, so an address still sitting there when the first byte goes out is
+*    not there for the second -- which is how every FN call came to jump to
+*    its own save slot.
+:ok          jsr   IVFIND
+             bcs   :bad
+             jsr   IVADDR
+             lda   TMPP
+             sta   CPT
+             lda   TMPP+1
+             sta   CPT+1
+             lda   #$ad             ; LDA the high byte
+             jsr   EMIT
+             lda   CPT
+             jsr   EMIT
+             lda   CPT+1
+             jsr   EMIT
+             inc   CPT              ; the low half is the byte after it
+             bne   :nohi
+             inc   CPT+1
+:nohi        lda   #$ac             ; LDY the low
+             jsr   EMIT
+             lda   CPT
+             jsr   EMIT
+             lda   CPT+1
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<GIVAYF
+             jsr   EMIT
+             lda   #>GIVAYF
+             jsr   EMIT
+             lda   #$00
+             sta   ISSTR
+             sta   PENDOK
+             clc
+             rts
+:bad         sec
+             rts
+
+GLETINT      jsr   IVFIND
+             bcs   :bad
+             jsr   IVADDR
+             lda   TMPP
+             sta   IVDEST
+             lda   TMPP+1
+             sta   IVDEST+1
+             jsr   NEXTB
+             bcs   :bad
+             cmp   #TEQ
+             bne   :bad
+             jsr   NEXPR
+             bcs   :bad
+
+*--- FLOORED, NOT TRUNCATED. Applesoft makes I% = -2.5 into -3, not -2, which
+*    the interpreter said and memory would not have: INT first, then AYINT.
+             lda   #$20             ; JSR INT
+             jsr   EMIT
+             lda   #<INTROM
+             jsr   EMIT
+             lda   #>INTROM
+             jsr   EMIT
+             lda   #$20             ; JSR AYINT
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+             lda   #$a5             ; LDA FACHI -- zero page
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   IVDEST
+             jsr   EMIT
+             lda   IVDEST+1
+             jsr   EMIT
+             lda   #$a5             ; and the low half
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             inc   IVDEST           ; in memory, not in X and Y: EMIT keeps
+             bne   :nohi2           ; no promise about either
+             inc   IVDEST+1
+:nohi2       lda   IVDEST
+             jsr   EMIT
+             lda   IVDEST+1
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--- the integer variable named in VN0/VN1: TMPA its index
+IVFIND       lda   #$00
+             sta   TMPA
+:loop        lda   TMPA
+             cmp   NIVARS
+             bcs   :no
+             asl
+             tax
+             lda   IVTAB,x
+             cmp   VN0
+             bne   :step
+             lda   IVTAB+1,x
+             cmp   VN1
+             beq   :yes
+:step        inc   TMPA
+             jmp   :loop
+:yes         clc
+             rts
+:no          sec
              rts
 
 *--------------------------------------
@@ -6978,6 +7328,1146 @@ GON          jsr   NEXPR
              rts
 
 *--------------------------------------
+* EMTABGO -- TAB( n ), SPACES FORWARD TO COLUMN n, and does nothing at all if the
+*    cursor is already at or past it.
+*
+*    Established on a //e rather than recalled, because the obvious reading is
+*    wrong. It is not "move to column n": Applesoft works out n-1 minus the
+*    current column AS A BYTE and prints that many spaces. The two readings
+*    agree on every ordinary case and part company on TAB(0), which on the
+*    machine printed 253 spaces and wrapped -- 255 less a column of 2 -- where
+*    "move to column 0" would have done nothing or gone backwards.
+*
+*      PRINT "ABCDEFGH"; TAB( 3);"<"   ABCDEFGH<        at 8, wants 2: nothing
+*      PRINT "AB"; TAB( 6);"<"         AB   <           3 spaces, lands at 5
+*      PRINT TAB( 5);"<"                   <            4 spaces, lands at 4
+*      PRINT "AB"; TAB( 0);"<"         wraps, lands at 15
+*      PRINT "AB"; TAB( 45);"<"        wraps, lands at 4
+*
+*    So: target = n-1; if it is below the cursor, nothing; otherwise print
+*    target-cursor spaces. The count goes on the STACK and not in X, because
+*    COUT does not promise to preserve a register.
+EMTABGO      jsr   NEXTB            ; the TAB( token, bracket included
+             jsr   EMTABV           ; the expression, less one, a byte in A
+             bcs   :bad
+             jsr   PEEK
+             bcs   :bad
+             cmp   #')'
+             bne   :bad
+             jsr   NEXTB
+
+             lda   #$38             ; SEC
+             jsr   EMIT
+             lda   #$e5             ; SBC CHPOS -- zero page
+             jsr   EMIT
+             lda   #CHPOS
+             jsr   EMIT
+*--- THE DISTANCES ARE COUNTED FROM THE LAYOUT BELOW, not estimated. All
+*    three were wrong first time and the compiled program printed nothing at
+*    all: BNE came out as -11 rather than -12, which lands one byte inside the
+*    loop, skips the PHA, and unbalances the stack against the PLA.
+*
+*       0  SEC              7  PHA        <- loop
+*       1  SBC CHPOS        8  LDA #" "
+*       3  BEQ done        10  JSR COUT
+*       5  BCC done        13  PLA
+*                          14  SEC
+*                          15  SBC #1
+*                          17  BNE loop
+*                          19  done
+             lda   #$f0             ; BEQ done -- already there
+             jsr   EMIT
+             lda   #$0e             ; 19 - 5
+             jsr   EMIT
+             lda   #$90             ; BCC done -- the cursor is past it
+             jsr   EMIT
+             lda   #$0c             ; 19 - 7
+             jsr   EMIT
+             lda   #$48             ; loop: PHA
+             jsr   EMIT
+             lda   #$a9             ; LDA #" "
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$20             ; JSR COUT
+             jsr   EMIT
+             lda   #<COUTA
+             jsr   EMIT
+             lda   #>COUTA
+             jsr   EMIT
+             lda   #$68             ; PLA
+             jsr   EMIT
+             lda   #$38             ; SEC
+             jsr   EMIT
+             lda   #$e9             ; SBC #1
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$d0             ; BNE loop
+             jsr   EMIT
+             lda   #$f4             ; 7 - 19
+             jsr   EMIT
+
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* HDIMB -- the runtime side of DIM A(N): take N+1 elements off the array
+* break, zero them, and hand back where they start
+*
+* ASSEMBLED BY MERLIN, NOT BY HAND. It is emitted a byte at a time like
+* ARRBLOB, but written as instructions rather than a dfb table so the
+* assembler computes the branch offsets. Three hand-counted branch offsets
+* went in wrong earlier today; this removes the opportunity.
+*
+* Only relative branches and zero page inside, so it runs wherever it lands.
+* THE ABSOLUTE OPERANDS ARE ALL $FFFF and are substituted as the bytes go
+* out, in order, from HDIMWHAT below -- so there are no offsets to count
+* here either. $FF appears nowhere else in the blob: every immediate is 0 or
+* 1 and every zero page address is $1A-$1D or $A0-$A1.
+*
+*   in    FAC = N, the subscript as written
+*   out   A/Y = where the elements start; the break moved past them; the
+*         elements zeroed, as Applesoft leaves a freshly DIMmed array
+*
+* $1A-$1D is all the zero page there is, so it is used twice over: the count
+* becomes the new break, and the size becomes the pointer that walks the
+* elements zeroing them.
+*--------------------------------------
+HDIMB        jsr   AYINT            ; N as a signed integer
+             lda   FACLO
+             clc
+             adc   #$01             ; DIM A(20) holds twenty-one
+             sta   ZPB
+             lda   FACHI
+             adc   #$00
+             sta   ZPB+1
+
+             lda   ZPB              ; five bytes an element: n*4 + n
+             sta   ZPB+2
+             lda   ZPB+1
+             sta   ZPB+3
+             asl   ZPB+2
+             rol   ZPB+3
+             asl   ZPB+2
+             rol   ZPB+3
+             lda   ZPB+2
+             clc
+             adc   ZPB
+             sta   ZPB+2
+             lda   ZPB+3
+             adc   ZPB+1
+             sta   ZPB+3
+
+             lda   $ffff            ; 1  the break, and this array's base
+             clc
+             adc   ZPB+2
+             sta   ZPB              ; ZPB is the NEW break from here on
+             lda   $ffff            ; 2
+             adc   ZPB+3
+             sta   ZPB+1
+
+*--- below the string heap's lower edge? then there is no room
+             lda   ZPB+1
+             cmp   $ffff            ; 3  the heap pointer, high half
+             bcc   :room
+             bne   :full
+             lda   ZPB
+             cmp   $ffff            ; 4  and low
+             bcc   :room
+:full        jmp   $ffff            ; 5  out of memory, and does not return
+
+*--- zero the elements, from the old break up to the new one
+:room        lda   $ffff            ; 6  the walking pointer starts at the base
+             sta   ZPB+2            ;    and ZPB+2 is free again by now
+             lda   $ffff            ; 7
+             sta   ZPB+3
+             ldy   #$00
+:zero        lda   ZPB+2
+             cmp   ZPB
+             bne   :zap
+             lda   ZPB+3
+             cmp   ZPB+1
+             beq   :done
+:zap         tya                    ; Y is zero here and stays zero
+             sta   (ZPB+2),y
+             inc   ZPB+2
+             bne   :zero
+             inc   ZPB+3
+             jmp   :zero
+
+*--- the base is still in the break; take a copy before moving it on
+:done        lda   $ffff            ; 8
+             pha
+             lda   $ffff            ; 9
+             pha
+
+             lda   ZPB              ; the break moves up
+             sta   $ffff            ; 10
+             lda   ZPB+1
+             sta   $ffff            ; 11
+
+*--- AND THE HEAP ALLOCATOR'S FLOOR WITH IT. The allocator refuses to bring
+*    the heap below a constant compiled into it; now that arrays grow up from
+*    there, that constant has to move up too. EMHALLOC recorded where those
+*    two bytes landed as it wrote them.
+             lda   ZPB
+             sta   $ffff            ; 12  the floor's low byte, inside HALLOC
+             lda   ZPB+1
+             sta   $ffff            ; 13  and its high byte
+
+             pla
+             tay
+             pla
+             rts
+HDIMBEND
+
+*--- which address each $FFFF in the blob stands for, in the order they occur
+HDIMWHAT     dfb   0,1,3,2,4,0,1,0,1,0,1,5,6
+HDIMNPAT     equ   13
+
+*--------------------------------------
+* GSDIMDYN -- the emission for DIM A$(N)
+*
+* As GDIMDYN, with the run number handed to the allocator in X: the array's
+* descriptors have to be entered in the collector's table, and which entry is
+* theirs was settled by pass 1.
+*--------------------------------------
+GSDIMDYN     lda   TMPA
+             pha
+             jsr   NEXPR            ; the size, into FAC
+             pla
+             sta   TMPA
+             bcs   :bad
+             jsr   PEEK
+             bcs   :bad
+             cmp   #')'
+             bne   :bad
+             jsr   NEXTB
+
+             lda   TMPA
+             pha
+             ldx   TMPA             ; LDX #run, for the allocator
+             lda   SADYNF,x
+             sta   ABTMP
+             lda   #$a2
+             jsr   EMIT
+             lda   ABTMP
+             jsr   EMIT
+             lda   #$20             ; JSR the string DIM helper
+             jsr   EMIT
+             lda   HSDIMA
+             jsr   EMIT
+             lda   HSDIMA+1
+             jsr   EMIT
+             pla
+             sta   TMPA
+
+             jsr   SABSLOT          ; and into this array's base slot
+             lda   TMPP
+             sta   ABTMP
+             lda   TMPP+1
+             sta   ABTMP+1
+             lda   #$8d             ; STA base
+             jsr   EMIT
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             lda   #$8c             ; STY base+1
+             jsr   EMIT
+             inc   ABTMP
+             bne   :hi
+             inc   ABTMP+1
+:hi          lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* GDIM -- a DIM statement
+*
+* Most of one generates nothing: pass 1 worked the sizes out and LAYOUT put
+* the elements somewhere, so by here there is nothing left to do. A DIM whose
+* subscript is an EXPRESSION is different -- pass 1 reserved nothing and only
+* noted which array it was -- so this evaluates it, calls the allocator, and
+* writes the answer into that array's base slot.
+*--------------------------------------
+*--------------------------------------
+* EMCHAR -- emit LDA #char / JSR COUT
+*--------------------------------------
+EMCHAR       ora   #$80
+             sta   EMCH
+             lda   #$a9
+             jsr   EMIT
+             lda   EMCH
+             jsr   EMIT
+             lda   #$20
+             jsr   EMIT
+             lda   #<COUTA
+             jsr   EMIT
+             lda   #>COUTA
+             jmp   EMIT
+
+*--------------------------------------
+* EMWORD -- emit the code to print WORD as decimal
+*
+* PRWORD's own loop, emitting instead of printing. ITS INDEX IS KEPT IN
+* MEMORY: PRWORD counts digits in X, and every character here goes out through
+* EMIT, which puts the output length in X on its way to the buffer.
+*--------------------------------------
+EMWORD       lda   #$00
+             sta   LEADING
+             ldx   #$00
+:digit       stx   EMX
+             lda   #$00
+             sta   DIGIT
+:sub         lda   WORD
+             sec
+             sbc   POWLO,x
+             tay
+             lda   WORD+1
+             sbc   POWHI,x
+             bcc   :done
+             sta   WORD+1
+             sty   WORD
+             inc   DIGIT
+             jmp   :sub
+:done        lda   DIGIT
+             bne   :show
+             lda   LEADING
+             bne   :show
+             cpx   #$04             ; the units digit always prints
+             bne   :next
+:show        lda   #$01
+             sta   LEADING
+             lda   DIGIT
+             clc
+             adc   #$30
+             jsr   EMCHAR
+:next        ldx   EMX
+             inx
+             cpx   #$05
+             bcc   :digit
+             rts
+
+*--------------------------------------
+* GSTOP -- STOP, which says BREAK IN and the line, then ends
+*
+* Applesoft prints BREAK IN nnnn and stops; established on a //e rather than
+* recalled, along with the fact that it begins on a line of its own. The line
+* number is known while this is compiled, so the whole message goes out as
+* characters -- no string machinery, and nothing to look up at run time.
+*
+* PHONE.LIST has six, every one of them a guard on a line the program should
+* never reach.
+*--------------------------------------
+*--- NO NEXTB. The statement's token has already been read by the time a
+*    handler is entered -- GHOME, GEND and the rest start straight in -- so
+*    consuming one here ate the byte AFTER it. For STOP that was the line's
+*    terminating zero, and the statement loop then read on into the next
+*    line's link bytes and tried to compile them, which is where IF A = 2
+*    THEN STOP got UNKNOWN VARIABLE from.
+GSTOP
+*--- a newline first, unless the cursor is already at the start of one
+             lda   #$a5             ; LDA CH
+             jsr   EMIT
+             lda   #CHPOS
+             jsr   EMIT
+             lda   #$f0             ; BEQ over the five that follow
+             jsr   EMIT
+             lda   #$05
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMCHAR
+
+             lda   #$00
+             sta   EMI
+:msg         ldy   EMI
+             cpy   #MSGBRKE-MSGBRK
+             bcs   :num
+             lda   MSGBRK,y
+             jsr   EMCHAR
+             inc   EMI
+             jmp   :msg
+
+:num         lda   CURLINE
+             sta   WORD
+             lda   CURLINE+1
+             sta   WORD+1
+             jsr   EMWORD
+             lda   #$8d
+             jsr   EMCHAR
+             jsr   EMEND
+             clc
+             rts
+
+MSGBRK       asc   'BREAK IN '
+MSGBRKE
+
+*--------------------------------------
+* GPRN -- PR# n, which sends what is printed to a slot
+*
+* The monitor's OUTPORT does the work and wants the slot in A, which is what
+* EMCOORD leaves there. PHONE.LIST turns a printer on with PR# SL and off
+* again with PR# 0.
+*--------------------------------------
+GPRN         jsr   EMCOORD          ; the slot, as a byte in A. NO NEXTB
+                                    ; first -- it would have eaten the first
+                                    ; byte of the expression
+             bcs   :bad
+             lda   #$20             ; JSR OUTPORT
+             jsr   EMIT
+             lda   #<OUTPORT
+             jsr   EMIT
+             lda   #>OUTPORT
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* GSAVE -- SAVE, the cassette one, which compiles to nothing
+*
+*    A bare SAVE writes the BASIC program to tape. A compiled program has no
+*    BASIC program in it to write, so there is nothing this could honestly
+*    emit -- and emitting the ROM's tape routine would write whatever the
+*    Applesoft program pointers happen to span, producing a tape that will not
+*    load rather than an error anybody can see.
+*
+*    So it generates nothing AND SAYS SO, by name and line number, because a
+*    statement that silently stops happening is exactly the kind of change a
+*    compiler should never make quietly. PHONE.LIST has two, both on the tape
+*    branch of a disk-or-tape choice that a ProDOS machine never takes.
+*
+*    Said in pass 3 only: pass 2 generates the same statements with its output
+*    thrown away, and would otherwise say everything twice.
+*--------------------------------------
+GSAVE                             ; no NEXTB: see GSTOP
+             lda   PASSNO
+             cmp   #$03
+             bne   :saved
+             lda   #<MSGNOSAVE
+             ldy   #>MSGNOSAVE
+             jsr   PRSTR
+             lda   CURLINE
+             sta   WORD
+             lda   CURLINE+1
+             sta   WORD+1
+             jsr   PRWORD
+             lda   #<MSGNOSAVE2
+             ldy   #>MSGNOSAVE2
+             jsr   PRSTR
+:saved       clc
+             rts
+
+*--------------------------------------
+* GINSARR -- INPUT A$(J), into an element of an array of strings
+*
+* The address is worked out and kept first, exactly as an assignment to one
+* does it: EMSASAVE puts it in the program's own scratch rather than zero
+* page, so it survives the copy to the heap and any collection that copy sets
+* off. The array's descriptors do not move in a collection -- they are not in
+* the heap -- so the address stays good even for an array sized at run time.
+*
+* Ends by rejoining GINPUT's loop, which is why it takes the carry back with
+* it rather than returning a value.
+*--------------------------------------
+GINSARR      lda   #$40             ; the heap, for the copy
+             jsr   NEED2
+             jsr   SAFIND
+             bcs   :bad
+             jsr   EMSSUBS
+             bcs   :bad
+             jsr   EMSASAVE
+             jsr   EMNEXTI
+             lda   #$20             ; JSR HICOPY
+             jsr   EMIT
+             lda   HICOPY
+             jsr   EMIT
+             lda   HICOPY+1
+             jsr   EMIT
+             jsr   EMSAPUT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* GDIMDYN -- the emission for DIM A(N): allocate, and keep where it landed
+*
+* Its own routine because inline it made GDIM long enough that three of its
+* branches stopped reaching, which is the third time today. TMPA holds the
+* array; the subscript is still to be read.
+*--------------------------------------
+GDIMDYN      lda   TMPA
+             pha
+             jsr   NEXPR            ; the size, into FAC
+             pla
+             sta   TMPA
+             bcs   :bad
+             jsr   PEEK
+             bcs   :bad
+             cmp   #')'
+             bne   :bad
+             jsr   NEXTB
+
+             lda   USES2
+             ora   #$10
+             sta   USES2
+
+             lda   TMPA
+             pha
+             lda   #$20             ; JSR the DIM helper
+             jsr   EMIT
+             lda   HDIMA
+             jsr   EMIT
+             lda   HDIMA+1
+             jsr   EMIT
+             pla
+             sta   TMPA
+
+             jsr   ABSLOT           ; and into this array's base slot
+             lda   TMPP             ; copied out before emitting: see ABTMP
+             sta   ABTMP
+             lda   TMPP+1
+             sta   ABTMP+1
+             lda   #$8d             ; STA base
+             jsr   EMIT
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             lda   #$8c             ; STY base+1
+             jsr   EMIT
+             inc   ABTMP
+             bne   :hi
+             inc   ABTMP+1
+:hi          lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* GDIM -- a DIM statement
+*
+* Most of one generates nothing: pass 1 worked the sizes out and LAYOUT put
+* the elements somewhere. A DIM whose subscript is an EXPRESSION is different
+* -- pass 1 reserved nothing for it and only noted which array it was.
+*--------------------------------------
+*--- NEXTB, NOT PEEK. GETNAME takes the name's FIRST character from CH and
+*    expects it to have been read already -- every other caller reaches it
+*    that way, from a dispatcher that has just read the byte. Peeking left CH
+*    holding whatever the statement before had put there, so the name looked
+*    up was not the one written and every DIM said UNKNOWN VARIABLE.
+GDIM         jsr   NEXTB
+             bcs   :endn
+             sta   CH
+             beq   :back
+             cmp   #':'
+             beq   :back
+             cmp   #$2c             ; DIM A(3),B(N): the comma between them
+             bne   :name
+             jmp   GDIM
+:back        jsr   PUTBACK
+:endn        clc                    ; after the jump: nothing falls in
+             rts
+:badj        sec
+             rts
+
+:name        jsr   ISALNUM
+             bcs   :skip
+             jsr   GETNAME          ; the name, and what ended it in CH
+             bcs   :badj
+             lda   CH
+             cmp   #'$'
+             beq   :str
+             cmp   #'('
+             bne   :skip
+             jsr   GETARR
+             bcs   :badj
+             ldx   TMPA
+             lda   ADYNF,x
+             beq   :skip            ; an ordinary DIM: LAYOUT did it all
+             jsr   GDIMDYN
+             bcs   :badj
+             jmp   GDIM
+
+*--- DIM A$(N): the other kind, and the one that needs a collector run
+:str         jsr   NEXTB            ; past the $
+             bcs   :badj
+             cmp   #'('
+             bne   :skip
+             jsr   SAFIND
+             bcs   :badj
+             ldx   TMPA
+             lda   SADYNF,x
+             beq   :skip            ; an ordinary DIM A$(5)
+             jsr   GSDIMDYN
+             bcs   :badj
+             jmp   GDIM
+
+*--- everything else is read and thrown away, as a DIM always was
+:skip        jsr   NEXTB
+             bcs   :badj
+             sta   CH
+             beq   :endp
+             cmp   #':'
+             beq   :endp
+             cmp   #$2c
+             beq   :comma
+             jmp   :skip
+:comma       jmp   GDIM
+:endp        jsr   PUTBACK
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* HRUNB -- the collector's roots, as a list of runs rather than one run
+*
+* THE ROOTS WERE ONE UNBROKEN RUN and the collector walked it with a pointer
+* and a one-byte count, both loaded as immediates. A string array whose size
+* is not known until the program runs cannot be in that run -- it is not there
+* when the layout is fixed -- so the roots became a TABLE of runs, and this is
+* what walks it.
+*
+* Two entry points, and they are the first two instructions so that their
+* addresses need no working out: MORE at the start, SETRUN three bytes on.
+* The collector calls SETRUN where it used to load the pointer and count, and
+* MORE where it used to decrement the count -- both replacements are exactly
+* the length of what they replace, so not one branch offset inside that
+* hand-assembled routine moves.
+*
+*   SETRUN   start at run 0
+*   MORE     one descriptor fewer; returns with Z clear while there is
+*            another to walk, anywhere in any run, and Z set when there is not
+*
+* A run may be longer than a byte can count, so it is handed out in chunks of
+* 128 and the remainder kept. The pointer walks on by itself between chunks --
+* the collector advances it -- so only the count needs reloading.
+*
+* $FF marks an absolute operand, substituted in order from HRUNWHAT. Every
+* immediate here is 0, 1 or $80 so that no real byte can be mistaken for one.
+*--------------------------------------
+HRUNB                             ; ITS OWN LINE: a local on a global label's
+             jmp   :more            ; own line resolves in the previous scope
+             jmp   :setrun          ; 4-5: likewise
+
+:setrun      lda   #$00
+             sta   $ffff            ; RUNI
+             beq   :load            ; always
+
+:load        lda   $ffff            ; RUNI
+             asl                    ; four bytes an entry
+             asl
+             tax
+             lda   $ffff,x          ; RUNTAB   -- where the run starts
+             sta   ZPB
+             lda   $ffff,x          ; RUNTAB+1
+             sta   ZPB+1
+             lda   $ffff,x          ; RUNTAB+2 -- and how many it holds
+             sta   $ffff            ; RUNREM
+             lda   $ffff,x          ; RUNTAB+3
+             sta   $ffff            ; RUNREM+1
+
+:chunk       lda   $ffff            ; RUNREM+1
+             bne   :big
+             lda   $ffff            ; RUNREM
+             beq   :next            ; an empty run: on to the following one
+             cmp   #$80
+             bcs   :big
+             sta   $ffff            ; COUNT
+             lda   #$00
+             sta   $ffff            ; RUNREM
+             beq   :go              ; always
+
+:big         lda   #$80
+             sta   $ffff            ; COUNT
+             lda   $ffff            ; RUNREM
+             sec
+             sbc   #$80
+             sta   $ffff            ; RUNREM
+             lda   $ffff            ; RUNREM+1
+             sbc   #$00
+             sta   $ffff            ; RUNREM+1
+:go          lda   #$01             ; Z clear: keep going
+             rts
+
+:next        inc   $ffff            ; RUNI
+             lda   $ffff            ; RUNI
+             cmp   $ffff            ; NRUNS
+             bcc   :load
+             lda   #$00             ; Z set: every run walked
+             rts
+
+:more        dec   $ffff            ; COUNT
+             beq   :spent
+             lda   #$01
+             rts
+:spent       lda   $ffff            ; RUNREM
+             ora   $ffff            ; RUNREM+1
+             bne   :chunk           ; more of this run, in the next chunk
+             beq   :next
+HRUNBEND
+
+*--- which address each $FF stands for, in the order they occur
+*    0-3 the run table's four fields, 4 the count the collector decrements,
+*    5 which run, 6-7 what is left of it, 8 how many runs there are
+HRUNWHAT     dfb   5,5,0,1,2,6,3,7,7,6,4,6,4,6,6,7,7,5,5,8,4,6,7
+
+*--------------------------------------
+* HSDIMB -- the runtime side of DIM A$(N)
+*
+* Like HDIMB, with two differences that matter. A descriptor is three bytes,
+* not five; and the elements ARE THE COLLECTOR'S ROOTS, so the run they form
+* has to be entered in its table or a collection will walk past them and
+* leave every string in the array pointing at memory it has moved.
+*
+*   in    FAC = N, the subscript as written; X = which run table entry
+*   out   A/Y = where the descriptors start
+*
+* Zeroing them is what makes them safe to walk before anything is assigned: a
+* descriptor of length zero is one the collector skips.
+*--------------------------------------
+*--- X FIRST, BEFORE AYINT. The run number arrives in X and AYINT is an
+*    Applesoft ROM routine that reaches QINT, which uses X for its own ends.
+*    It survived the test, which proves nothing: the same code with a
+*    different value in FAC could take a path through the ROM that does not.
+HSDIMB       stx   $ffff            ; RUNI: which entry this array fills in
+             jsr   AYINT            ; N as a signed integer
+             lda   FACLO
+             clc
+             adc   #$01             ; DIM A$(20) holds twenty-one
+             sta   ZPB
+             lda   FACHI
+             adc   #$00
+             sta   ZPB+1
+
+             lda   ZPB              ; three bytes a descriptor: n*2 + n
+             sta   ZPB+2
+             lda   ZPB+1
+             sta   ZPB+3
+             asl   ZPB+2
+             rol   ZPB+3
+             lda   ZPB+2
+             clc
+             adc   ZPB
+             sta   ZPB+2
+             lda   ZPB+3
+             adc   ZPB+1
+             sta   ZPB+3
+
+*--- the run table entry: where these will start, and how many
+             lda   $ffff            ; RUNI
+             asl
+             asl
+             tax
+             lda   $ffff            ; ABRK
+             sta   $ffff,x          ; RUNTAB
+             lda   $ffff            ; ABRK+1
+             sta   $ffff,x          ; RUNTAB+1
+             lda   ZPB
+             sta   $ffff,x          ; RUNTAB+2 -- the count, not the size
+             lda   ZPB+1
+             sta   $ffff,x          ; RUNTAB+3
+
+*--- and the room for them, off the same break the numeric arrays use
+             lda   $ffff            ; ABRK
+             clc
+             adc   ZPB+2
+             sta   ZPB
+             lda   $ffff            ; ABRK+1
+             adc   ZPB+3
+             sta   ZPB+1
+
+             lda   ZPB+1
+             cmp   $ffff            ; the heap pointer, high half
+             bcc   :room
+             bne   :full
+             lda   ZPB
+             cmp   $ffff            ; and low
+             bcc   :room
+:full        jmp   $ffff            ; out of memory
+
+:room        lda   $ffff            ; ABRK: the walking pointer starts there
+             sta   ZPB+2
+             lda   $ffff            ; ABRK+1
+             sta   ZPB+3
+             ldy   #$00
+:zero        lda   ZPB+2
+             cmp   ZPB
+             bne   :zap
+             lda   ZPB+3
+             cmp   ZPB+1
+             beq   :done
+:zap         tya
+             sta   (ZPB+2),y
+             inc   ZPB+2
+             bne   :zero
+             inc   ZPB+3
+             jmp   :zero
+
+:done        lda   $ffff            ; ABRK
+             pha
+             lda   $ffff            ; ABRK+1
+             pha
+             lda   ZPB
+             sta   $ffff            ; ABRK
+             lda   ZPB+1
+             sta   $ffff            ; ABRK+1
+             lda   ZPB
+             sta   $ffff            ; the allocator's floor, low
+             lda   ZPB+1
+             sta   $ffff            ; and high
+             pla
+             tay
+             pla
+             rts
+HSDIMBEND
+
+*--- 0 ABRK, 1 ABRK+1, 2 the heap pointer low, 3 its high, 4 out of memory,
+*    5 the floor low, 6 the floor high, 7 RUNI, 8-11 the run table's fields
+HSDIMWHAT    dfb   7,7,0,8,1,9,10,11,0,1,3,2,4,0,1,0,1,0,1,5,6
+
+*--------------------------------------
+* EMHSDIM -- put HSDIMB into the program
+*--------------------------------------
+EMHSDIM      lda   #$00
+             sta   EMI
+             sta   HDPI
+:loop        ldy   EMI
+             cpy   #HSDIMBEND-HSDIMB
+             bcs   :done
+             lda   HSDIMB,y
+             cmp   #$ff
+             beq   :patch
+             jsr   EMIT
+             inc   EMI
+             jmp   :loop
+:patch       jsr   HSDADDR
+             lda   TMPP             ; copied out before emitting: see ABTMP
+             sta   ABTMP
+             lda   TMPP+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             inc   HDPI
+             lda   EMI
+             clc
+             adc   #$02
+             sta   EMI
+             jmp   :loop
+:done        rts
+
+*--------------------------------------
+* HSDADDR -- TMPP = the address placeholder HDPI stands for
+*
+* 0-6 are HDADDR's own codes and mean the same things; 7 is which run is being
+* filled in and 8-11 are that entry's four fields.
+*--------------------------------------
+HSDADDR      ldy   HDPI
+             lda   HSDIMWHAT,y
+             cmp   #$07
+             bcs   :mine
+             jmp   HDADDRA          ; codes 0-6 mean what they mean there.
+                                    ; THE CODE GOES IN A, not into HDIMWHAT:
+                                    ; writing it there would have overwritten
+                                    ; the numeric blob's own first entry, in
+                                    ; the compiler's table, for good.
+:mine        cmp   #$07
+             bne   :field
+             lda   #$26             ; 38: which run
+             jsr   SCOFS
+             jmp   :back
+:field       sec                    ; 8-11: a field of the run table
+             sbc   #$08
+             clc
+             adc   RUNTABA
+             sta   TMPP
+             lda   RUNTABA+1
+             adc   #$00
+             sta   TMPP+1
+:back        rts
+
+*--------------------------------------
+* EMSETRUN -- JSR SETRUN, padded to the thirteen bytes it stands in for
+*
+* SETRUN is three bytes into the run walker: the blob begins with a JMP to
+* MORE and a JMP to SETRUN, so both entry points are at known offsets and
+* neither needs working out.
+*--------------------------------------
+EMSETRUN     lda   #$20             ; JSR
+             jsr   EMIT
+             lda   HRUNA
+             clc
+             adc   #$03
+             sta   ABTMP
+             lda   HRUNA+1
+             adc   #$00
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+*--- COUNTED IN MEMORY, NOT IN X. EMIT puts the output length in X on its way
+*    to the buffer, so a loop counting in X across it does not count.
+             lda   #$0a             ; and ten NOPs, to keep the length
+             sta   PADI
+:pad         lda   #$ea
+             jsr   EMIT
+             dec   PADI
+             bne   :pad
+             rts
+
+*--------------------------------------
+* EMHRUN -- put HRUNB into the program
+*
+* Like EMHDIM, but with two JMPs at the front whose operands point INSIDE the
+* blob and so have to be moved along with it: the assembler wrote them as
+* addresses in the compiler, and they are needed as addresses in the compiled
+* program. Their positions are 1 and 4, which needs no working out.
+*--------------------------------------
+EMHRUN       lda   #$00
+             sta   EMI
+             sta   HDPI
+:loop        ldy   EMI
+             cpy   #HRUNBEND-HRUNB
+             bcs   :done
+             cpy   #$01
+             beq   :reloc
+             cpy   #$04
+             beq   :reloc
+             lda   HRUNB,y
+             cmp   #$ff
+             beq   :patch
+             jsr   EMIT
+             inc   EMI
+             jmp   :loop
+
+*--- an address inside the blob: where it will be, not where it was
+:reloc       lda   HRUNB,y
+             sec
+             sbc   #<HRUNB
+             sta   ABTMP
+             iny
+             lda   HRUNB,y
+             sbc   #>HRUNB
+             sta   ABTMP+1
+             lda   ABTMP
+             clc
+             adc   HRUNA
+             sta   ABTMP
+             lda   ABTMP+1
+             adc   HRUNA+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             lda   EMI
+             clc
+             adc   #$02
+             sta   EMI
+             jmp   :loop
+
+:patch       jsr   HRADDR
+             lda   TMPP             ; copied out before emitting: see ABTMP
+             sta   ABTMP
+             lda   TMPP+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             inc   HDPI
+             lda   EMI
+             clc
+             adc   #$02
+             sta   EMI
+             jmp   :loop
+:done        rts
+
+*--------------------------------------
+* HRADDR -- TMPP = the address placeholder HDPI stands for
+*--------------------------------------
+HRADDR       ldy   HDPI
+             lda   HRUNWHAT,y
+             cmp   #$04
+             bcs   :scratch
+
+*--- 0-3: a field of the run table
+             clc
+             adc   RUNTABA
+             sta   TMPP
+             lda   RUNTABA+1
+             adc   #$00
+             sta   TMPP+1
+             rts
+
+*--- 4-8: somewhere in the string runtime's scratch
+:scratch     cmp   #$04
+             bne   :not4
+             lda   #$0d             ; the count the collector decrements
+             jmp   SCOFS
+:not4        cmp   #$05
+             bne   :not5
+             lda   #$26             ; 38: which run
+             jmp   SCOFS
+:not5        cmp   #$06
+             bne   :not6
+             lda   #$27             ; 39: what is left of it
+             jmp   SCOFS
+:not6        cmp   #$07
+             bne   :nruns
+             lda   #$28             ; 40
+             jmp   SCOFS
+:nruns       lda   #$29             ; 41: how many runs
+             jmp   SCOFS
+
+*--------------------------------------
+* EMHDIM -- put HDIMB into the program, substituting its absolute operands
+*
+* Every $FF in the blob begins a placeholder; HDIMWHAT says, in order, which
+* address each one wanted. Nothing here counts an offset.
+*--------------------------------------
+EMHDIM       lda   #$00
+             sta   EMI
+             sta   HDPI
+:loop        ldy   EMI
+             cpy   #HDIMBEND-HDIMB
+             bcs   :done
+             lda   HDIMB,y
+             cmp   #$ff
+             beq   :patch
+             jsr   EMIT
+             inc   EMI
+             jmp   :loop
+:patch       jsr   HDADDR           ; TMPP = what this one stands for
+             lda   TMPP             ; copied out before emitting: see ABTMP
+             sta   ABTMP
+             lda   TMPP+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             inc   HDPI
+             lda   EMI
+             clc
+             adc   #$02
+             sta   EMI
+             jmp   :loop
+:done        rts
+
+*--------------------------------------
+* HDADDR -- TMPP = the address placeholder HDPI stands for
+*--------------------------------------
+HDADDR       ldy   HDPI
+             lda   HDIMWHAT,y
+
+*--------------------------------------
+* HDADDRA -- the same, for a code already in A
+*--------------------------------------
+HDADDRA                           ; its own line: a local on a global label's
+             bne   :not0            ; own line resolves in the previous scope
+             lda   ABRKA            ; 0  the array break
+             sta   TMPP
+             lda   ABRKA+1
+             sta   TMPP+1
+             rts
+:not0        cmp   #$01
+             bne   :not1
+             lda   ABRKA            ; 1  its high half
+             clc
+             adc   #$01
+             sta   TMPP
+             lda   ABRKA+1
+             adc   #$00
+             sta   TMPP+1
+             rts
+:not1        cmp   #$02
+             bne   :not2
+             lda   #$01             ; 2  the heap pointer, low
+             jmp   SCOFS
+:not2        cmp   #$03
+             bne   :not3
+             lda   #$02             ; 3  the heap pointer, high
+             jmp   SCOFS
+:not3        cmp   #$04
+             bne   :not4
+             lda   MOOM             ; 4  out of memory
+             sta   TMPP
+             lda   MOOM+1
+             sta   TMPP+1
+             rts
+:not4        cmp   #$05
+             bne   :bndhi
+             lda   HBNDLO           ; 5  the allocator's floor, low byte
+             sta   TMPP
+             lda   HBNDLO+1
+             sta   TMPP+1
+             rts
+:bndhi       lda   HBNDHI           ; 6  and its high byte
+             sta   TMPP
+             lda   HBNDHI+1
+             sta   TMPP+1
+             rts
+
+*--------------------------------------
+* SCOFS -- TMPP = SCRA + A, the arithmetic EMSCOFS does before emitting
+*--------------------------------------
+SCOFS        clc
+             adc   SCRA
+             sta   TMPP
+             lda   SCRA+1
+             adc   #$00
+             sta   TMPP+1
+             rts
+
+*--------------------------------------
+* SABSLOT -- TMPP = where string array TMPA's base address is kept
+*--------------------------------------
+SABSLOT      lda   TMPA
+             asl
+             clc
+             adc   SABASES
+             sta   TMPP
+             lda   #$00
+             adc   SABASES+1
+             sta   TMPP+1
+             rts
+
+*--------------------------------------
+* ABSLOT -- TMPP = where array TMPA's base address is kept
+*
+* Two bytes an array, in the order LAYOUT counted them.
+*--------------------------------------
+ABSLOT       lda   TMPA
+             asl
+             clc
+             adc   ABASES
+             sta   TMPP
+             lda   #$00
+             adc   ABASES+1
+             sta   TMPP+1
+             rts
+
+*--------------------------------------
 * GPRINT -- strings, numbers, and semicolons between them
 *
 * Both printers are emitted inline rather than called, which is what the
@@ -6997,6 +8487,8 @@ GPRINT       lda   #$00
              beq   :comma
              cmp   #';'
              beq   :semi
+             cmp   #TTABK
+             beq   :tabk
 
              lda   #$00
              sta   NONL
@@ -7021,6 +8513,12 @@ GPRINT       lda   #$00
 :semi        jsr   NEXTB
              lda   #$01
              sta   NONL
+             jmp   :item
+
+:tabk        jsr   EMTABGO          ; its own routine: inline, it pushed this
+             bcs   :bad             ; routine's own :bad out of branch reach
+             lda   #$00             ; an item like any other: a newline still
+             sta   NONL             ; follows unless something suppresses it
              jmp   :item
 
 *--- A comma tabs, and like a semicolon it also suppresses the newline when it
@@ -7634,15 +9132,23 @@ ECMPC        lda   #$00
              beq   :num
              jmp   SCMPC            ; a string on the left: a different compare
 :num         jsr   PEEK
-             bcs   :none
+             bcs   :nonj
              cmp   #TLT
              beq   :cmp
              cmp   #TEQ
              beq   :cmp
              cmp   #TGT
-             bne   :none
+             beq   :cmp
+
+*--- The chaining loop above put enough between here and the tail that :none
+*    and :bad are both out of branch reach. These two hops are REACHED ONLY BY
+*    BRANCH OR BY THE TEST ABOVE FALLING THROUGH, which is the "no operator"
+*    case and is what :nonj wants; :badj sits after an unconditional jump, so
+*    nothing falls into it.
+:nonj        jmp   :none
+:badj        jmp   :bad
 :cmp         jsr   RDCMPOP
-             bcs   :bad
+             bcs   :badj
 
 *--- ACROSS THE RIGHT-HAND SIDE, on the stack. It may hold a comparison of its
 *    own in brackets, and RDCMPOP would then have written this one's answer
@@ -7691,7 +9197,32 @@ ECMPC        lda   #$00
              jsr   EMIT
              lda   #$01
              sta   GOTCMP
-             clc
+
+*--- A CHAINED COMPARISON: A = B = C, which Applesoft reads left to right as
+*    (A = B) = C. LITTLE line 2140 is eighteen of them in a row -- naming the
+*    variables in the order the interpreter should find them, a speed trick
+*    that does nothing once compiled but is still an expression that has to
+*    evaluate the same way.
+*
+*    MATCMP turns the comparison just emitted into a plain 1 or 0 in FAC,
+*    which is precisely the shape the left-hand side takes on the :infac path
+*    below -- value in FAC, nothing pending -- so going back to :num compares
+*    it against whatever follows. MATCMP clears GOTCMP; the next time round
+*    sets it again, so the LAST comparison in the chain is the one the caller
+*    materialises, which is what EXPR expects.
+             jsr   PEEK
+             bcs   :fin
+             cmp   #TLT
+             beq   :chain
+             cmp   #TEQ
+             beq   :chain
+             cmp   #TGT
+             bne   :fin
+:chain       jsr   MATCMP
+             lda   #$00
+             sta   ISSTR            ; a comparison's answer is a number
+             jmp   :num
+:fin         clc
              rts
 
 :none        lda   #$00
@@ -8167,6 +9698,8 @@ EPRIM        lda   #$00
 :got         lda   CH
              cmp   #'$'
              beq   :svarj
+             cmp   #'%'
+             beq   :ivarj
              cmp   #'('
              beq   :elem
              jsr   GETVAR2          ; a plain variable
@@ -8197,7 +9730,8 @@ EPRIM        lda   #$00
              rts
 :ebad        sec                    ; its own name: EPRIM already has a :bad2
              rts                    ; and it is a long way up the routine
-:svarj       jmp   SVARP            ; LEN's body sits between here and there
+:svarj       jmp   SVARP
+:ivarj       jmp   IVARP            ; LEN's body sits between here and there
 
 *--- LEN: a string in, a number out. The length is already in the descriptor,
 *    so this is the descriptor and then GIVAYF, which takes a signed sixteen
@@ -8764,16 +10298,27 @@ EMSUBS       lda   VARI
              lda   #>AYINT
              jsr   EMIT
 
-             pla                    ; which array, and where it starts
+             pla                    ; which array, and where its base is kept
              sta   TMPA
-             jsr   AADDR
-             lda   #$a9             ; LDA #lo
-             jsr   EMIT
-             lda   TMPP
-             jsr   EMIT
-             lda   #$a0             ; LDY #hi
-             jsr   EMIT
+             jsr   ABSLOT           ; TMPP = the array's base slot
+             lda   TMPP             ; copied out before emitting: see ABTMP
+             sta   ABTMP
              lda   TMPP+1
+             sta   ABTMP+1
+             lda   #$ad             ; LDA base
+             jsr   EMIT
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
+             jsr   EMIT
+             lda   #$ac             ; LDY base+1
+             jsr   EMIT
+             inc   ABTMP            ; the high half of the same address
+             bne   :abhi
+             inc   ABTMP+1
+:abhi        lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
              jsr   EMIT
              lda   #$01
              jsr   NEED
@@ -9245,9 +10790,9 @@ LTSLOTN      lda   NLTMP
 LTFIND       lda   PASSNO
              cmp   #$02
              bne   :real
-             lda   #<CODEORG
+             lda   ORG
              sta   TMPP
-             lda   #>CODEORG
+             lda   ORG+1
              sta   TMPP+1
              clc
              rts
@@ -9295,9 +10840,9 @@ LTFIND       lda   PASSNO
 LTNEXT       lda   PASSNO
              cmp   #$02
              bne   :real
-             lda   #<CODEORG
+             lda   ORG
              sta   TMPP
-             lda   #>CODEORG
+             lda   ORG+1
              sta   TMPP+1
              rts
 :real        lda   LINEI
@@ -9440,10 +10985,13 @@ FSADDR       jsr   FLADDR
 * All of it decided here, after pass 1 has counted and before a byte is
 * generated, so the two generating passes cannot disagree about an address.
 *--------------------------------------
-LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
+LAYOUT       lda   ORG              ; past the JMP at the front
+             clc
+             adc   #$03
              sta   VARBASE
              sta   TMPP
-             lda   #>CODEORG+3
+             lda   ORG+1
+             adc   #$00
              sta   VARBASE+1
              sta   TMPP+1
 
@@ -9460,6 +11008,70 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              lda   NCONST
              sta   ACCN
              jsr   BUMP
+
+*--- A BASE ADDRESS PER ARRAY, two bytes each, and IN FRONT OF TEMPBASE on
+*    purpose: the prologue zero-fills everything from there up to the code,
+*    and these have to carry real addresses rather than zeros.
+*
+*    Every array goes through one, not just the ones that need to. A subscript
+*    used to carry its array's base as an immediate, which only works while
+*    the base is known when the code is generated -- and DIM A(N) does not
+*    know it until the program runs. One path for both costs two bytes an
+*    array and a load instead of an immediate.
+             lda   TMPP
+             sta   ABASES
+             lda   TMPP+1
+             sta   ABASES+1
+             lda   #$02
+             sta   ACCSZ
+             lda   NARR
+             sta   ACCN
+             jsr   BUMP
+
+*--- and the same for the arrays of strings
+             lda   TMPP
+             sta   SABASES
+             lda   TMPP+1
+             sta   SABASES+1
+             lda   #$02
+             sta   ACCSZ
+             lda   NSARR
+             sta   ACCN
+             jsr   BUMP
+
+*--- THE COLLECTOR'S TABLE OF ROOT RUNS. Entry 0 is the static run the layout
+*    knows about -- the two working descriptors, the string variables and the
+*    string arrays sized at compile time. One more entry for each string array
+*    sized at run time, filled in by its DIM. Four bytes each: where it starts
+*    and how many descriptors it holds.
+             lda   TMPP
+             sta   RUNTABA
+             lda   TMPP+1
+             sta   RUNTABA+1
+             lda   #$04
+             sta   ACCSZ
+             lda   NSDYN
+             clc
+             adc   #$01             ; the static run is entry 0
+             sta   ACCN
+             jsr   BUMP
+
+*--- THE ARRAY BREAK: how far up the free space the arrays have reached. It
+*    starts at the end of the program and a runtime DIM moves it up. The
+*    string heap comes down from HIMEM to meet it, which is the arrangement
+*    Applesoft itself uses.
+             lda   TMPP
+             sta   ABRKA
+             lda   TMPP+1
+             sta   ABRKA+1
+             lda   #$02
+             sta   ACCSZ
+             lda   #$01
+             sta   ACCN
+             jsr   BUMP
+
+             lda   #$05
+             sta   ACCSZ
              lda   TMPP
              sta   TEMPBASE
              lda   TMPP+1
@@ -9488,6 +11100,18 @@ LAYOUT       lda   #<CODEORG+3      ; past the JMP at the front
              lda   NDEFS
              sta   ACCN
              jsr   BUMP
+
+*--- the integer variables, two bytes apiece and outside the collector's run
+             lda   TMPP
+             sta   IVBASE
+             lda   TMPP+1
+             sta   IVBASE+1
+             lda   #$02
+             sta   ACCSZ
+             lda   NIVARS
+             sta   ACCN
+             jsr   BUMP
+
              lda   TMPP
              sta   SPSAVEA
              lda   TMPP+1
@@ -9772,6 +11396,33 @@ MULARR       ds    1                ; which array the subscripts belong to
 HSARR        ds    2                ; the three-byte address helper
 HARR         ds    2                ; where the address helper landed
 FINPC        ds    2                ; and the end of the whole thing
+ABASES       ds    2                ; where the per-array base addresses live
+ABRKA        ds    2                ; where the array break lives in the image
+HDIMA        ds    2                ; and where the DIM helper landed
+HRUNA        ds    2                ; and the collector's run walker
+RUNTABA      ds    2                ; where the table of runs lives
+SABASES      ds    2                ; the string arrays' base addresses
+HSDIMA       ds    2                ; where the string DIM helper landed
+PADI         ds    1                ; EMSETRUN's pad count, which cannot be X
+EMCH         ds    1                ; a character on its way out
+EMX          ds    1                ; EMWORD's digit index, likewise not X
+HDPI         ds    1                ; which of its placeholders is being filled
+HBNDHI       ds    2                ; the two bytes of the heap allocator's
+HBNDLO       ds    2                ; floor, so a DIM can raise it
+ABI          ds    1                ; the array-base loop's own counter: ASUM
+                                    ; writes TMPA as it runs, so a loop that
+                                    ; counted in TMPA never moved past one
+ABTMP        ds    2                ; an address being emitted, copied out of
+                                    ; TMPP first. NOT because EMIT clobbers it
+                                    ; -- it does not, and code all over this
+                                    ; file has held TMPP across EMIT since the
+                                    ; beginning -- but because the routines
+                                    ; that COMPUTE these addresses work in
+                                    ; TMPP, so a second call between the two
+                                    ; halves would lose the first. Copying out
+                                    ; makes that impossible to get wrong.
+ORG          ds    2                ; where the compiled program loads, chosen
+                                    ; per program -- see pass 1's PICKORG
 HSCMP        ds    2                ; the string comparison helper
 HSPR         ds    2                ; and the one that prints one
 HLEFT        ds    2
@@ -9793,6 +11444,10 @@ MDATA        ds    2
 DEMI         ds    2                ; walking them out
 DEFIDX       ds    1                ; which function is being compiled
 CPT          ds    2                ; an address being emitted a byte at a time
+IVDEST       ds    2                ; where an integer assignment is going, which
+*                                     CANNOT be CPT: the expression on the
+*                                     right may read an integer variable, and
+*                                     reading one works in CPT
 UFNADR       ds    2                ; the body of the function being called, which
 *                                     CANNOT live in CPT: EMCOPY5 works there
 DQUOTE       ds    1

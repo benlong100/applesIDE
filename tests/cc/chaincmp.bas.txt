@@ -1,0 +1,13 @@
+10 A = 5:B = 5:C = 1
+20 PRINT A = B
+30 PRINT A = B = C
+40 PRINT A = B = 0
+50 D = 3:E = 4
+60 PRINT D < E = 1
+70 PRINT D < E = 0
+80 Q = I = LL = J = P = OQ = X = Y = K
+90 PRINT Q;" ";I;" ";LL;" ";K
+100 PRINT 1 = 1 = 1 = 1
+110 PRINT 2 = 2 = 1
+115 PRINT 2 > 1 > 0
+120 PRINT "DONECHAIN"

@@ -1,0 +1,17 @@
+10 N = 4
+20 DIM A$(N)
+30 FOR I = 1 TO N
+40 A$(I) = "ITEM" + STR$(I)
+50 NEXT I
+60 FOR I = 1 TO N
+70 PRINT A$(I);" ";
+80 NEXT I
+90 PRINT
+100 PRINT LEN(A$(1));" ";LEN(A$(4))
+110 B$ = A$(2) + "-" + A$(3)
+120 PRINT B$
+130 FOR I = 1 TO 40
+140 C$ = C$ + "x"
+150 NEXT I
+160 PRINT LEN(C$);" ";A$(1);" ";A$(4)
+170 PRINT "DONESDYN"
