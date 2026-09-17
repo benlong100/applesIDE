@@ -65,11 +65,24 @@ PY
     NAMES+=("$n")
 done
 
-# Built while the emulator does not hold it: a file added to a mounted image
-# is one the emulator cannot see.
-osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1 || true
-sleep 2
-cp "$DIST" "$IMG"
+# THE ROOT DIRECTORY HOLDS FIFTY-ONE ENTRIES, and the suite outgrew it: with
+# forty-eight programs plus the system files, `ac -p` refused the last of them
+# with "Unable to allocate another file entry in root directory" and the run
+# produced nothing at all -- no failures, no passes, which reads like the
+# harness having done nothing rather than like a full disk.
+#
+# So the programs go on in batches, a fresh image and a reboot for each. The
+# same limit already bit the compiled OUTPUTS, which is why each one is
+# deleted as soon as its answer has been read; this is the same wall reached
+# from the other side, by the sources.
+BATCH=20
+
+build_image() {                    # the names for this batch
+    # Built while the emulator does not hold it: a file added to a mounted
+    # image is one the emulator cannot see.
+    osascript -e 'tell application "Virtual ][" to tell (last machine) to eject device "S6D1"' >/dev/null 2>&1 || true
+    sleep 2
+    cp "$DIST" "$IMG"
 # DELETE IT FIRST. `ac -p` on a name that is already in the catalogue ADDS a
 # second entry rather than replacing it, and ProDOS runs the first one it
 # finds -- so the image built from the distribution disk, which already ships
@@ -78,30 +91,34 @@ cp "$DIST" "$IMG"
 #
 # It looks exactly like a fix not working: the source is right, the binary is
 # right, and the machine disagrees.
-"$AC" -d "$IMG" ASIDECC.SYSTEM 2>/dev/null || true
-"$AC" -p "$IMG" ASIDECC.SYSTEM SYS 0x2000 < build/ASIDECC.SYSTEM
+    "$AC" -d "$IMG" ASIDECC.SYSTEM 2>/dev/null || true
+    "$AC" -p "$IMG" ASIDECC.SYSTEM SYS 0x2000 < build/ASIDECC.SYSTEM
 
 # and say so if a stale one survived anyway
-if [ "$("$AC" -l "$IMG" | grep -c ASIDECC.SYSTEM)" -ne 1 ]; then
-    echo "more than one ASIDECC.SYSTEM on $IMG -- the wrong one will run" >&2
-    exit 1
-fi
-for n in "${NAMES[@]}"; do
-    "$AC" -p "$IMG" "$n" BAS 0x0801 < "build/bench/$n.bas"
-done
+    if [ "$("$AC" -l "$IMG" | grep -c ASIDECC.SYSTEM)" -ne 1 ]; then
+        echo "more than one ASIDECC.SYSTEM on $IMG -- the wrong one will run" >&2
+        exit 1
+    fi
+    local n
+    for n in "$@"; do
+        "$AC" -p "$IMG" "$n" BAS 0x0801 < "build/bench/$n.bas"
+    done
+}
 
 to_basic() {
     "$V" await "PRODOS BASIC" 180 >/dev/null || { echo "never reached BASIC" >&2; exit 1; }
     "$V" settle 8 >/dev/null
 }
 
-"$V" boot "$IMG" >/dev/null
-"$V" await "ApplesIDE" 180 >/dev/null || { echo "the disk never booted" >&2; exit 1; }
-"$V" text " " >/dev/null
-"$V" settle 15 >/dev/null
-"$V" caps true >/dev/null
-"$V" oa "Q" >/dev/null
-to_basic
+boot_image() {
+    "$V" boot "$IMG" >/dev/null
+    "$V" await "ApplesIDE" 180 >/dev/null || { echo "the disk never booted" >&2; exit 1; }
+    "$V" text " " >/dev/null
+    "$V" settle 15 >/dev/null
+    "$V" caps true >/dev/null
+    "$V" oa "Q" >/dev/null
+    to_basic
+}
 
 # HOME first, every time: the previous run's output is still on the screen and
 # would otherwise be read as this one's.
@@ -151,7 +168,18 @@ capture() {                        # command [answers] -> what it printed
 }
 
 fail=0
-for idx in "${!NAMES[@]}"; do
+
+# ONE BATCH AT A TIME, each on its own image: see BATCH above for why. The
+# index into NAMES is kept across batches so the answers file still lines up
+# with the source it answers.
+idx=0
+while [ $idx -lt ${#NAMES[@]} ]; do
+    build_image "${NAMES[@]:$idx:$BATCH}"
+    boot_image
+    last=$((idx + BATCH))
+    [ $last -gt ${#NAMES[@]} ] && last=${#NAMES[@]}
+
+for (( ; idx < last; idx++ )); do
     n="${NAMES[$idx]}"
     # the answers file sits beside the source it answers
     ANSWERS="${SRCS[$idx]%.bas.txt}.in"
@@ -211,6 +239,7 @@ for idx in "${!NAMES[@]}"; do
         diff <(echo "$interp") <(echo "$comp") | sed 's/^/           /'
         fail=1
     fi
+done
 done
 
 exit $fail

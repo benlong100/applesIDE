@@ -92,6 +92,23 @@ def main():
                 print(f"OVERLAP: ${s:04x}-${e:04x} {first} ({f}:{ln})"
                       f"  and  ${s2:04x}-${e2:04x} {first2} ({f2}:{ln2})")
                 bad += 1
+
+    # AND NOT INTO PRODOS. Comparing the blocks with each other says nothing
+    # about whether one of them has climbed into the global page at $BF00,
+    # which is where the MLI keeps its vectors and where a SYS program's own
+    # memory stops. A block moved to make room for a bigger table did exactly
+    # that: six buffers added up to 1,184 bytes where the comment beside them
+    # said four and 848, and the last of them ran 160 bytes past the top.
+    #
+    # It does not fail like a memory bug. The MLI comes back wrong from the
+    # next call and the compiler executes whatever it lands in -- which was
+    # its own message table.
+    PRODOS = 0xBF00
+    for s, e, f, ln, first in spans:
+        if e >= PRODOS:
+            print(f"INTO PRODOS: ${s:04x}-${e:04x} {first} ({f}:{ln})"
+                  f" -- the global page at ${PRODOS:04x} is not yours")
+            bad += 1
     if bad:
         return 1
     if "-v" in sys.argv:

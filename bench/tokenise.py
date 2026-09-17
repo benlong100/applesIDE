@@ -23,6 +23,15 @@ def statement(text):
     out, i, instr = bytearray(), 0, False
     while i < len(text):
         c = text[i]
+        # AFTER A REM, NOTHING IS A TOKEN. Applesoft stores a comment's text
+        # exactly as typed -- checked against BRIAN and LITTLE, two programs
+        # off a real disk: 44 REMs between them and not one token inside any
+        # of them. This tokenised the rest of the line as code, so "REM
+        # $ORG=6000" came out with $D0 where the '=' should be and a compiler
+        # directive read out of REM text could never match.
+        if out and out[-1] == 0xB2:
+            out += text[i:].encode("ascii", "replace")
+            break
         if instr:
             out.append(ord(c)); i += 1
             if c == '"':

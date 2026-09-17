@@ -130,8 +130,32 @@ ca)   as "tell (last machine) to type solid Apple \"$1\"" ;;
 # debugging round -- ten left-arrows that never happened looked like the
 # cursor arithmetic being wrong. So the list is checked here instead.
 key)
+    # RETURN IS NOT ONE OF THE KEYS. Virtual ][ has no `type key return` --
+    # AppleScript resolves the bare word to its own return constant and the
+    # application rejects the type, and quoting it does not help because the
+    # key simply is not in its table. `type line` is the verb that ends with a
+    # return, so an empty line is how you press it, which is what the tests
+    # have always done. Accepted here rather than rejected: the name is the
+    # obvious one to reach for, and it used to pass this check and fail later
+    # inside AppleScript, which reads as the program under test misbehaving.
+    # THREE OF THESE ARE NOT `type key` AT ALL, and each used to pass this
+    # check and then fail inside AppleScript -- which surfaces as the emulator
+    # erroring mid-test and reads as the program under test misbehaving.
+    # Established by trying them against a running machine, not from the list
+    # this case statement used to assert:
+    #
+    #   return   no such key. `type line` is the verb that ends in a return,
+    #            so an empty line is how you press one.
+    #   escape   not a name it knows; `esc` is.
+    #   tab      not a name it knows either; it is ctrl-I.
+    #
+    # The arrows are BARE WORDS, not strings -- quoting them fails too, which
+    # is why $1 is interpolated unquoted below.
     case "$1" in
-        "left arrow"|"right arrow"|"up arrow"|"down arrow"|esc|escape|tab|return) ;;
+        return)        as "tell (last machine) to type line \"\""; exit 0 ;;
+        escape)        as "tell (last machine) to type key esc";    exit 0 ;;
+        tab)           as "tell (last machine) to type ctrl \"I\""; exit 0 ;;
+        "left arrow"|"right arrow"|"up arrow"|"down arrow"|esc) ;;
         *) echo "vii.sh key: '$1' is not a key Virtual ][ knows." >&2
            echo "  try: 'left arrow' 'right arrow' 'up arrow' 'down arrow' esc tab return" >&2
            echo "  (bare 'left'/'up' are accepted by AppleScript and do NOTHING)" >&2
