@@ -1298,7 +1298,7 @@ of the ROM and disassembled — it opens by subtracting `$E0` and `$E1`, the
 position `HPOSN` last stored, which is what makes it a line *from where the
 pen is* rather than between two given points.
 
-## Three things to reach for sooner
+## Four things to reach for sooner
 
 Each of these was arrived at late in a session that had already spent runs on
 the same bug. They are written down because the cost of not using them is
@@ -1394,3 +1394,527 @@ Finding the site took giving all eleven a distinct number temporarily. Codes
 above `NMSG` already print as a bare number, so that needed no message table
 at all — a fallback built for unknown codes turning out to be the fastest
 debugging tool in the compiler.
+
+## Keywords the compiler supports in a form real programs do not use
+
+`BRIAN` stopped at line 320, `NEXT S,X`, reporting `STATEMENT NOT YET #05`.
+`NEXT` had been on the supported list since the first FOR loop worked. What
+was not supported was `NEXT` taking a *list* of variables, so the comma was
+reached as though it began a statement of its own.
+
+`LITTLE` had failed the same way one line earlier in the alphabet: line 2140
+is `Q=I=LL=J=...`, a chained comparison, and `=` was long since supported.
+
+Both are the same mistake, and it is a mistake about **testing**, not about
+6502. The suite's programs were written to exercise features, one per test,
+by someone who knew which features existed. Every one of them uses `NEXT I`,
+because that is what `NEXT` looks like when you are testing `NEXT`. Real
+Applesoft was written against the interpreter, where `NEXT S,X` costs less
+than two `NEXT`s and everyone knew it, and so it appears constantly.
+
+A checklist of keywords cannot show this gap, because the keyword is present
+in both cases. Only a program somebody actually wrote can. Two of them found
+two holes within an hour of each other, after thirty-three hand-written tests
+had found none.
+
+**`NEXT S,X` is exactly `NEXT S` then `NEXT X`** — the loops close innermost
+first — so the generator simply goes round again while a comma follows. By
+that point the first loop is already off the FOR stack, which is what makes
+the second name match the loop enclosing it rather than the one just closed.
+
+The test uses `A*100 + B*10 + C` summed over three nested loops, rather than a
+plain count: a wrong nesting order, or a loop closed twice, changes the total,
+where a count could come out right for the wrong reason.
+
+### Chained comparison
+
+`A = B = C` is one expression, not two, and Applesoft reads it left to right
+as `(A = B) = C`: relational operators share a precedence and associate
+leftwards. `ECMPC` read a sum, then *at most one* operator, so the second `=`
+was left unread and came back as a statement — `STATEMENT NOT YET`, pointing
+at an expression.
+
+The loop that fixes it is three instructions of thought and none of new
+machinery. `MATCMP` already turns a just-emitted comparison into a plain 1 or
+0 in FAC, and a value sitting in FAC with nothing pending is exactly the shape
+`ECMPC`'s existing left-hand side takes on its `:infac` path. So a chain is:
+emit the comparison, materialise it, go back and look for another operator.
+
+Two invariants make that safe, and both were already true rather than
+arranged:
+
+- `PENDOK` is 0 wherever the `CMP` is emitted — one path sets it explicitly,
+  the other can only have arrived with it clear — and `MATCMP` does not
+  disturb it. So the materialised value really is in FAC, not pending at some
+  address.
+- `MATCMP` clears `GOTCMP` and the next turn sets it again, so the *last*
+  comparison in the chain is the one the caller materialises. `EXPR` needs no
+  changes.
+
+The test checks the associativity, not just the parse, and picking cases for
+that takes care — most chains give the same answer folded either way.
+`2 > 1 > 0` is 1 left-associatively and 1 right-associatively; so is
+`1 = 1 = 1`, and so is `A = B = 0`. They prove nothing.
+
+What does discriminate, with `A` and `B` both 5 and `C` 1:
+
+    A = B = C     left  ((5=5)=1) = (1=1) = 1
+                  right (5=(5=1)) = (5=0) = 0
+
+and with `D` 3 and `E` 4, `D < E = 1` is 1 leftwards and 0 rightwards. The
+suite runs both, and the interpreter arbitrates.
+
+Chaining after a *string* comparison (`A$ = B$ = 0`) still goes through
+`SCMPC`, which has no such loop. Legal Applesoft, not yet compiled, and it
+refuses by name rather than compiling it wrongly.
+
+## Where the compiled program loads
+
+`CODEORG` was `$6000` for as long as the compiler has existed, chosen so that
+a program could use hi-res without anyone having to think about it: `$6000` is
+above both graphics pages, `$2000-$3FFF` and `$4000-$5FFF`.
+
+It costs every program the 18K underneath it, and `LITTLE` is the program that
+made that matter. It compiles to 18,426 bytes against the 13,824 that `$6000`
+leaves below BASIC.SYSTEM at `$9600`, and it uses **no hi-res at all** — its
+graphics are lo-res, and lo-res page 1 is `$400-$7FF`, below anything we would
+ever choose.
+
+So the address is picked per program now, by `PICKORG`, from what pass 1 saw:
+
+| what the program uses | CODEORG | room |
+|---|---|---|
+| `HGR2` | `$6000` | 13,824 |
+| `HGR`/`HPLOT`/`HCOLOR=`/`DRAW`/`XDRAW` | `$4000` | 22,016 |
+| neither | `$0C00` | 35,328 |
+
+`$0C00` and not `$0800`, because lo-res page 2 is `$800-$BFF`.
+
+It runs between pass 1 and `LAYOUT`: by then every token has been seen and not
+one address has been fixed. Three things had to stop being assembly-time
+constants — the eleven `#<CODEORG` loads, `LAYOUT`'s `CODEORG+3` (which had to
+become a real add, since `ORG+3` is a different *byte*, not a different
+address), and the `aux_type` in the CREATE parameter block, which is the
+address BRUN restores the file to. Get that last one wrong and the program
+loads somewhere its own JMPs do not point.
+
+The compiler itself did not have to move: `EMIT` streams into a 256-byte
+buffer and flushes to disk, so the image is never held at the address it is
+being built for, and `PC` is only a counter.
+
+### What the scan cannot see
+
+A program that reaches hi-res by poking `$C057` uses no hi-res token, would be
+placed at `$0C00`, and would draw over its own code. This is not hypothetical:
+`BRIAN` pokes `-16298` itself, to turn hi-res off.
+
+So there is an override, and it wins outright: `REM $ORG=6000`, four hex
+digits, anywhere in the program. A later one beats an earlier one.
+
+### The tokeniser was tokenising REM text
+
+The directive did not match, and the reason was not in the compiler.
+`bench/tokenise.py` tokenised the whole line, so `REM $ORG=6000` came out with
+`$D0` — the `=` token — where the ASCII `=` should be, and a matcher reading
+REM text could never see it.
+
+Applesoft stores a comment exactly as typed. That is not a recollection: it is
+44 REMs across `BRIAN` and `LITTLE`, two programs off a real disk, with **zero**
+tokens inside any of them. The test tokeniser had been producing files no
+Apple would have written, which had not mattered until something wanted to
+read REM text.
+
+### And the pattern was in the wrong ASCII
+
+With the tokeniser fixed the directive still did nothing, and the compiled
+`ORGDIR` came out at `$0C00` rather than the `$6000` its REM asked for.
+
+`ORGPAT asc "$ORG="`. In Merlin, **double quotes mean high ASCII** and single
+quotes mean low. A REM's text is low ASCII, so the pattern could not match a
+single character of it -- not the `$`, not anything. One character of
+punctuation, and the whole feature was inert while looking perfectly correct.
+
+The convention is not obscure and this codebase already writes it down, in
+`ops.S`: `asc 'BASIC.SYSTEM'   ; single quotes: ProDOS wants LOW ascii`.
+
+What made it cheap to find was that the test reads back the `aux_type` ProDOS
+stamped on the output rather than trusting that the right thing happened --
+`CORGDIR ... A=$0C00` is unambiguous in a way that "it compiled" is not. The
+check is worth more than the feature: three of the four addresses were right,
+and nothing but reading them back would have said which.
+
+    CBRIAN   A=$4000     uses HGR
+    CLITTLE  A=$0C00     no hi-res at all
+    CORGDIR  A=$6000     REM $ORG=6000
+    CORGHR   A=$4000     uses HGR
+
+### Three branches that stopped reaching
+
+Adding the scan inline pushed `SCANBODY`'s trampolines out of branch range,
+one after another — `:rem`, then `:dataj`, then the rest. The fix that worked
+was not a longer chain of hops but taking the new code out of `SCANBODY`
+altogether: `SKIPREM` and `NOTEHR` are their own routines, costing one `JMP`
+and one `JSR`, and every distance inside `SCANBODY` went back to what it was.
+
+`ECMPC` needed the other kind of fix, two hops, because its growth was in the
+middle of a routine that genuinely wanted to be one. Both are placed where
+nothing can fall into them wrongly — which this file already documents four
+instances of getting wrong.
+
+### 4. Read the program, not a list of its keywords
+
+Added after `BRIAN` and `LITTLE`, because a keyword checklist said both were
+fully supported and both failed to compile.
+
+The gap a checklist cannot show is a supported keyword used in an unsupported
+*form*: `NEXT` with a list of variables, `=` chained. Both keywords had been
+implemented for months. What found them, in the end, was detokenising the
+programs and scanning their raw token bytes:
+
+    tools/detok.py little.bas                    # the program, as text
+    tools/detok.py --tokens brian.bas little.bas # every token, by frequency
+
+Scan the BYTES, not the detokenised text. The first attempt grepped the
+listing for keyword spellings and reported `ONERR`, `STOP` and `DRAW` as
+things the compiler would need — all three were words inside REM comments.
+Half an hour of implementing `ONERR` would have bought nothing at all.
+
+The byte scan also settles questions no amount of reasoning does: whether
+`LITTLE` uses hi-res (it does not, which is what let it load at `$0C00`), and
+whether Applesoft tokenises REM text (it does not, which is what made
+`REM $ORG=` possible and what exposed the test tokeniser's bug).
+
+### What running the real programs proved that the suite could not
+
+`BRIAN` and `LITTLE` were compiled and then actually run, which is a different
+question from whether they compile and a different one again from whether the
+suite passes.
+
+`LITTLE`'s instructions screen draws its asterisk border with
+
+    2160 COLOR= 10: VLIN 1,46 AT 0: VLIN 0,47 AT 39
+
+in TEXT mode. Lo-res page 1 and text page 1 are the same memory, `$400-$7FF`;
+`COLOR= 10` writes `$AA`; `$AA` is what the character generator shows as `*`.
+A 1979 trick, and it only comes out right if the compiled `COLOR=` and `VLIN`
+put exactly the bytes in exactly the places the ROM would. A test that checked
+printed output could not have asked that question, and neither could one that
+compared a lo-res screen in lo-res mode.
+
+`LITTLE` also pokes its cursor straight into the screen at line 2450 --
+`POKE PEEK(40) + PEEK(41)*256 + PEEK(36), 96` -- which reads BASL, BASH and CH
+out of zero page. That comes out in the right cell only if the compiled VTAB
+and HTAB leave the same zero page behind them that Applesoft's do.
+
+Neither of those is a thing anyone would think to write a test for. Both are
+ordinary technique in a program written in 1979, and running one real program
+asked both questions at once.
+
+## Runtime array sizing
+
+`DIM A(N)`, where `N` is not known until the program runs. The compiler laid
+arrays out at compile time and baked each one's base address into every
+subscript as an immediate, so a size that only exists at runtime had nowhere
+to go. `RETRIEVE.TEXT` does `INPUT I : DIM A$(I)` and was refused.
+
+The memory arrangement it fits into is Applesoft's own, and the compiled
+program already had most of it:
+
+    ORG    +-------------------+
+           | data, code, helpers|
+    FINPC  +-------------------+
+           |   arrays grow up   |
+           |                    |
+           |  strings grow down |
+    HIMEM  +-------------------+   from $73/$74, as the prologue reads it
+
+The string heap already grew down from HIMEM and refused to pass `FINPC`.
+Arrays growing up from `FINPC` meet it from the other side, so the only thing
+that changes is *which* number the allocator refuses to pass: a compile-time
+constant becomes a cell the two share.
+
+### Every array through a base slot, including the ones that did not need it
+
+Two bytes per array in the image, and a subscript loads from there instead of
+carrying an immediate. Done for all arrays rather than only the dynamic ones,
+because one path is easier to be sure of than two, and it costs two bytes and
+a load. They sit IN FRONT of `TEMPBASE`: the prologue zero-fills everything
+from there to the code, and these carry real addresses.
+
+Proved as a refactor before anything dynamic was built -- same arrays, same
+addresses, one more indirection, and the suite still agreeing -- so that a
+later failure could only be about the new part.
+
+### The same bug three times in one afternoon
+
+A value in shared scratch, live across a call that scratches the same place.
+This file already documents `CPT`/`EMCOPY5`, `TMPP`/`EMIT` and `CPT`/`NEXPR`,
+and writing the base-slot code produced three more without the lesson once
+occurring to me:
+
+- the prologue's loop counted in `TMPA` across `JSR AADDR`, and `ASUM` --
+  which `AADDR` calls -- writes `TMPA` as it goes
+- `EMSETRUN` counted its padding in `X` across `JSR EMIT`, and `EMIT` puts the
+  output length in `X` on its way to the buffer
+
+The first hung the compiler outright: the counter was reset to one every time
+round, so it never reached the array count.
+
+**A correction, because the first version of this section had it wrong.** I
+also "fixed" two places for holding an address in `TMPP` across `JSR EMIT`,
+and wrote that `EMIT` clobbers `TMPP` when it flushes. It does not. `EMSSUBS`
+and the old array-subscript site have held `TMPP` across `EMIT` since the
+beginning, through eighteen-kilobyte outputs where `FLUSH` runs seventy times,
+and the compiler works. What is true is narrower: the routines that COMPUTE
+those addresses -- `AADDR`, `ABSLOT`, `SAADDR` -- work in `TMPP`, so calling
+one between emitting the low byte and the high byte loses the first. The
+copies are still there because they make that impossible to get wrong, but the
+reason in the comments now says so.
+
+The rule that would have caught them, stated as a question to ask before
+writing the call rather than after: **what does the routine I am about to call
+use as its scratch, and is anything of mine in there?** `TMPA`, `TMPB`, `TMPP`
+and `CPT` are the four that keep doing this, and `X` is the fifth. None of
+them belongs to a caller.
+
+And its converse, which the wrong version of this section ignored: **check
+before you believe a routine clobbers something.** Code that has worked for
+months is evidence. Two of the three "bugs" here were not bugs.
+
+### A lone Q, in the corner of the screen
+
+The first working `DIM A(N)` printed the right answers and then left a `Q` on
+the screen, thirty-two columns along, after the prompt.
+
+`Q` is `$D1` in high ASCII, and `$D1` was the low byte of the array break.
+`HDIMB` ends by writing the new break into the heap allocator's floor -- the
+two bytes the allocator refuses to bring the heap below -- and `EMHALLOC`
+records where those bytes landed only when the heap is emitted at all. A
+program with arrays and no strings has no heap, so nothing recorded them, and
+the write went to whatever address was left over. That address was in the text
+page.
+
+The floor now defaults to the array break itself, so with no heap present the
+write lands on the value it has just stored and does nothing.
+
+Worth keeping for what made it findable rather than what it was: a wild store
+into `$400-$7FF` is the only kind that puts its own evidence on the screen in
+a readable font. The same store a page lower would have corrupted the program
+quietly, and the same bug in a program that used strings would never have
+fired at all -- the allocator would have been there and the address correct.
+It showed up because the test was the simplest possible one.
+
+## The collector's roots became a list of runs
+
+`DIM A$(N)` was the half of runtime array sizing that needed the collector.
+A string array's elements are descriptors, and every descriptor is a root: if
+a collection walks past them, every string the array holds is left pointing at
+memory that has moved. The roots were one unbroken run, counted in a single
+byte, both loaded into the collector as immediates -- and an array that does
+not exist when the layout is fixed cannot be in it.
+
+So the roots are a TABLE of runs now. Entry 0 is the static one the layout
+already knew; each `DIM A$(N)` fills in one more as it allocates.
+
+### Not one branch offset moved
+
+The collector is 237 emitted bytes with about nineteen hand-counted branch
+offsets, and it is the part of this compiler where a mistake is hardest to
+see. Rewriting it was the obvious approach and the wrong one.
+
+What the disassembly showed instead was that each of its two root walks begins
+with a thirteen-byte initialisation and ends with `DEC count / BNE back`:
+
+    a9 ?? 85 1a  a9 ?? 85 1b  a9 ?? 8d ?? ??     pointer, then count
+    ...
+    ce ?? ??  d0 9c                              one fewer; round again
+
+Both have exact-length replacements. `JSR SETRUN` and ten `NOP`s is thirteen
+bytes; `JSR MORE` is three, as `DEC abs` was. Four edits, no byte moved, and
+every offset in that routine is still the one that was counted when it was
+written.
+
+`MORE` returns with Z clear while any descriptor remains anywhere in any run,
+so the `BNE` that was already there needed no changing either.
+
+### And the 255 limit went with it
+
+`MORE` hands a run out in chunks of 128 and keeps a sixteen-bit remainder --
+the pointer walks on by itself between chunks, since the collector advances
+it, so only the count is reloaded. The one-byte root count is gone, for the
+static run as much as the dynamic ones.
+
+### And one the passing test did not catch
+
+`HSDIMB` takes the run number in `X` and called `AYINT` -- Applesoft's
+FAC-to-integer, which reaches `QINT` -- before reading it. `AYINT` promises
+nothing about `X`.
+
+The test agreed with the interpreter anyway. That proves only that the path
+the ROM took for that particular value left `X` alone; another value could
+take a different one, write the run table entry at the wrong offset, and
+corrupt the collector's roots -- which is the least visible failure available
+in this program. Found by reading the code after it passed, not because
+anything went wrong.
+
+The question that catches these is the same one as always, asked this time of
+a routine in ROM rather than one of ours: **what does the thing I am about to
+call use as its scratch?**
+
+### Two bugs the tools caught before the machine did
+
+`scopecheck.py` refused `HRUNB jmp :more`: a local label on a global label's
+own line resolves in the PREVIOUS scope. That quirk cost eight runs to find
+the first time; the check written from it found this one instantly, and again
+later for `HDADDRA`.
+
+The other was mine to catch by reading: `EMSETRUN` counted its ten `NOP`s in
+`X` across `JSR EMIT`, and `EMIT` puts the output length in `X` on its way to
+the buffer. The same bug this file already documents, in a routine written to
+avoid counting mistakes.
+
+### INPUT A$(J)
+
+`RETRIEVE.TEXT` got past `DIM A$(I)` and stopped at line 70, `INPUT A$(J)`,
+with `UNKNOWN VARIABLE` -- about a line that plainly names an array.
+
+`GINPUT` dispatched on the `$` straight to its string-variable path, which
+looks the name up among the string VARIABLES and does not find an array there.
+`GLETSTR` makes the test that was missing: a bracket after the `$` makes it an
+element. Once it does the same, the rest is machinery that already existed --
+`SAFIND`, `EMSSUBS`, `EMSASAVE`, then the input item copied to the heap and
+`EMSAPUT` to store the descriptor.
+
+Two things make it safe for an array whose size is not known until it runs:
+`EMSASAVE` keeps the element's address in the program's own scratch rather
+than zero page, so it survives the copy and any collection that copy sets off;
+and the array's descriptors never move in a collection, because they are not
+in the heap.
+
+### Six routines split in one day
+
+`SKIPREM`, `NOTEHR`, `EMTABGO`, `GDIMDYN`, `SDYNDIM`, `GINSARR` -- every one
+of them taken out of its parent because adding to that parent put its own
+branches out of reach, and every one of them found by the assembler refusing
+rather than by thinking about it first.
+
+The parents are the dispatch routines -- `SCANBODY`, `GPRINT`, `GINPUT`, the
+DIM block -- and they are all near their limit. The lesson, six instances in:
+**anything added to one of those should start as its own routine.** It costs a
+JSR and saves a round trip through the assembler every time.
+
+## A buffer that climbed into ProDOS
+
+Growing DBUF to 6,912 bytes meant moving the ProDOS buffers off the top of the
+tables. Two went low, to $0800 and $0C00; the rest went under ProDOS at $BB00.
+
+    DATBUF 512  OUTBUF 256  PFXBUF 64  ONLBUF 16  ONBUF 80  STRBUF 256
+
+That is 1,184 bytes, and $BB00 + 1,184 is $BF9F. The global page starts at
+$BF00. STRBUF -- where a string literal is collected before it is emitted --
+ran a hundred and sixty bytes into the MLI's own vectors.
+
+The comment written beside the block said 848 bytes and named four buffers.
+There are six. Having written the wrong number, the thing reasoned from
+afterwards was the comment rather than the source.
+
+**It does not fail like a memory bug.** Compiling a program whose literals are
+long enough overwrote ProDOS; the next MLI call came back wrong; and the
+compiler ended up executing its own message table, arriving in the monitor at
+$87DB with nothing to say for itself. RANDOM did that. RETRIEVE.TEXT, compiled
+in the same run, was fine -- its literals are shorter.
+
+### What found it
+
+Not the crash address, which was a dead end -- $87DB is inside `BADGET`'s
+text. It was ruling out the new code: `DIM A$(9),B(9),C(9),D(9)` was the one
+construction in RANDOM that had never been compiled before, so that got a test
+of its own, and it passed. With the new code cleared, what was left was the
+layout, and the layout is arithmetic that can be checked without the machine.
+
+### dumcheck.py knows about $BF00 now
+
+It compared the blocks with each other, which is what it was written for, and
+had nothing whatever to say about one of them climbing into ProDOS. It does
+now -- and the check was verified by putting the bad address back and watching
+it report `INTO PRODOS: $bb00-$bf9f DATBUF`. A guard that has never been seen
+to catch its bug is not yet a guard.
+
+## STOP, PR#, SAVE, and a convention not checked
+
+The last three statements PHONE.LIST wanted.
+
+**STOP** prints `BREAK IN nnnn` and ends. Established on a //e, along with the
+fact that it starts on a line of its own -- and the mid-line case was left for
+the suite to arbitrate rather than guessed: a program that stops after
+`PRINT "TWO";` agrees, so the leading newline really is conditional on the
+cursor's column. The line number is known while it compiles, so the whole
+message goes out as characters.
+
+**PR#** is the monitor's `OUTPORT` at `$FE95`, slot in A. Read off the ROM,
+not recalled -- `PEEK` and a disassembly showed it storing `$Cn00` into CSW,
+or the `$F0xx` default back for slot 0.
+
+**SAVE** compiles to nothing and says so, by name and line. A bare SAVE writes
+the BASIC program to tape and a compiled program has none; emitting the ROM's
+tape routine would write whatever the Applesoft pointers happen to span and
+produce a tape that will not load, which is worse than an error anybody can
+see. PHONE.LIST has two, both on the tape branch of a disk-or-tape choice a
+ProDOS machine never takes.
+
+### Four handlers written against an assumption
+
+All three, plus `POP` from earlier in the day, began with `jsr NEXTB` to
+"consume the token". The token is already consumed: `GENSTMT` reads it and
+`CH` holds it, which is why `GHOME`, `GTEXT` and `GEND` start straight in.
+So each of them ate the byte AFTER the statement -- for `PR#` the first byte
+of its slot expression, for the others the line's terminating zero, after
+which the statement loop read on into the next line's link bytes and tried to
+compile them. `IF A = 2 THEN STOP` reported `UNKNOWN VARIABLE`.
+
+**`POP` had been wrong for hours and was reported as working.** PHONE.LIST
+never compiled far enough to reach one, and no test used it -- so nothing
+contradicted the claim. There is a `popf` test now, which GOSUBs, POPs, and
+jumps past the line a RETURN would have come back to.
+
+The rule this breaks is one already written down a few sections above, about
+believing a routine clobbers something without checking: **check the
+convention against a caller that already works.** `GHOME` and `GEND` were
+three lines away in the same file and would have settled it in seconds.
+
+### PR# cannot be tested against the interpreter, and here is why
+
+The obvious test -- `PR# 0`, print something, compare -- fails, and the
+interpreter is the side that looks strange:
+
+    interpreted             compiled
+    #30 AFTER               AFTER
+    #40 #50 #60 STILLHERE   STILLHERE
+    #70 DONEPRN             DONEPRN
+
+Those are the test's own line numbers. A bare `PR#` from a program under
+ProDOS sets CSW directly, which tears BASIC.SYSTEM's output hook out from
+under it; BASIC.SYSTEM notices between statements and re-announces itself with
+`#` and the line. It is an artifact of the INTERPRETER'S statement loop, and a
+compiled program has no statement loop for it to happen in.
+
+Before dropping the test, the question worth settling was whether the
+compiler's PR# is right. Applesoft's own handler, read off the machine at
+$F1E5:
+
+    20 F8 E6    JSR $E6F8     GETBYT -- a byte from the program text, into X
+    8A          TXA
+    4C 95 FE    JMP $FE95     OUTPORT
+
+That is the whole of it, and the compiler emits the same thing: the expression
+as a byte in A, then `JSR OUTPORT`. So the implementation is faithful and the
+disagreement is not about the compiler at all.
+
+**The test is deleted rather than kept failing or quietly excluded.** No PR#
+test can agree under ProDOS, because agreeing would mean the compiled program
+imitating BASIC.SYSTEM's confusion. What stands in for it is this note and the
+disassembly above -- and PHONE.LIST, which uses `PR# SL` and `PR# 0` to drive
+a printer and compiles.
+
+A test that cannot pass for a reason outside the thing being tested is worse
+than no test: it trains you to ignore a red line.
