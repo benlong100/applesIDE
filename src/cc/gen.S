@@ -119,6 +119,7 @@ TVTAB        equ   $a2
 THTAB        equ   $96
 THOME        equ   $97
 TTEXTK       equ   $89
+TSPEEDK      equ   $a9
 TINVERSE     equ   $9e
 TNORMAL      equ   $9d
 TFLASH       equ   $9f
@@ -127,6 +128,15 @@ VTABZ        equ   $fc22            ; way of acting on it
 CHPOS        equ   $24
 TTABK        equ   $c0              ; TAB( -- the token carries the bracket
 TPOPK        equ   $a1
+TPOW         equ   $cc              ; ^
+TLOMEM       equ   $a4
+TFREK        equ   $d6
+FPWRT        equ   $ee97            ; FAC <- ARG ^ FAC. Read off the ROM: it
+                                    ; opens by testing ARGEXP, which is what
+                                    ; CONUPK leaves in A
+CONUPK       equ   $e9e3            ; ARG <- the packed float at (A,Y), and
+                                    ; ARGEXP into A. Found from FMUL, which
+                                    ; begins by calling it
 TSAVEK       equ   $b7
 TSTOPK       equ   $b3
 TPRNK        equ   $8a
@@ -302,7 +312,18 @@ EMSLIT       lda   #$00
              jmp   :bad
 :got         sta   CH
              bne   :notend
-             jmp   :unterm
+
+*--- THE END OF THE LINE CLOSES THE STRING, which is what Applesoft does and
+*    what this refused to do. PRINT "---- with no second quote is ordinary
+*    Applesoft and saves the byte a closing quote would cost; the Beagle Bros
+*    listings use it freely, and CHR$ POKER line 30 ends on one.
+*
+*    The terminator is PUT BACK rather than eaten. It belongs to the line, not
+*    to the string, and the caller is about to look for the end of a statement
+*    -- swallowing it here would send it reading the next line's link bytes as
+*    though they were code.
+             jsr   PUTBACK
+             jmp   :have
 :notend      cmp   #'"'
              beq   :have
              ldx   STRLEN
@@ -377,8 +398,6 @@ EMSLIT       lda   #$00
              jsr   SETBAD
              sec
              rts
-:unterm      lda   #$0a
-             jsr   SETBAD
 :bad         sec
              rts
 
@@ -6287,8 +6306,12 @@ GSTMT2       lda   CH
              beq   :savej
              cmp   #TSTOPK
              beq   :stopj
+             cmp   #TLOMEM
+             beq   :lomj
              cmp   #TPRNK
              beq   :prnj
+             cmp   #TSPEEDK
+             beq   :speedj
              lda   #$05             ; STATEMENT NOT YET
              jsr   SETBAD
              sec
@@ -6307,8 +6330,10 @@ GSTMT2       lda   CH
              clc
              rts
 :savej       jmp   GSAVE
+:lomj        jmp   GLOMEM
 :stopj       jmp   GSTOP
 :prnj        jmp   GPRN
+:speedj      jmp   GSPEED
 :vtab        jmp   GVTAB
 :htab        jmp   GHTAB
 :homek       jmp   GHOME
@@ -6417,6 +6442,47 @@ GNORMAL      lda   #$ff
 
 GFLASH       lda   #$7f
              jmp   EMINVF
+
+*--------------------------------------
+* GSPEED -- SPEED= n, which is not the store it looks like
+*
+* ASKED ON THE MACHINE, because the obvious guess is wrong. SPEED= 175 leaves
+* 81 at $F1, SPEED= 255 leaves 1, SPEED= 1 leaves 255, SPEED= 128 leaves 128
+* and SPEED= 0 leaves 0. That is (0 - n) & $FF -- the two's complement, not
+* the value and not 255-n, which the first two readings would both fit.
+*
+* COUT1 counts that byte down between characters, so a bigger SPEED is a
+* smaller wait, and SPEED= 255 asks for a delay of one rather than of none.
+* Storing n directly would have made every SPEED= in a program mean very
+* nearly its opposite, and slowly enough to look like a hang.
+*
+* THE INDEX IS IN MEMORY, NOT IN Y. EMIT gives Y back 255 times out of 256 and
+* flushes the output buffer through the MLI on the 256th, which does not --
+* so a Y-indexed loop here would work on every small program and lose its
+* place in a big one. EMI is free by this point: EMCOORD has finished with
+* whatever it used, and EMIT never touches it.
+*--------------------------------------
+GSPEED       jsr   EMCOORD          ; the value, in A when the program runs
+             bcs   :bad
+             lda   #$00
+             sta   EMI
+:loop        ldy   EMI
+             cpy   #SPEEDEND-SPEEDB
+             bcs   :done
+             lda   SPEEDB,y
+             jsr   EMIT
+             inc   EMI
+             jmp   :loop
+:done        clc
+             rts
+:bad         sec
+             rts
+
+SPEEDB       dfb   $49,$ff          ; EOR #$FF
+             dfb   $18              ; CLC
+             dfb   $69,$01          ; ADC #$01  -- A is now -n
+             dfb   $85,$f1          ; STA SPEEDZ
+SPEEDEND
 
 *--- JSR the routine whose address is in A and Y
 EMCALLAY     sta   TMPP
@@ -7728,6 +7794,105 @@ GPRN         jsr   EMCOORD          ; the slot, as a byte in A. NO NEXTB
              jsr   EMIT
              lda   #>OUTPORT
              jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* GLOMEM -- LOMEM:, which compiles to nothing
+*
+* It moves the bottom of Applesoft's variable space. A compiled program's
+* memory was settled while it was compiled -- PICKORG chose where it loads and
+* LAYOUT put everything in it -- so there is nothing left for LOMEM: to move.
+*
+* The expression is still compiled and thrown away, rather than skipped: it is
+* allowed to contain a function call, and a program that wrote one there meant
+* it to happen. A few bytes for a value nobody reads.
+*
+* Said by name and line, as SAVE is. LEMONADE opens with LOMEM: 14080.
+*--------------------------------------
+GLOMEM       jsr   NEXPR            ; the address it wanted, evaluated and lost
+             bcs   :bad
+             lda   PASSNO
+             cmp   #$03
+             bne   :done
+             lda   #<MSGNOLOM
+             ldy   #>MSGNOLOM
+             jsr   PRSTR
+             lda   CURLINE
+             sta   WORD
+             lda   CURLINE+1
+             sta   WORD+1
+             jsr   PRWORD
+             lda   #<MSGNOLOM2
+             ldy   #>MSGNOLOM2
+             jsr   PRSTR
+:done        clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* FFRE -- FRE(x), the memory that is left
+*
+* Applesoft's answer is the gap between its variables and its strings. A
+* compiled program has the same shape and both ends of it already: the array
+* break at the bottom, and the string heap coming down from HIMEM above. The
+* space between them is what is free.
+*
+* SIGNED, through GIVAYF, which is what Applesoft does too -- and is why its
+* own FRE goes negative on a machine with more than 32K free. Matching the
+* quirk costs nothing and surprises nobody who knows it.
+*
+* The argument is evaluated and dropped, as Applesoft drops it. LEMONADE
+* writes I = FRE(0) twice and then uses I as a loop counter: the value is not
+* the point, the collection it forces is.
+*--------------------------------------
+FFRE         jsr   FARGOPEN         ; and its value is not wanted
+             bcs   :bad
+
+             lda   #$ad             ; LDA heap pointer, low
+             jsr   EMIT
+             lda   #$01
+             jsr   EMSCOFS
+             lda   #$38             ; SEC
+             jsr   EMIT
+             lda   #$ed             ; SBC the array break, low
+             jsr   EMIT
+             lda   ABRKA
+             jsr   EMIT
+             lda   ABRKA+1
+             jsr   EMIT
+             lda   #$a8             ; TAY -- the low half, and the carry keeps
+             jsr   EMIT
+
+             lda   #$ad             ; LDA heap pointer, high
+             jsr   EMIT
+             lda   #$02
+             jsr   EMSCOFS
+             lda   #$ed             ; SBC the array break, high
+             jsr   EMIT
+             lda   ABRKA
+             clc
+             adc   #$01
+             sta   ABTMP
+             lda   ABRKA+1
+             adc   #$00
+             tay
+             lda   ABTMP
+             jsr   EMIT
+             tya
+             jsr   EMIT
+
+             lda   #$20             ; JSR GIVAYF -- A high, Y low, signed
+             jsr   EMIT
+             lda   #<GIVAYF
+             jsr   EMIT
+             lda   #>GIVAYF
+             jsr   EMIT
+             lda   #$00
+             sta   PENDOK
              clc
              rts
 :bad         sec
@@ -9435,7 +9600,7 @@ ESUM         jsr   ETERM
 :done        clc
              rts
 
-ETERM        jsr   EFACT
+ETERM        jsr   EPOW
              bcs   :bad
              lda   ISSTR            ; no * or / on a string
              bne   :done
@@ -9456,7 +9621,7 @@ ETERM        jsr   EFACT
              pha
              lda   #$00
              sta   PENDOK
-             jsr   EFACT
+             jsr   EPOW
              bcs   :drop3
              jsr   OPFLUSH
              pla
@@ -9466,7 +9631,7 @@ ETERM        jsr   EFACT
              jmp   :emit
 
 :infac       jsr   PUSHFAC
-             jsr   EFACT
+             jsr   EPOW
              bcs   :drop1
              jsr   OPFLUSH
              jsr   POPTMP
@@ -9524,8 +9689,9 @@ OPFLUSH      lda   PENDOK
 EFACT        jsr   PEEK
              bcs   :bad
              cmp   #TMINUS
-             bne   EPRIM
-             jsr   NEXTB
+             beq   :neg
+             jmp   EPRIM            ; EPOW sits between here and there now
+:neg         jsr   NEXTB
              jsr   EPRIM
              bcs   :bad
              jsr   OPFLUSH
@@ -9540,6 +9706,81 @@ EFACT        jsr   PEEK
              clc
              rts
 :bad         sec
+             rts
+
+*--------------------------------------
+* EPOW -- x ^ y
+*
+* LOOSER THAN A UNARY MINUS and tighter than * and /, so it sits between
+* ETERM and EFACT. Built like ETERM, which is the same shape: left side into
+* a temporary, right side into FAC, then the ROM.
+*
+* The other way round first, on the reasoning that every other language binds
+* ^ tighter than negation. Applesoft does not: it makes -2^2 into FOUR, which
+* is (-2)^2. The suite said so -- the interpreter is the only authority on
+* this and guessing produced the wrong answer.
+*
+* APPLESOFT'S OWN ROUTINE, not EXP(y * LOG(x)). The two agree on ordinary
+* numbers and part company at nothing: LOG(0) has no answer, and LEMONADE
+* squares a price -- `(P9 ^ 2) * S2 / P(I) ^ 2` -- which is zero whenever the
+* stand has not sold any. FPWRT gives 0, the logarithm gives an error.
+*
+* CONUPK takes the left side out of the temporary into ARG and leaves ARGEXP
+* in A, which is exactly what FPWRT wants to see on entry.
+*--------------------------------------
+EPOW         jsr   EFACT
+             bcs   :bad
+             lda   ISSTR            ; a string has no power
+             bne   :done
+:loop        jsr   PEEK
+             bcs   :done
+             cmp   #TPOW
+             bne   :done
+             jsr   NEXTB
+             lda   PENDOK
+             beq   :infac
+
+             lda   PENDA
+             pha
+             lda   PENDA+1
+             pha
+             lda   #$00
+             sta   PENDOK
+             jsr   EFACT
+             bcs   :drop2
+             jsr   OPFLUSH
+             pla
+             sta   TMPP+1
+             pla
+             sta   TMPP
+             jmp   :emit
+
+:infac       jsr   PUSHFAC
+             jsr   EFACT
+             bcs   :bad
+             jsr   OPFLUSH
+             jsr   POPTMP
+
+:emit        lda   #<CONUPK         ; ARG <- the base, ARGEXP into A
+             sta   ROMA
+             lda   #>CONUPK
+             sta   ROMA+1
+             jsr   EMOPA
+             lda   #$20             ; JSR FPWRT
+             jsr   EMIT
+             lda   #<FPWRT
+             jsr   EMIT
+             lda   #>FPWRT
+             jsr   EMIT
+             lda   #$00
+             sta   PENDOK
+             jmp   :loop
+
+:drop2       pla
+             pla
+:bad         sec
+             rts
+:done        clc
              rts
 
 EPRIM        lda   #$00
@@ -9569,6 +9810,8 @@ EPRIM        lda   #$00
              beq   :ufnj
              cmp   #TPDL
              beq   :pdlj
+             cmp   #TFREK
+             beq   :frej
              cmp   #TSCRN
              beq   :scrnj
              cmp   #$80
@@ -9603,6 +9846,7 @@ EPRIM        lda   #$00
 :slicej      jmp   FSLICE
 :ufnj        jmp   UFN
 :pdlj        jmp   FPDL
+:frej        jmp   FFRE
 :scrnj       jmp   FSCRN
 
 :paren       jsr   EXPR

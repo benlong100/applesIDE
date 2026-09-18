@@ -62,6 +62,7 @@ TTHEN        equ   $c4
 THGR2        equ   $90
 TDRAWK       equ   $94
 TXDRAWK      equ   $95
+TPEEKK       equ   $e2
 
 *--------------------------------------
 * PASS1 -- walk the program, filling the three tables
@@ -85,6 +86,9 @@ PASS1        lda   #$00
              sta   NSARR
              sta   NIVARS
              sta   USESHR
+             sta   PKST
+             sta   PKTXT
+             sta   PKDAT
              sta   NSDYN
              sta   ORGOK
              ldx   #AMAX-1
@@ -271,6 +275,142 @@ HEXDIG       cmp   #'0'
              clc
              rts
 :no          sec
+             rts
+
+*--------------------------------------
+* NOTEPK -- watch for PEEK of Applesoft's own pointers
+*
+* A compiled program has no Applesoft program in memory, so the zero page
+* locations that describe one say nothing about it:
+*
+*   103/104  TXTTAB, where the program text begins
+*   123/124  DATLIN, the line number of the DATA statement last READ
+*
+* A program that reads those expects to find its own source in memory, and
+* usually expects to WRITE to it. PHONE LIST off the DOS 3.3 master keeps its
+* records in its own DATA statements and pokes new ones in: it compiles, it
+* runs, and the list stays empty for ever, because the count it reads back is
+* the one in the file and the poke that should have changed it went nowhere.
+*
+* NOT A REFUSAL. Reading a byte of zero page is legal and a program might do
+* it for some harmless reason; but it is never silent, because nothing else
+* about the failure tells you anything.
+*
+* Reached once per byte of the source, so it is a state machine rather than a
+* rescan: PEEK, then a bracket, then digits.
+*--------------------------------------
+NOTEPK       pha
+             lda   PKST
+             bne   :going
+             pla                    ; idle: only a PEEK token starts it
+             pha
+             cmp   #TPEEKK
+             beq   :arm
+:outn        pla                    ; a near copy of the exit: the routine
+             rts                    ; outgrew a branch to the real one
+:arm         lda   #$01
+             sta   PKST
+             bne   :outn            ; always
+
+:going       cmp   #$01
+             bne   :digits
+             pla                    ; saw PEEK: a bracket must follow
+             pha
+             cmp   #'('
+             beq   :open
+             lda   #$00             ; anything else, and it was not one
+             sta   PKST
+             beq   :outn
+:open        lda   #$02
+             sta   PKST
+             lda   #$00
+             sta   PKNUM
+             sta   PKNUM+1
+             beq   :outn
+
+*--- collecting the number inside the brackets
+*
+*    THE TEST IS ON A, NOT THROUGH ISDIGIT. ISDIGIT reads CH, and CH is set by
+*    whoever called RDBYTE -- AFTER it returns. Asked from in here it answers
+*    about the PREVIOUS byte, so no digit was ever recognised and the number
+*    stayed at nothing.
+:digits      pla
+             pha
+             cmp   #'0'
+             bcc   :done
+             cmp   #'9'+1
+             bcs   :done
+             jsr   PKMUL10
+             jmp   :out
+
+*--- and out the other side: is it one of the four?
+:done        lda   #$00
+             sta   PKST
+             lda   PKNUM+1
+             bne   :out             ; all four are under 256
+             lda   PKNUM
+             cmp   #103
+             beq   :txt
+             cmp   #104
+             beq   :txt
+             cmp   #123
+             beq   :dat
+             cmp   #124
+             bne   :out
+:dat         lda   PKDAT
+             bne   :out             ; the first one is the one reported
+             lda   #$01
+             sta   PKDAT
+             lda   CURLINE
+             sta   PKDLINE
+             lda   CURLINE+1
+             sta   PKDLINE+1
+             bne   :out
+:txt         lda   PKTXT
+             bne   :out
+             lda   #$01
+             sta   PKTXT
+             lda   CURLINE
+             sta   PKTLINE
+             lda   CURLINE+1
+             sta   PKTLINE+1
+:out         pla
+             rts
+
+*--- PKNUM = PKNUM * 10 + the digit in A, and the carry left clear
+PKMUL10      pha
+             lda   PKNUM
+             asl
+             sta   TMPB
+             lda   PKNUM+1
+             rol
+             sta   TMPB+1
+             asl   TMPB
+             rol   TMPB+1
+             asl   TMPB
+             rol   TMPB+1
+             lda   PKNUM
+             asl
+             sta   PKNUM
+             lda   PKNUM+1
+             rol
+             sta   PKNUM+1
+             lda   PKNUM
+             clc
+             adc   TMPB
+             sta   PKNUM
+             lda   PKNUM+1
+             adc   TMPB+1
+             sta   PKNUM+1
+             pla
+             and   #$0f
+             clc
+             adc   PKNUM
+             sta   PKNUM
+             lda   PKNUM+1
+             adc   #$00
+             sta   PKNUM+1
+             clc
              rts
 
 *--------------------------------------
@@ -2163,7 +2303,8 @@ DBUFMAX      equ   6912             ; $1B00. PAGE-ALIGNED ON PURPOSE: DPUT
                                     ; against it, so a size that is not a
                                     ; whole number of pages would let the
                                     ; buffer overrun by up to 255 bytes
-CMAX         equ   128
+CMAX         equ   255              ; NCONST counts them in ONE BYTE, so this
+                                    ; cannot go higher without widening it
 LTMAX        equ   512
 
              dum   $1440
@@ -2237,6 +2378,12 @@ ORGHD        ds    1                ; how many hex digits have been taken
 REMCH        ds    1                ; the REM character being matched
 SKDEP        ds    1                ; SKIPEXPR's bracket depth
 SKSTR        ds    1                ; and whether it is inside a string
+PKST         ds    1                ; NOTEPK's state: 0 idle, 1 saw PEEK, 2 in
+PKNUM        ds    2                ; the number between its brackets
+PKTXT        ds    1                ; a PEEK of 103/104 was seen, and where
+PKTLINE      ds    2
+PKDAT        ds    1                ; and of 123/124
+PKDLINE      ds    2
              dend
 
 *--- The tables, well clear of the compiler, its buffers and ProDOS.

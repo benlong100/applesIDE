@@ -56,10 +56,22 @@ START        lda   #$00
 *    and ZipEdit both had this; it is the third time.
              jsr   SETPFX
 
+             lda   #$00
+             sta   ISINT
              jsr   ASKNAME
              jsr   OPENSRC
              bcc   :ok
-             lda   #<MSGNOFILE
+
+*--- ONE MESSAGE, NOT TWO. An Integer BASIC file was reported as itself and
+*    then as a file that would not open, with an error code of 01 that meant
+*    nothing -- three lines, two of them wrong, for one plain fact.
+             lda   ISINT
+             beq   :cantopen
+             lda   #<MSGINT
+             ldy   #>MSGINT
+             jsr   PRSTR
+             jmp   FINISH
+:cantopen    lda   #<MSGNOFILE
              ldy   #>MSGNOFILE
              jsr   PRSTR
              lda   MLIERR           ; say WHICH failure: $40 and $46 send the
@@ -131,6 +143,16 @@ START        lda   #$00
              bcs   :stop
 
              jsr   CLOSESRC
+
+*--- WHAT PASS 1 SAW AND CANNOT DO ANYTHING ABOUT. A program that reads
+*    TXTTAB or DATLIN is looking for its own source in memory, and a compiled
+*    program has not got any: it will run, and quietly do nothing.
+*
+*    SAID HERE, NEXT TO THE RESULT, and not when pass 1 noticed. Printed
+*    there it came out ahead of the line and variable and constant listings,
+*    which are long enough to scroll it off the top of the screen -- so the
+*    one thing worth reading was the one thing that had gone.
+             jsr   SAYPEEKS
              lda   #<MSGWROTE
              ldy   #>MSGWROTE
              jsr   PRSTR
@@ -208,6 +230,17 @@ RDBYTE       lda   PBFLAG
              dec   SRCLEFT+1
 :lo          dec   SRCLEFT
              pla
+
+*--- EVERY BYTE OF THE SOURCE PASSES HERE, which is why the watch for a PEEK
+*    of Applesoft's own pointers sits here and not in SCANBODY. There it saw
+*    only the FIRST digit of a number: SCANBODY reads one byte, decides it has
+*    a number, and its own scanner eats the rest without coming back. PEEK(103)
+*    arrived as a 1 and matched nothing.
+*
+*    NOT ON THE PUSHED-BACK PATH above -- a byte read twice would be counted
+*    twice, and 103 would come out as 1033. And the clc below is what keeps
+*    RDBYTE's promise about the carry, which NOTEPK's own compares destroy.
+             jsr   NOTEPK
              clc
              rts
 :eof         sec
@@ -304,7 +337,31 @@ PRSTR        sta   STRPTR
 *--------------------------------------
 * ProDOS. STA preserves the carry, so callers can branch on it.
 *--------------------------------------
+*--------------------------------------
+* WHAT KIND OF FILE IS IT? ProDOS knows, and asking is cheaper than finding
+* out the hard way. BIORHYTHM on the distribution disk is INTEGER BASIC: a
+* different language in a different format, lines held as a length and a
+* number where Applesoft holds a link and a number. Read as Applesoft its
+* first line is numbered 25600, and the compiler reported a fault in a line
+* the program has not got -- DEF FN HEADER, at line 27825.
+*
+* Only $FA is refused. A file typed anything else might still be a tokenised
+* Applesoft program -- plenty are BIN, or TXT, or have no type worth the name
+* -- and refusing those would turn a working compile into an error.
+*--------------------------------------
 OPENSRC      jsr   MLI
+             dfb   $c4              ; GET_FILE_INFO
+             da    INFOPARM
+             bcs   :notint          ; it will fail again below, and say so
+             lda   INFOPARM+4       ; the file type
+             cmp   #$fa             ; INT
+             bne   :notint
+             lda   #$01
+             sta   ISINT            ; the caller picks the message
+             sec
+             rts
+:notint
+             jsr   MLI
              dfb   $c8
              da    OPENPARM
              sta   MLIERR
@@ -347,6 +404,44 @@ CLOSESRC     jsr   MLI
 * else, including me a fortnight later. The line is what you need to find it;
 * the words are what tell you whether it is your mistake or a thing the
 * compiler cannot do yet.
+*--------------------------------------
+*--------------------------------------
+* SAYPEEKS -- name the lines that read Applesoft's own pointers
+*--------------------------------------
+SAYPEEKS     lda   PKTXT
+             beq   :dat
+             lda   #<MSGPKTXT
+             ldy   #>MSGPKTXT
+             jsr   PRSTR
+             lda   PKTLINE
+             sta   WORD
+             lda   PKTLINE+1
+             sta   WORD+1
+             jsr   PRWORD
+             lda   #<MSGPKTXT2
+             ldy   #>MSGPKTXT2
+             jsr   PRSTR
+:dat         lda   PKDAT
+             beq   :done
+             lda   #<MSGPKTXT
+             ldy   #>MSGPKTXT
+             jsr   PRSTR
+             lda   PKDLINE
+             sta   WORD
+             lda   PKDLINE+1
+             sta   WORD+1
+             jsr   PRWORD
+             lda   #<MSGPKDAT2
+             ldy   #>MSGPKDAT2
+             jsr   PRSTR
+:done        lda   PKTXT
+             ora   PKDAT
+             beq   :out
+             lda   #<MSGPKBOTH
+             ldy   #>MSGPKBOTH
+             jsr   PRSTR
+:out         rts
+
 *--------------------------------------
 BADSAY       lda   BADFLG
              beq   :none
@@ -824,6 +919,9 @@ QUIT         jsr   MLI
 *--------------------------------------
 * Parameter blocks and buffers
 *--------------------------------------
+INFOPARM     dfb   $0a              ; GET_FILE_INFO
+             da    SRCNAME
+             ds    16               ; access, type, aux, storage, blocks, dates
 OPENPARM     dfb   $03
              da    SRCNAME
              da    IOBUF
@@ -888,6 +986,8 @@ MSGOPEN      asc   "APPLESOFT COMPILER"
              dfb   $8d,$8d,$00
 MSGNOFILE    asc   "CANNOT OPEN THE SOURCE"
              dfb   $8d,$00
+MSGINT       asc   "THAT IS INTEGER BASIC, NOT APPLESOFT"
+             dfb   $8d,$00
 MSGBIG       asc   "TOO BIG: IT WOULD REACH $"
              dfb   $00
 MSGWROTE     asc   "WROTE "
@@ -898,6 +998,23 @@ MSGNOOUT     asc   "CANNOT WRITE THE OUTPUT, CODE "
              dfb   $00
 MSGSTOP      asc   "STOPPED IN "
              dfb   $00
+*--- Kept inside forty columns. The first wording ran over and broke a word
+*    across the wrap -- "THE PROGRAM PO/INTER" -- and the screen swallowed the
+*    indent on the line after it.
+MSGPKTXT     asc   "NOTE: LINE "
+             dfb   $00
+MSGPKTXT2    asc   " READS 103, PROGRAM TEXT"
+             dfb   $8d,$00
+MSGPKDAT2    asc   " READS 123, DATA LINE"
+             dfb   $8d,$00
+MSGPKBOTH    asc   "IT WANTS ITS OWN LISTING IN MEMORY,"
+             dfb   $8d
+             asc   "WHICH A COMPILED PROGRAM HAS NOT GOT"
+             dfb   $8d,$00
+MSGNOLOM     asc   "NOTE: LOMEM: ON LINE "
+             dfb   $00
+MSGNOLOM2    asc   " DOES NOTHING"
+             dfb   $8d,$00
 MSGNOSAVE    asc   "NOTE: SAVE ON LINE "
              dfb   $00
 MSGNOSAVE2   asc   " DOES NOTHING"
@@ -921,6 +1038,7 @@ DIGIT        ds    1
 LEADING      ds    1
 YSAVE        ds    1                ; Y across COUT, which does not keep it
 MLIERR       ds    1
+ISINT        ds    1                ; the source was an Integer BASIC file
 TMPA         ds    1
 LOWN         ds    1
 OUTNAME      ds    17
@@ -954,24 +1072,23 @@ IOBUF        ds    1024             ; ProDOS wants these page aligned
 IOBUF2       ds    1024
              dend
 
-*--- and the small ones tucked under ProDOS instead of on top of the tables.
+*--- AND THE SMALL ONES BELOW THE CODE, not above the tables.
 *
-*    $BA00, NOT $BB00, AND THE ARITHMETIC MATTERS. Put at $BB00 first, having
-*    added up only the four buffers this comment used to mention: it is six,
-*    1,184 bytes, and STRBUF ran from $BEA0 to $BF9F -- a hundred and sixty
-*    bytes into ProDOS's global page. A string literal long enough to reach
-*    that far overwrote the MLI's own vectors, and the compiler came back from
-*    the next call into its message table and executed it.
+*    They were at $ba00, immediately over the tables, which capped those at
+*    $9000-$B9FF -- and the constant table with them, at a hundred and twenty
+*    eight entries. LEMONADE off the distribution disk needs two hundred and
+*    fifty.
 *
-*    dumcheck.py compares these blocks with each other and had nothing to say,
-*    because nothing here overlapped anything here. It knows about $BF00 now.
+*    $1611-$1FFF is free: the variable blocks stop at $1610 and the compiler's
+*    own code does not start until $2000. Nothing else is down there, and it
+*    leaves $BA00-$BEFF for the tables to grow into.
 *
 *    OUTBUF still begins on a page boundary, which it needs.
-             dum   $ba00
-DATBUF       ds    512              ; $BA00
-OUTBUF       ds    256              ; $BC00 -- a whole page, so a string
+             dum   $1700
+DATBUF       ds    512              ; $1700
+OUTBUF       ds    256              ; $1900 -- a whole page, so a string
 PFXBUF       ds    64               ; literal's JMP is still reachable to patch
 ONLBUF       ds    16
 ONBUF        ds    80               ; an ON GOTO's targets, collected first
 STRBUF       ds    256              ; a literal, collected before it is emitted
-             dend                   ; ends $BE9F, clear of ProDOS at $BF00
+             dend                   ; ends $1B9F, clear of the code at $2000                   ; ends $BE9F, clear of ProDOS at $BF00

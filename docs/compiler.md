@@ -519,6 +519,22 @@ interpreter's zero page as though it were running. Joining two strings, and
 put it and something to reclaim it. That is the next piece and it is a real
 one; until then each is refused by name.
 
+**The end of a line closes a literal.** `PRINT "----------` with no second
+quote is ordinary Applesoft: the string runs to the end of the line, and
+leaving the quote off saves the byte. The Beagle Bros listings use it freely —
+CHR\$ POKER ends line 30 on one — and the compiler used to answer `STRING NOT
+CLOSED`, which was the second of the two things stopping that program after
+its `SPEED=` was in.
+
+The line's terminator is **put back** rather than eaten. It belongs to the
+line and not to the string, and the caller is about to go looking for the end
+of a statement; swallowing it there would send the scanner reading the next
+line's link bytes as though they were code. That left `STRING NOT CLOSED`
+with no site that raises it — a true end of source mid-literal already
+returns through the carry — so complaint 10 is now unreachable, and its text
+is still in the table because the numbering either side of it is not worth
+disturbing to save eighteen bytes.
+
 `A`, `A(` and `A$` are **three different variables** to Applesoft, so there
 are three tables here rather than one with a type column.
 
@@ -1206,6 +1222,29 @@ monitor's `VTABZ` to work out the line's address, `HTAB` writes `CHPOS`.
 An argument outside the legal range is `?ILLEGAL QUANTITY` in Applesoft and is
 not checked here.
 
+### SPEED= is stored upside down
+
+`SPEED=` looks like a store and is not. Asked on the machine, `SPEED= 175`
+leaves 81 at `$F1`, `SPEED= 255` leaves 1, `SPEED= 1` leaves 255, `SPEED= 128`
+leaves 128 and `SPEED= 0` leaves 0 — which is `(0 - n) & $FF`, the two's
+complement. Both of the plausible readings fit the first two samples and fail
+on the rest: it is neither `n` nor `255 - n`.
+
+`COUT1` counts that byte down between characters, so a bigger `SPEED` is a
+smaller wait and `SPEED= 255` is asking for a delay of one rather than of
+none. Storing `n` directly would have made every `SPEED=` mean nearly its
+opposite, and a program that opens `SPEED= 175` for readability would have
+crawled — slowly enough to read as a hang rather than as a wrong number.
+
+This is the fifth or sixth time the machine has contradicted the obvious guess
+about a ROM location. The guess cost nothing here only because it was never
+written down as code.
+
+Two Beagle Bros programs — CHR\$ POKER and the DOS BOSS demo — were refused on
+their `SPEED=` and nothing else. The compiler stops at the first refusal, so
+one missing keyword on an early line reads from the outside as "none of my
+programs compile".
+
 ### The statement list was full
 
 `GENSTMT`'s keyword tests reached their targets with little to spare, and
@@ -1215,6 +1254,27 @@ statement. The answer was not more trampolines but a second list, which the
 first falls through to when it does not recognise a keyword. It costs one jump
 for the keywords that reach it, leaves the first list alone, and is where
 anything added later should go.
+
+### And now the image is full
+
+The compiler ends at `$8FF4` and its tables start at `$9000`: **12 bytes**.
+`SPEED=` cost 47 of them and was affordable only because making the
+unterminated-literal path legal freed the five bytes that used to raise
+complaint 10.
+
+So the next keyword does not fit, and the honest thing to say about the one
+after that is that it needs space found before it needs code written. The
+places to look, in the order they are worth looking:
+
+- the emitters that spell out `LDA #x : JSR EMIT` seven times in a row where a
+  table and a four-instruction loop would do — `GSPEED` is written the second
+  way and is 7 bytes of table plus 30 of code against 44 straight-line;
+- the message table, which holds text for a complaint nothing raises;
+- the tables at `$9000`, if any of them is sized for a worst case that the
+  255-constant limit already rules out.
+
+None of that is urgent while nothing is waiting to go in. All of it is urgent
+the moment something is, which is the wrong time to start looking.
 
 ## Low-resolution graphics
 
@@ -1918,3 +1978,161 @@ a printer and compiles.
 
 A test that cannot pass for a reason outside the thing being tested is worse
 than no test: it trains you to ignore a red line.
+
+## A program that keeps its data inside itself
+
+PHONE LIST, off the DOS 3.3 System Master, compiles and runs. Type in a name
+and a number and the list stays empty.
+
+Nothing is wrong with the compiled code. The program stores its records in its
+own DATA statements and edits them in place:
+
+    510  START = PEEK(103) + PEEK(104) * 256 + 458    TXTTAB, the program text
+    4320 LN = PEEK(123) + PEEK(124) * 256             DATLIN, the DATA line READ
+    4360 CU = START + ((LN - 201) * 46)               that line, in memory
+    4420 POKE I, ASC(MID$(NN$, I + 1 - CU, 1))        write the record into it
+
+and the count of records lives in line 200, `DATA 1000`, which gets a new
+number poked over it. Saving the program is what saves the phone book -- which
+is also why line 840 is a bare cassette SAVE.
+
+A compiled program has no Applesoft program in memory. `PEEK(103)` returns
+BASIC.SYSTEM's idea of where a BASIC program would start, which has nothing to
+do with the compiled code; the pokes land somewhere harmless and the count
+READ back is for ever the 1000 that is in the file. The entry is accepted and
+has nowhere to go.
+
+**This cannot be compiled, and not for want of a feature.** The source is what
+a compiler consumes; it is not there afterwards to be rewritten. Even the
+arithmetic is Applesoft's own -- `(LN - 201) * 46` is the length of a DATA
+line in APPLESOFT's line format, two bytes of link, two of line number, one of
+token and forty-one of text. Nothing the compiler could lay out would make
+that stride mean anything.
+
+### So it says so, and says which lines
+
+`NOTEPK` watches the source for a PEEK of 103, 104, 123 or 124 -- the four
+addresses that describe an Applesoft program in memory -- and names the first
+line that reads each. Not a refusal: reading a byte of zero page is legal and
+a program might do it innocently. But never silent, because nothing else about
+the failure tells you anything at all.
+
+It stays quiet on BRIAN, LITTLE, RANDOM and RETRIEVE.TEXT, every one of which
+uses PEEK constantly for the keyboard at -16384 and the speaker at -16336. A
+warning that appears on every program teaches you to stop reading warnings.
+
+### Three tries to make a state machine see a number
+
+Worth keeping for the pattern rather than the detail, because all three were
+assumptions about code that could have been read in seconds:
+
+- hooked into SCANBODY's byte loop. SCANBODY reads ONE byte, recognises the
+  start of a number, and hands the rest to its own scanner without coming
+  back, so `PEEK(103)` arrived as a 1;
+- moved to RDBYTE, the real funnel, and used ISDIGIT to test the byte. ISDIGIT
+  reads CH -- which the CALLER sets, after RDBYTE returns -- so it answered
+  about the previous byte and no digit was ever recognised;
+- printed the notes where pass 1 noticed them, which put them ahead of the
+  line and variable and constant listings. They scrolled off the top.
+
+What actually moved it along was writing the state machine in Python first and
+running it over the file: six hits, so the ALGORITHM was right and the fault
+had to be in the 6502 or the hook. That halved the search in one step, and it
+is the same move that settled TAB('s semantics and the DOS sector map -- get
+the answer somewhere cheap, then make the machine agree with it.
+
+### And two things that had to be right inside RDBYTE
+
+Every byte of every pass goes through it, so a mistake there is not a wrong
+warning but a wrong compilation:
+
+- **not on the pushed-back path.** A byte read again after PUTBACK would be
+  counted twice and 103 would come out as 1033;
+- **the carry.** RDBYTE promises it clear on success and NOTEPK's own compares
+  destroy it, so the `clc` goes after the call.
+
+## LEMONADE, and four limits it found
+
+Four things stopped it, each invisible until the one before was fixed.
+
+**A hundred and twenty-eight constants was not enough.** It has about two
+hundred and fifty. Raising CMAX meant finding room: the tables ended at $B9BF
+with the next block sixty-four bytes above them, so the ProDOS buffers moved
+to $1700 -- the variable blocks stop at $1610 and the compiler's own code does
+not begin until $2000, so there was 2.5K sitting unused down there the whole
+time.
+
+**NCONST COUNTS THEM IN ONE BYTE**, so 255 is the ceiling and LEMONADE is
+close to it. Going further means widening that counter through every loop that
+walks the constant table, and through CSLOT -- which is where this compiler's
+subtlest bug lived, the lost carry that put entry 64 on top of entry 12.
+
+**`^`** is Applesoft's own FPWRT at $EE97, not EXP(y * LOG(x)). The two agree
+until the base is zero: LOG(0) has no answer, and LEMONADE squares a price,
+which is zero whenever the stand has sold nothing.
+
+**`FRE`** is the gap between the array break and the string heap -- a compiled
+program already tracks both ends. Signed, through GIVAYF, which is why
+Applesoft's own FRE goes negative with more than 32K free. LEMONADE writes
+`I = FRE(0)` and then uses I as a loop counter: the value is not the point,
+the collection it forces is.
+
+**`LOMEM:`** compiles to nothing and says so. A compiled program's memory was
+settled before it ran.
+
+### Applesoft binds unary minus TIGHTER than ^
+
+`-2^2` is **4**. Not -4, which is what C, Python and most BASIC dialects give,
+and what this compiler gave when `^` was put where every other language puts
+it -- above negation rather than below.
+
+The suite said so on the first run and the fix was to swap two levels of the
+expression parser. Worth keeping because it is the clearest case all session
+of reasoning from what is usual producing a confident wrong answer. The
+machine costs one test to ask.
+
+Left-associative, incidentally: `2^3^2` is 64, not 512. That one the guess got
+right, which is exactly why guessing is not a method.
+
+### Both ROM addresses came off the machine
+
+FPWRT was confirmed by what it does first -- `BEQ` on ARGEXP, which is what
+CONUPK leaves in A, so the calling convention is visible in the opening
+instruction. CONUPK was found by disassembling FMUL, which is FAC times
+memory and must therefore begin by unpacking that memory into ARG. Its first
+three bytes are `20 E3 E9`.
+
+Neither was looked up. This compiler has been wrong about a recalled ROM
+address before.
+
+## BIORHYTHM is Integer BASIC
+
+It reported `DEF FN HEADER` in line 27825, a line the program has not got.
+Integer BASIC holds a line as a length and a number where Applesoft holds a
+link and a number, so read as Applesoft the first line of BIORHYTHM is
+numbered 25600 and everything after is noise.
+
+ProDOS knows what the file is. GET_FILE_INFO before the open costs nothing and
+the compiler now says `THAT IS INTEGER BASIC, NOT APPLESOFT`.
+
+**Only $FA is refused.** A tokenised Applesoft program can arrive typed BIN or
+TXT or as nothing in particular, and refusing those would turn working
+compiles into errors.
+
+### One message, not three
+
+The first version printed the truth and then two falsehoods:
+
+    THAT IS INTEGER BASIC, NOT APPLESOFT
+    CANNOT OPEN THE SOURCE
+    01
+
+The file opened perfectly well. A failure had been faked to stop the compile,
+and the error path reported the fake faithfully. An error that says two
+contradictory things is worse than a terse one, because now the reader has to
+work out which half to believe.
+
+That is the fourth message this session where the code knew something true and
+printed something else -- with `1 copied, and that came to 0 files` when
+nothing was copied, `ONE DIMENSION ONLY` about an array with one dimension,
+and a fault reported in a line that does not exist.
