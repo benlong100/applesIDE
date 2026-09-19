@@ -1,0 +1,18 @@
+10 A = 5:B$ = "HELLO":DIM Q(4)
+20 Q(2) = 99:I% = 7
+30 PRINT A;" ";B$;" ";Q(2);" ";I%
+40 CLEAR
+50 PRINT A;" ";LEN (B$);" ";I%
+55 PRINT Q(2);" ";A + 1
+60 N = 3
+70 DIM R(N)
+80 R(3) = 42
+90 PRINT R(0);" ";R(3)
+100 C$ = "WORLD"
+110 PRINT C$;" ";LEN (C$)
+115 CLEAR
+120 M = 4
+125 DIM T(M)
+130 T(4) = 7
+135 PRINT T(0);" ";T(4);" ";LEN (C$)
+140 PRINT "DONECLEAR"

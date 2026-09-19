@@ -1324,13 +1324,33 @@ tested: twelve programs compiled with the old compiler and the new one came
 out **byte-identical**, which says the change cannot have altered anything
 reaching a compiled program.
 
-**The other three were refused by the converter, and rightly.** They are not
-pure emitters: `EMHJOIN` emits `LDA #<MLONG / LDY #>MLONG`, whose halves sit
-four instructions apart; `EMHNEXTI` does arithmetic on an address; `EMHGC`
-captures `PC` mid-stream to backpatch forward branches. Reaching them needs a
-placeholder scheme richer than "a two-byte address", or splitting each routine
-into blob runs around its logic. Worth roughly another 900 bytes when
-something needs them.
+**Two of the other three needed a richer marker, and got one.** The marker is
+now ONE blob byte whose table entry says what it stands for, which is what
+lets a blob express things a two-byte address cannot:
+
+| entry | means | emits |
+|---|---|---|
+| `$00-$3F` | `SDESCA` + offset | two bytes |
+| `$40-$7F` | `SCRA` + offset | two bytes |
+| `$80-$9F` | a `BVARS` variable, whole | two bytes |
+| `$A0-$BF` | a `BVARS` variable + offset — **eats the next table byte** | two bytes |
+| `$C0-$DF` | its low half | one byte |
+| `$E0-$FF` | its high half | one byte |
+
+The halves are what `EMHJOIN` needed: `LDA #<MLONG / LDY #>MLONG` puts them
+four instructions apart, so no two-byte marker could say it. The offset kind
+is what `EMHNEXTI` needed: it branches to a label INSIDE another helper, and
+knows the label's distance from the top but not where the top will land.
+
+So `EMHVAL` 410 → 112, `EMHIVAL` 555 → 147, `EMHJOIN` 466 → ~125, `EMHNEXTI`
+739 → ~180. All four proved byte-identical over twelve programs.
+
+**`EMHGC` is the one left**, and its blockers are not addresses at all: it
+calls `EMSETRUN`, and it captures `PC` mid-stream into `HBNDHI`/`HBNDLO` to
+backpatch forward branches. That is compile-time bookkeeping interleaved with
+emission, and reaching it means splitting the routine into blob runs around
+the bookkeeping rather than inventing another kind. Worth about 900 bytes
+when something needs them.
 
 Two other levers, measured and not used: the tables can move up about **709
 bytes** before they reach ProDOS, and putting them in auxiliary memory would
@@ -1360,6 +1380,52 @@ name.
 Deliberately NOT shared with the numeric multi-subscript code. That path works
 and `dim2`/`dim3` prove it; factoring it to serve both would have put the
 working case at risk to save bytes that were not needed.
+
+## CLEAR, and the three ways it went wrong
+
+`CLEAR` forgets every variable, every array, the string heap, the DATA pointer
+and the GOSUB stack. A compiled program has all of those, laid out rather than
+allocated, so `CLEAR` is the prologue done again at run time — except that the
+prologue writes zeros into the image and this has to write them into memory.
+
+**It cannot be one sweep** from the first variable to the code. The array base
+slots, the array break and the collector's run table sit in between, and carry
+addresses LAYOUT worked out that nothing at run time could rebuild. So two
+ranges are zeroed — `VARBASE..CONSTBASE` and `ZFILLA..CODESTA` — and the rest
+is put back by hand.
+
+**The break moves back with them**, and this is the part that matters. ARGO
+says `CLEAR : GOSUB 5100`, and 5100 has `DIM A(N)` in it. Zeroing the
+variables without moving the break back would allocate a fresh copy on every
+pass and run out of memory rather than start again.
+
+**The stack is restored first**, because `SPSAVE` lives inside the second
+range and is about to be zeroed; it is saved again after. Applesoft discards
+pending GOSUBs on CLEAR the same way.
+
+Three things went wrong, and the interpreter comparison found all three:
+
+1. **A trailing `RTS`.** It was written as a subroutine and emitted inline, so
+   it returned out of the program; the compiled run stopped dead at the CLEAR.
+2. **The allocator's floor could not be reset here.** `HBNDLO`/`HBNDHI` are
+   not known when CLEAR is emitted, because `HALLOC` is a helper emitted after
+   the code — the stores went to a stale address. They are gone: the next
+   dynamic DIM sets the floor from the new break, so leaving it raised until
+   then is correct rather than merely convenient.
+3. **A stale `FACSGN`.** A variable zeroed in place has had no floating point
+   operation performed on it, so the ROM's sign byte still held the sign of
+   whatever was last in `FAC`, and the first `PRINT` of a cleared variable came
+   out as `-0`. Applesoft never meets this: its CLEAR forgets the variable
+   rather than zeroing it, and the next reference builds a fresh one through
+   the arithmetic. CLEAR zeroes `$A2` now.
+
+The helper is 121 bytes and its branch offsets are COMPUTED, in the script
+that generates the emitter, rather than counted by eye. The last helper whose
+offsets were worked out by hand had three of them wrong.
+
+**And a third dispatch list.** `CLEAR` pushed `GSTMT2`'s tests past the reach
+of its own jump table, exactly as the first list had overflowed into the
+second. `GSTMT3` is where the next one goes.
 
 Three things there were checked rather than assumed: all three element paths —
 assignment, `INPUT`, and read — go through `EMSSUBS`, so there is one place to
