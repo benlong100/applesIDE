@@ -1,0 +1,11 @@
+10 N = 200
+20 DIM A(N)
+30 FOR I = 0 TO N:A(I) = I: NEXT I
+40 T = 0
+50 FOR I = 0 TO N:T = T + A(I): NEXT I
+60 PRINT A(0);" ";A(100);" ";A(200);" ";T
+70 M = 150
+80 DIM B(M),C(M)
+90 FOR I = 0 TO M:B(I) = I + 1:C(I) = M - I: NEXT I
+100 PRINT B(0);" ";B(150);" ";C(0);" ";C(150)
+110 PRINT "DONEDYNPAGE"

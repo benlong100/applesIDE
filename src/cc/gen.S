@@ -162,6 +162,8 @@ THGR         equ   $91
 THCOLOR      equ   $92
 THPLOT       equ   $93
 HGRROM       equ   $f3e2            ; page one, mixed, cleared
+HGR2ROM      equ   $f3d8            ; page TWO, full screen, cleared
+TGR2K        equ   $90
 TPDL         equ   $d8
 TSCRN        equ   $d7
 TGETK        equ   $be
@@ -1211,237 +1213,35 @@ EMHNEXTI     lda   #$ad
 *
 *   123 bytes
 *--------------------------------------
-EMHIVAL      lda   #$ad
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$d0
-             jsr   EMIT
-             lda   #$08
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$a8
-             jsr   EMIT
-             lda   #$20
-             jsr   EMIT
-             lda   #$f2
-             jsr   EMIT
-             lda   #$e2
-             jsr   EMIT
-             lda   #$18
-             jsr   EMIT
-             lda   #$60
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$b8
-             jsr   EMIT
-             lda   #$48
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$b9
-             jsr   EMIT
-             lda   #$48
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$18
-             jsr   EMIT
-             lda   #$6d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSDOFS
-             lda   #$69
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a0
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$48
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$91
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$38
-             jsr   EMIT
-             lda   #$e9
-             jsr   EMIT
-             lda   #$01
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$b8
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSDOFS
-             lda   #$e9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$b9
-             jsr   EMIT
-             lda   #$20
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$20
-             jsr   EMIT
-             lda   #$4a
-             jsr   EMIT
-             lda   #$ec
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$18
-             jsr   EMIT
-             lda   #$6d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSDOFS
-             lda   #$69
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$17
-             jsr   EMSCOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #$b8
-             jsr   EMIT
-             lda   #$c5
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$0b
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$b9
-             jsr   EMIT
-             lda   #$c5
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$05
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   #$01
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$17
-             jsr   EMSCOFS
-             lda   #$a0
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$68
-             jsr   EMIT
-             lda   #$91
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$68
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$b9
-             jsr   EMIT
-             lda   #$68
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$b8
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$17
-             jsr   EMSCOFS
-             lda   #$d0
-             jsr   EMIT
-             lda   #$02
-             jsr   EMIT
-             lda   #$38
-             jsr   EMIT
-             lda   #$60
-             jsr   EMIT
-             lda   #$18
-             jsr   EMIT
-             lda   #$60
-             jmp   EMIT
+EMHIVAL       lda   #HIVALBEND-HIVALB
+             sta   BLOBN
+             lda   #<HIVALB
+             ldy   #>HIVALB
+             jmp   EMBLOB
 
-*--------------------------------------
-* EMHPMSG -- print a message and come back
-*
-* The error exit prints one and stops; INPUT wants the printing without the
-* stopping.
-*
-*   23 bytes
-*--------------------------------------
+HIVALB
+             dfb   $ad,$ff,$ff,$d0,$08,$a9,$00,$a8
+             dfb   $20,$f2,$e2,$18,$60,$a5,$b8,$48
+             dfb   $a5,$b9,$48,$ad,$ff,$ff,$18,$6d
+             dfb   $ff,$ff,$85,$1a,$ad,$ff,$ff,$69
+             dfb   $00,$85,$1b,$a0,$00,$b1,$1a,$48
+             dfb   $a9,$00,$91,$1a,$ad,$ff,$ff,$38
+             dfb   $e9,$01,$85,$b8,$ad,$ff,$ff,$e9
+             dfb   $00,$85,$b9,$20,$b1,$00,$20,$4a
+             dfb   $ec,$ad,$ff,$ff,$18,$6d,$ff,$ff
+             dfb   $85,$1a,$ad,$ff,$ff,$69,$00,$85
+             dfb   $1b,$a9,$00,$8d,$ff,$ff,$a5,$b8
+             dfb   $c5,$1a,$d0,$0b,$a5,$b9,$c5,$1b
+             dfb   $d0,$05,$a9,$01,$8d,$ff,$ff,$a0
+             dfb   $00,$68,$91,$1a,$68,$85,$b9,$68
+             dfb   $85,$b8,$ad,$ff,$ff,$d0,$02,$38
+             dfb   $60,$18,$60
+HIVALBEND
+*--- its placeholders, one byte each: the offset, top bit set for SCRA.
+*    It FOLLOWS THE BLOB because EMBLOB finds it by adding the length.
+             dfb   $00,$01,$00,$02,$01,$02,$01,$00
+             dfb   $02,$97,$97,$97
+
 EMHPMSG      lda   #$85
              jsr   EMIT
              lda   #$1a
@@ -3324,184 +3124,36 @@ EMHCALL      lda   #$6c
 * The address of that byte is worked out twice rather than kept, because FIN
 * is free to use any of the zero page it likes and the descriptor it comes
 * from is not in the zero page.
+*
+* WRITTEN OUT AS A BLOB, not as code that emits it: it was 410 bytes of
+* compiler to emit these 91, and it is now 112. See EMBLOB.
 *--------------------------------------
-EMHVAL       lda   #$ad
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$d0
-             jsr   EMIT
-             lda   #$06
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$a8
-             jsr   EMIT
-             lda   #$4c
-             jsr   EMIT
-             lda   #$f2
-             jsr   EMIT
-             lda   #$e2
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$b8
-             jsr   EMIT
-             lda   #$48
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$b9
-             jsr   EMIT
-             lda   #$48
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$18
-             jsr   EMIT
-             lda   #$6d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSDOFS
-             lda   #$69
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a0
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$48
-             jsr   EMIT
-             lda   #$a9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$91
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$38
-             jsr   EMIT
-             lda   #$e9
-             jsr   EMIT
-             lda   #$01
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$b8
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSDOFS
-             lda   #$e9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$b9
-             jsr   EMIT
-             lda   #$20
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$20
-             jsr   EMIT
-             lda   #$4a
-             jsr   EMIT
-             lda   #$ec
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSDOFS
-             lda   #$18
-             jsr   EMIT
-             lda   #$6d
-             jsr   EMIT
-             lda   #$00
-             jsr   EMSDOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSDOFS
-             lda   #$69
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a0
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$68
-             jsr   EMIT
-             lda   #$91
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$68
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$b9
-             jsr   EMIT
-             lda   #$68
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$b8
-             jsr   EMIT
-             lda   #$60
-             jmp   EMIT
+EMHVAL       lda   #HVALBEND-HVALB
+             sta   BLOBN
+             lda   #<HVALB
+             ldy   #>HVALB
+             jmp   EMBLOB
 
-*--------------------------------------
-* EMHNEXTD -- the next DATA item, as a descriptor in SDA
-*
-* The items were split and trimmed by pass 1 and sit in the compiled program
-* as a length and then characters, one after another, ended by a length of
-* $FF. So READing a string allocates nothing at all: the descriptor points
-* straight at the item, which lives in the program's own text and never moves.
-*
-* READing a number is this and then HVAL, which is the same routine VAL uses
-* -- it zeroes the byte past the item for the duration, which here is the
-* NEXT item's length byte, and puts it back afterwards.
-*--------------------------------------
+HVALB
+             dfb   $ad,$ff,$ff,$d0,$06,$a9,$00,$a8
+             dfb   $4c,$f2,$e2,$a5,$b8,$48,$a5,$b9
+             dfb   $48,$ad,$ff,$ff,$18,$6d,$ff,$ff
+             dfb   $85,$1a,$ad,$ff,$ff,$69,$00,$85
+             dfb   $1b,$a0,$00,$b1,$1a,$48,$a9,$00
+             dfb   $91,$1a,$ad,$ff,$ff,$38,$e9,$01
+             dfb   $85,$b8,$ad,$ff,$ff,$e9,$00,$85
+             dfb   $b9,$20,$b1,$00,$20,$4a,$ec,$ad
+             dfb   $ff,$ff,$18,$6d,$ff,$ff,$85,$1a
+             dfb   $ad,$ff,$ff,$69,$00,$85,$1b,$a0
+             dfb   $00,$68,$91,$1a,$68,$85,$b9,$68
+             dfb   $85,$b8,$60
+HVALBEND
+*--- one byte a placeholder, in order: the offset, and the top bit set for
+*    SCRA rather than SDESCA. It must follow the blob immediately -- EMBLOB
+*    finds it by adding the length.
+             dfb   $00,$01,$00,$02,$01,$02,$01,$00
+             dfb   $02
+
 EMHNEXTD     lda   #$ad
              jsr   EMIT
              lda   #$12
@@ -5587,24 +5239,162 @@ SAADDR       jsr   SASUM            ; the ones before it, in bytes
              rts
 
 *--------------------------------------
-* EMSSUBS -- the subscript of an array of strings, leaving the element's
-*            address in A and Y
+* EMS2D -- A$(I,J), the index for it, left where one subscript would leave it
+*
+* The elements are laid out as the one-dimensional array of I*stride+J that
+* they are, and the stride was worked out by pass 1 and kept in SATAB. So this
+* is the numeric multi-subscript code with the general case taken out: one
+* multiply by a number known now, and one add.
+*
+* TWO SUBSCRIPTS AND NO MORE. A numeric array keeps its extents in DIMTAB and
+* takes as many as MAXDIM; a string array keeps one stride and takes two. A
+* third is refused rather than dropped.
+*
+* THE STRIDE IS READ FIRST, before NEXPR is allowed to run: NEXPR compiles a
+* whole expression, which may mention another array and leave TMPA pointing
+* at it.
 *--------------------------------------
-EMSSUBS      lda   TMPA
-             pha
-             jsr   NEXPR
-             bcs   :drop
+EMS2D        jsr   SASLOT           ; SATAB entry for TMPA
+             ldy   #$04
+             lda   (TMPP),y
+             sta   SSTR
+             iny
+             lda   (TMPP),y
+             sta   SSTR+1
+             ora   SSTR
+             bne   :two
+             jmp   :notwo           ; a stride of zero: DIMmed with one
+:two
+
+             lda   #$20             ; JSR AYINT -- the first subscript
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+
+*--- into the multiply's left, and the stride into its right
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$1e
+             jsr   EMSCOFS
+             lda   #$a5
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$1f
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   SSTR
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$20
+             jsr   EMSCOFS
+             lda   #$a9
+             jsr   EMIT
+             lda   SSTR+1
+             jsr   EMIT
+             lda   #$8d
+             jsr   EMIT
+             lda   #$21
+             jsr   EMSCOFS
+             lda   #$01
+             jsr   NEED3            ; this program wants the multiply
+             lda   #$20
+             jsr   EMIT
+             lda   HMUL
+             jsr   EMIT
+             lda   HMUL+1
+             jsr   EMIT
+
+             jsr   NEXPR            ; the second subscript
+             bcs   :bad
              jsr   NEXTB
-             bcs   :drop
+             bcs   :bad
              cmp   #')'
-             bne   :dropbad
+             bne   :badsub
              lda   #$20             ; JSR AYINT
              jsr   EMIT
              lda   #<AYINT
              jsr   EMIT
              lda   #>AYINT
              jsr   EMIT
-             pla
+
+*--- and the index is the product plus it
+             lda   #$18             ; CLC
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$22
+             jsr   EMSCOFS
+             lda   #$65             ; ADC FACLO
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #FACLO
+             jsr   EMIT
+             lda   #$ad
+             jsr   EMIT
+             lda   #$23
+             jsr   EMSCOFS
+             lda   #$65             ; ADC FACHI
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             lda   #$85
+             jsr   EMIT
+             lda   #FACHI
+             jsr   EMIT
+             clc
+             rts
+
+:notwo       lda   #$27             ; BAD SUBSCRIPT: two given, one DIMmed
+             jsr   SETBAD
+             sec
+             rts
+:badsub      lda   #$27
+             jsr   SETBAD
+:bad         sec
+             rts
+
+*--------------------------------------
+* EMSSUBS -- the subscript of an array of strings, leaving the element's
+*            address in A and Y
+*--------------------------------------
+EMSSUBS      lda   TMPA
+             pha
+             jsr   NEXPR
+             bcs   :dropj
+             jsr   NEXTB
+             bcs   :dropj
+             cmp   #')'
+             beq   :one
+             cmp   #$2c             ; A$(I,J) -- the other shape
+             bne   :dropbad
+             pla                    ; EMS2D wants to know which array before
+             sta   TMPA             ; NEXPR runs and moves TMPA on
+             pha
+             jsr   EMS2D
+             bcs   :dropj
+             jmp   :base
+:dropj       jmp   :drop            ; the real exits are past the base code
+:one         lda   #$20             ; JSR AYINT
+             jsr   EMIT
+             lda   #<AYINT
+             jsr   EMIT
+             lda   #>AYINT
+             jsr   EMIT
+:base        pla
              sta   TMPA
              jsr   SABSLOT          ; where this array's base is kept
              lda   TMPP
@@ -5882,6 +5672,15 @@ EMATV        jsr   NEXTB
 *--------------------------------------
 GHGR         lda   #<HGRROM
              ldy   #>HGRROM
+             jmp   EMCALLAY
+
+*--- HGR2 is the OTHER page and the whole screen, not four text rows short of
+*    it. Pass 1 already knew this token -- it has to, because a program using
+*    HGR2 owns $4000-$5FFF as well and cannot be loaded below $6000 -- so all
+*    that was missing was somewhere for pass 2 to send it. GRAPH stopped on
+*    line 2000 for want of these seven bytes.
+GHGR2        lda   #<HGR2ROM
+             ldy   #>HGR2ROM
              jmp   EMCALLAY
 
 *--- THE MASK GOES IN TWO PLACES, and finding out why took reading the ROM.
@@ -6312,6 +6111,8 @@ GSTMT2       lda   CH
              beq   :prnj
              cmp   #TSPEEDK
              beq   :speedj
+             cmp   #TGR2K
+             beq   :hgr2j
              lda   #$05             ; STATEMENT NOT YET
              jsr   SETBAD
              sec
@@ -6334,6 +6135,7 @@ GSTMT2       lda   CH
 :stopj       jmp   GSTOP
 :prnj        jmp   GPRN
 :speedj      jmp   GSPEED
+:hgr2j       jmp   GHGR2
 :vtab        jmp   GVTAB
 :htab        jmp   GHTAB
 :homek       jmp   GHOME
@@ -7562,7 +7364,22 @@ HDIMB        jsr   AYINT            ; N as a signed integer
              inc   ZPB+2
              bne   :zero
              inc   ZPB+3
-             jmp   :zero
+*--- CLC : BCC, NOT JMP, and this is not a style choice. This blob is COPIED
+*    into the compiled program, and the only absolute addresses relocated on
+*    the way are the $FFFF placeholders. A jmp :zero keeps the address :zero
+*    has HERE, inside the compiler at $6Axx, so the compiled program jumped
+*    into nothing. Three bytes either way, and a branch carries no address.
+*
+*    It is reached ONLY when the zeroing crosses a page -- the bne above takes
+*    every other pass -- so it survived every test whose array happened to sit
+*    inside one page, and crashed the two real programs whose did not. Two
+*    extra scalars in the source were enough to move an array across $1000 and
+*    turn a working compile into a monitor prompt.
+*
+*    The offset must not assemble to $FF, which the emitter reads as the start
+*    of a placeholder. It is about -$17.
+             clc
+             bcc   :zero            ; always
 
 *--- the base is still in the break; take a copy before moving it on
 :done        lda   $ffff            ; 8
@@ -8283,7 +8100,22 @@ HSDIMB       stx   $ffff            ; RUNI: which entry this array fills in
              inc   ZPB+2
              bne   :zero
              inc   ZPB+3
-             jmp   :zero
+*--- CLC : BCC, NOT JMP, and this is not a style choice. This blob is COPIED
+*    into the compiled program, and the only absolute addresses relocated on
+*    the way are the $FFFF placeholders. A jmp :zero keeps the address :zero
+*    has HERE, inside the compiler at $6Axx, so the compiled program jumped
+*    into nothing. Three bytes either way, and a branch carries no address.
+*
+*    It is reached ONLY when the zeroing crosses a page -- the bne above takes
+*    every other pass -- so it survived every test whose array happened to sit
+*    inside one page, and crashed the two real programs whose did not. Two
+*    extra scalars in the source were enough to move an array across $1000 and
+*    turn a working compile into a monitor prompt.
+*
+*    The offset must not assemble to $FF, which the emitter reads as the start
+*    of a placeholder. It is about -$17.
+             clc
+             bcc   :zero            ; always
 
 :done        lda   $ffff            ; ABRK
              pha
@@ -10902,6 +10734,69 @@ EMIT         pha
 :done        pla
              rts
 
+*--------------------------------------
+* EMBLOB -- copy a helper into the program, filling in its addresses
+*
+* THE POINT OF IT. A helper written as `lda #x : jsr EMIT` costs five bytes of
+* compiler for every byte that reaches the program. Written out once as data
+* and copied, it costs one. The emitters were the largest thing in the image
+* -- EMHGC alone was 1,144 bytes to emit about 277 -- and this is where the
+* room for anything new comes from. HDIMB has always been done this way; this
+* is the same idea with the copier shared.
+*
+*   in   A,Y    where the blob is
+*        BLOBN  how many bytes it is
+*
+* $FF in the blob marks a two-byte address, taken in order from a table that
+* FOLLOWS THE BLOB -- EMBLOB finds it by adding the length, so a caller passes
+* one address rather than two. One byte an entry: the top bit picks SCRA over
+* SDESCA, the rest is the offset.
+*
+* SO NO EMITTED BYTE MAY BE $FF, and no offset may reach $80. Both are checked
+* when a blob is generated rather than left to hold by luck.
+*
+* The reads are self-modified rather than indirect, which keeps this off the
+* zero page entirely -- there are two spare bytes there and they are spoken
+* for. The compiler runs from RAM, so there is nothing clever about it.
+*--------------------------------------
+EMBLOB                             ; ITS OWN LINE: a local on a global label's
+             sta   :rd+1            ; own line resolves in the previous scope
+             sty   :rd+2
+             clc                    ; the WHAT table sits just past the blob
+             adc   BLOBN
+             sta   :rw+1
+             tya
+             adc   #$00
+             sta   :rw+2
+             lda   #$00
+             sta   EMI
+             sta   HDPI
+:loop        ldy   EMI
+             cpy   BLOBN
+             bcs   :done
+:rd          lda   $ffff,y
+             cmp   #$ff
+             beq   :what
+             jsr   EMIT
+             inc   EMI
+             jmp   :loop
+
+:what        ldy   HDPI
+:rw          lda   $ffff,y
+             inc   HDPI
+             cmp   #$80
+             bcc   :sd
+             and   #$7f
+             jsr   EMSCOFS         ; SCRA + offset, and it emits both bytes
+             jmp   :step
+:sd          jsr   EMSDOFS         ; SDESCA + offset
+:step        lda   EMI
+             clc
+             adc   #$02            ; past the two bytes the marker stood for
+             sta   EMI
+             jmp   :loop
+:done        rts
+
 *--- LDA #lo / LDY #hi / JSR (ROMA)
 EMOPA        lda   #$a9
              jsr   EMIT
@@ -11607,6 +11502,8 @@ CMPB         ds    1
 CMPWANT      ds    1
 CMPSENS      ds    1
 EMI          ds    1
+SSTR         ds    2                ; a string array's row stride, while it is used
+BLOBN        ds    1                ; how long the blob EMBLOB is copying is
 FVAR         ds    1
 FORN         ds    1                ; which FOR is being compiled
 FSTKTOP      ds    1

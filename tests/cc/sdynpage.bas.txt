@@ -1,0 +1,6 @@
+10 N = 120
+20 DIM A$(N)
+30 FOR I = 0 TO N:A$(I) = "X": NEXT I
+40 A$(0) = "FIRST":A$(120) = "LAST"
+50 PRINT A$(0);" ";A$(60);" ";A$(120)
+60 PRINT "DONESDYNPAGE"

@@ -1255,26 +1255,118 @@ first falls through to when it does not recognise a keyword. It costs one jump
 for the keywords that reach it, leaves the first list alone, and is where
 anything added later should go.
 
-### And now the image is full
+### A blob that is copied may not name an address inside itself
 
-The compiler ends at `$8FF4` and its tables start at `$9000`: **12 bytes**.
-`SPEED=` cost 47 of them and was affordable only because making the
-unterminated-literal path legal freed the five bytes that used to raise
-complaint 10.
+The runtime helpers are assembled here as ordinary code and COPIED into the
+compiled program, with the `$FFFF` placeholders substituted on the way. That
+substitution is the only relocation there is. So every absolute address inside
+such a blob must be a placeholder, and the assembler will happily give you one
+that is not:
 
-So the next keyword does not fit, and the honest thing to say about the one
-after that is that it needs space found before it needs code written. The
-places to look, in the order they are worth looking:
+    inc   ZPB+3
+    jmp   :zero          ; <- assembles to :zero's address HERE, $6AF5
 
-- the emitters that spell out `LDA #x : JSR EMIT` seven times in a row where a
-  table and a four-instruction loop would do — `GSPEED` is written the second
-  way and is 7 bytes of table plus 30 of code against 44 straight-line;
-- the message table, which holds text for a complaint nothing raises;
-- the tables at `$9000`, if any of them is sized for a worst case that the
-  255-constant limit already rules out.
+The compiled program jumped to `$6AF5`, which is inside the compiler, and the
+machine stopped in the monitor at `$6AF8`. The fix is three bytes either way:
 
-None of that is urgent while nothing is waiting to go in. All of it is urgent
-the moment something is, which is the wrong time to start looking.
+    clc
+    bcc   :zero          ; always -- a branch carries no address
+
+**It hid for a long time because of which path reaches it.** The zeroing loop
+is `inc ZPB+2 / bne :zero`, and the `jmp` is only reached when that increment
+wraps -- once per 256 bytes. An array that happened to sit inside one page
+never touched it. `dynh` and `dyn4` differ by two scalar variables: the extra
+eight bytes of layout moved the array from `$0F7C` to `$0FFC`, across `$1000`,
+and turned a working compile into a monitor prompt. Nothing about the source
+said arrays; the trigger was the SIZE of everything in front of them.
+
+Both `HDIMB` and `HSDIMB` had it. `tests/cc/dynpage.bas.txt` and
+`sdynpage.bas.txt` now dimension 201 and 121 elements, which cannot fit in a
+page whatever the layout does, so the path is taken every run. Both were
+checked by putting the `jmp` back and watching them fail.
+
+**And the knowledge was already here.** `EMHRUN` relocates two `JMP`s at the
+front of `HRUNB` -- its comment says they "point INSIDE the blob and so have
+to be moved along with it", and names their positions. So the hazard was
+understood, written down, and handled correctly in one of the three blobs
+while the other two shipped with it. Knowing a rule in one routine is not
+knowing it in the next one; that is what the grep below is for.
+
+The general rule, and it is worth grepping for after any edit to a helper:
+inside a copied blob, `jmp`/`jsr` to a local label is a bug unless the target
+is one of the substituted operands. Branches are always safe. And an emitted
+byte must never be `$FF` by accident, because the substitution reads `$FF` as
+the start of a placeholder -- which is a second, quieter version of the same
+trap.
+
+### The image filled up, and where the room came from
+
+It reached **12 bytes** — the code ending at `$8FF4` against tables starting at
+`$9000` — with three features waiting and none of them fitting. What the
+measuring found is worth writing down, because the answer was not where the
+guess would have put it.
+
+The assembler writes a listing (`ASIDECC.SYSTEM_Output.txt`, which the
+Makefile deletes). Reading it: `gen.s` 21,987 bytes, `pass1.s` 4,075, `cc.S`
+2,598 — and the largest single things in the image were not the compiler's
+logic but its **emitters**. `EMHGC` alone was 1,144 bytes to emit about 277.
+A helper written as `lda #x : jsr EMIT` costs **five bytes of compiler for
+every byte that reaches the program**.
+
+`HDIMB` had always been done the other way — written out as data and copied,
+with `$FFFF` placeholders filled in on the way. That costs one byte per
+emitted byte: blob, table and copier together are 97 bytes to emit a 76-byte
+helper, **26% of straight-line**. `EMBLOB` is that copier, shared.
+
+Converting `EMHVAL` (410 → 112) and `EMHIVAL` (555 → 147) freed **618 bytes**
+for 88 spent once on `EMBLOB`. The conversions were proved rather than
+tested: twelve programs compiled with the old compiler and the new one came
+out **byte-identical**, which says the change cannot have altered anything
+reaching a compiled program.
+
+**The other three were refused by the converter, and rightly.** They are not
+pure emitters: `EMHJOIN` emits `LDA #<MLONG / LDY #>MLONG`, whose halves sit
+four instructions apart; `EMHNEXTI` does arithmetic on an address; `EMHGC`
+captures `PC` mid-stream to backpatch forward branches. Reaching them needs a
+placeholder scheme richer than "a two-byte address", or splitting each routine
+into blob runs around its logic. Worth roughly another 900 bytes when
+something needs them.
+
+Two other levers, measured and not used: the tables can move up about **709
+bytes** before they reach ProDOS, and putting them in auxiliary memory would
+free all **11,323** at the cost of requiring a 128K machine.
+
+### Two things the room was spent on
+
+`HGR2` cost fourteen bytes, because pass 1 already knew the token — it has to,
+since a program using `HGR2` owns `$4000-$5FFF` as well and cannot load below
+`$6000`. Only the generator entry was missing, which is why GRAPH stopped with
+STATEMENT NOT YET rather than at a wrong address. `$F3D8` was confirmed on the
+machine: `HGR2` and `CALL -3112` both leave 64 in `$E6`, and `HGR` leaves 32.
+
+**Two-dimensional arrays of strings.** Numeric ones have worked for a long
+time — `DIM A(3,4)` keeps its extents in `DIMTAB` and takes as many as
+`MAXDIM`. Strings took one subscript and answered ONE DIMENSION ONLY, which
+is an odd thing for a compiler to say about `DIM W$(8,10)`.
+
+They are stored as the one-dimensional array of `i*stride+j` that they are,
+with the stride kept in `SATAB` — widened from four bytes an entry to six.
+`EMS2D` emits one multiply by a number known at compile time and one add,
+reusing the same `HMUL` helper and the same `SCRA+$1E..$23` the numeric path
+uses. **Two subscripts and no more**: a numeric array can afford a table of
+extents, a string array keeps one stride, and a third subscript is refused by
+name.
+
+Deliberately NOT shared with the numeric multi-subscript code. That path works
+and `dim2`/`dim3` prove it; factoring it to serve both would have put the
+working case at risk to save bytes that were not needed.
+
+Three things there were checked rather than assumed: all three element paths —
+assignment, `INPUT`, and read — go through `EMSSUBS`, so there is one place to
+change; the stride is read BEFORE `NEXPR` runs, because compiling an
+expression can leave `TMPA` pointing at a different array; and the stride is
+written on every `SATAB` entry including one-dimensional ones, because the
+table is not cleared at start-up and a stale slot would be multiplied by.
 
 ## Low-resolution graphics
 

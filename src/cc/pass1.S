@@ -905,6 +905,7 @@ SCANBODY     lda   #$00
 :dimagain    jmp   :dim
 :dimbadj     jmp   :dimbad
 :dimeofj     jmp   :dimeof
+:dimeofj2s   jmp   :dimeof          ; for the second subscript, further down
 :dimdone     clc
              rts
 :dimeof      sec
@@ -914,7 +915,7 @@ SCANBODY     lda   #$00
              bcs   :dimeof
              sta   CH
              cmp   #'('
-             bne   :dimbad
+             bne   :dimbadj         ; the real one is past the block below now
              jsr   RDSIZE
              bcs   :dimeof
              lda   NCH              ; NO DIGITS AT ALL means the extent was
@@ -922,19 +923,63 @@ SCANBODY     lda   #$00
              jsr   SDYNDIM          ; DIM A$(N): sized when it runs
              bcs   :dimeof
              lda   BADFLG
-             bne   :dimdonj
+             bne   :dimdonj3
              jmp   :dstail
-:dsnum       lda   CH
-             cmp   #')'
-             bne   :dimbad
+:dimdonj3    jmp   :dimdone         ; the string block sits between us and it
+*--- ONE SUBSCRIPT OR TWO. DIM W$(8,10) is nine by eleven, and it is stored
+*    as the ninety-nine elements a one-dimensional array of that size would
+*    have, with the row stride kept so the generator can work out i*stride+j.
+*
+*    TWO AND NO MORE. Numeric arrays take as many as MAXDIM because their
+*    extents live in DIMTAB; a string array keeps its one stride in SATAB,
+*    which has room for that and not for a general case. Two is what the
+*    programs that want this actually write, and a third subscript is refused
+*    by name rather than quietly dropped.
+:dsnum       lda   #$00             ; a stride of zero means one-dimensional
+             sta   SAEXT2
+             sta   SAEXT2+1
              inc   WORD             ; DIM A$(20) holds twenty-one
-             bne   :dsset
+             bne   :ds1
              inc   WORD+1
-:dsset       lda   WORD
+:ds1         lda   WORD
              sta   ASIZE
              lda   WORD+1
              sta   ASIZE+1
-             lda   #$01
+             lda   CH
+             cmp   #')'
+             beq   :dsset
+             cmp   #$2c
+             bne   :dimbad
+
+*--- the second one, whose extent becomes the stride
+             jsr   RDSIZE
+             bcs   :dimeofj2s
+             lda   NCH
+             beq   :dimbad          ; DIM A$(3,N) -- not known until it runs
+             lda   CH
+             cmp   #')'
+             bne   :dimbad
+             inc   WORD             ; and it holds one more than it says too
+             bne   :ds2
+             inc   WORD+1
+:ds2         lda   WORD
+             sta   SAEXT2
+             lda   WORD+1
+             sta   SAEXT2+1
+             lda   ASIZE            ; elements = first extent * stride
+             sta   MA
+             lda   ASIZE+1
+             sta   MA+1
+             lda   WORD
+             sta   MB
+             lda   WORD+1
+             sta   MB+1
+             jsr   MUL16
+             lda   MR
+             sta   ASIZE
+             lda   MR+1
+             sta   ASIZE+1
+:dsset       lda   #$01
              sta   ADIM
              jsr   SARRADD
 :dstail      jsr   RDBYTE           ; DIM A$(5),B$(6) -- another may follow
@@ -1431,6 +1476,17 @@ ARRADD       lda   #$00
              iny
              lda   ASIZE+1
              sta   (TMPP),y
+
+*--- AND THE ROW STRIDE, which is zero for a one-dimensional array. Written
+*    every time rather than only for the two-dimensional case: the table is
+*    not cleared at start-up, so a slot never written holds whatever the last
+*    compile left there, and the generator would multiply by it.
+             iny
+             lda   SAEXT2
+             sta   (TMPP),y
+             iny
+             lda   SAEXT2+1
+             sta   (TMPP),y
 :done        rts
 
 *--------------------------------------
@@ -1524,7 +1580,7 @@ SASLOT       lda   #<SATAB
              sta   SLOTB
              lda   #>SATAB
              sta   SLOTB+1
-             lda   #$04
+             lda   #$06             ; name, count, and the row stride
              jmp   SLOTN
 
 *--- TMPP <- ARRTAB + 4 * TMPA
@@ -2357,6 +2413,7 @@ NIVARS       ds    1                ; how many integer variables
 NSDYN        ds    1                ; string arrays sized at run time
 IVBASE       ds    2                ; and where they live
 NDIMS        ds    1                ; how many a DIM being read has
+SAEXT2       ds    2                ; a string array's row stride, 0 if it has none
 DIMS         ds    MAXDIM*2         ; and the extent of each
 DTOT         ds    2                ; their product
 MA           ds    2                ; MUL16's two sides and its answer
@@ -2388,8 +2445,21 @@ PKDLINE      ds    2
 
 *--- The tables, well clear of the compiler, its buffers and ProDOS.
 *--- MOVED UP FROM $8000 to give the code another four kilobytes. A SYS
-*    program owns memory to $BEFF, and the tables need 5,776 bytes: $9000 to
-*    $A690, clear of the buffers below and ProDOS above.
+*    program owns memory to $BEFF.
+*
+*    THE SIZE HERE WAS WRONG FOR A LONG TIME, and said 5,776 bytes running
+*    $9000 to $A690. They are 11,323 bytes and run to $BC3B -- DBUF alone is
+*    6,912 of that, and CTAB and LTAB grew afterwards. Anyone reading the old
+*    figure would have concluded there was six kilobytes of slack up here to
+*    spend on code. There are 709 bytes.
+*
+*    Which is the same mistake that once put STRBUF 160 bytes inside ProDOS:
+*    a comment of ours giving a size, believed later instead of recomputed.
+*    tools/dumcheck.py is what actually holds the line; this note is only a
+*    note, so recompute before trusting it.
+*
+*      VTAB 256  ARRTAB 128  SVTAB 128  DBUF 6912  CTAB 1275  LTAB 2048
+*      DFTAB 112  SATAB 64  IVTAB 128  DIMTAB 224  ADYNF 32  SADYNF 16
              dum   $9000
 VTAB         ds    VMAX*2
 ARRTAB       ds    AMAX*4           ; two of name, two of element count
@@ -2402,7 +2472,7 @@ DBUF         ds    DBUFMAX          ; every DATA item in the program. SIZED
 CTAB         ds    CMAX*5
 LTAB         ds    LTMAX*4
 DFTAB        ds    DFMAX*7
-SATAB        ds    SAMAX*4
+SATAB        ds    SAMAX*6
 IVTAB        ds    IVMAX*2
 DIMTAB       ds    AMAX*7
 ADYNF        ds    AMAX             ; which arrays are sized at runtime

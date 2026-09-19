@@ -1,0 +1,15 @@
+10 DIM W$(3,4)
+15 DIM P$(5)
+20 FOR I = 0 TO 3
+30 FOR J = 0 TO 4
+40 W$(I,J) = CHR$ (65 + I) + CHR$ (48 + J)
+50 NEXT
+60 NEXT
+65 FOR I = 0 TO 5:P$(I) = STR$ (I * 11): NEXT
+70 PRINT W$(0,0);" ";W$(3,4);" ";W$(2,3);" ";W$(0,4)
+80 A$ = W$(1,1)
+90 PRINT A$;" ";LEN (W$(3,4))
+95 PRINT P$(0);" ";P$(5);" ";P$(3)
+96 I = 2:J = 3
+97 PRINT W$(I,J);" ";W$(I + 1,J - 3)
+100 PRINT "DONESDIM2"
