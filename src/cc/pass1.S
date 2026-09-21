@@ -224,8 +224,23 @@ SKIPEXPR     lda   #$00
              inc   SKDEP
              jmp   :next
 :notopen     cmp   #')'
+             beq   :close
+
+*--- A COMMA AT THE TOP LEVEL ENDS IT TOO, and this is what SIMEQN needed.
+*    This used to run past one, so DIM A(N,N) skipped both extents, found the
+*    closing bracket where it wanted it, and was filed as a ONE-dimensional
+*    array sized at run time. Nothing said so. The two-subscript uses of A
+*    later on then asked DIMTAB for an extent that was never written, and the
+*    compiler went off into the weeds and never printed a verdict at all.
+*
+*    Both callers check for ')' straight after this and complain otherwise, so
+*    stopping here turns a silent wrong answer into ONE DIMENSION ONLY.
+             cmp   #$2c
              bne   :next
              lda   SKDEP
+             bne   :next
+             beq   :done            ; always: SKDEP is zero
+:close       lda   SKDEP
              beq   :done            ; the one that closes the subscript
              dec   SKDEP
              jmp   :next

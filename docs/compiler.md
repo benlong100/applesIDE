@@ -1381,6 +1381,43 @@ Deliberately NOT shared with the numeric multi-subscript code. That path works
 and `dim2`/`dim3` prove it; factoring it to serve both would have put the
 working case at risk to save bytes that were not needed.
 
+## A skip that did not stop at the comma
+
+SIMEQN "compiled" and wrote no file. `SKIPEXPR` walks past a subscript whose
+size is not a literal, counting brackets, and it stopped only at the closing
+one. So `DIM A(N,N)` skipped BOTH extents, found the bracket where it wanted
+it, and the array was filed as **one**-dimensional and sized at run time.
+Nothing said otherwise.
+
+The two-subscript uses of `A` later on then asked `DIMTAB` for an extent no
+`DIM` had written, and the compiler went off into the weeds and never printed
+a verdict at all — which from the outside looks exactly like a successful
+compile that forgot to save.
+
+It stops at a top-level comma now. Both callers already test for `)` straight
+afterwards and complain otherwise, so the whole fix is three instructions and
+it turns a silent wrong answer into ONE DIMENSION ONLY on the line that
+deserves it.
+
+**A refusal, not a compile.** SIMEQN wants runtime-sized multi-dimensional
+arrays: `DIM A(N,N)` where both extents are variables. That needs each array's
+extents kept at run time and the index multiply reading them instead of the
+compile-time immediates `EMDIMX` supplies — 200 to 400 bytes, against the 154
+that are left.
+
+## SPC
+
+`SPC(n)` counts n spaces out; `TAB(n)` moves to a column. Asked on the
+machine, because the two look alike and are not: `SPC(3)` after `"AB"` leaves
+the cursor at 5, `SPC(0)` prints nothing, and `SPC(5)` at the start of a line
+gives five. There is no comparison with the cursor and no "already past"
+case — there is no past.
+
+Its loop is fourteen bytes and its two branch offsets are **counted from a
+layout written into the comment**, the way `TAB(`'s are, because the last
+routine laid out by eye had all three of its branches wrong and printed
+nothing at all.
+
 ## A flag that meant two different things
 
 The worst bug of the lot, because nothing about it is visible at the place it

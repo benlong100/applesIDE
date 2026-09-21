@@ -127,6 +127,7 @@ CV           equ   $25              ; the cursor's row, and the monitor's
 VTABZ        equ   $fc22            ; way of acting on it
 CHPOS        equ   $24
 TTABK        equ   $c0              ; TAB( -- the token carries the bracket
+TSPCK        equ   $c3              ; SPC( likewise
 TPOPK        equ   $a1
 TPOW         equ   $cc              ; ^
 TLOMEM       equ   $a4
@@ -7093,6 +7094,69 @@ GON          jsr   NEXPR
              rts
 
 *--------------------------------------
+* EMSPCGO -- SPC(n): n spaces, and no argument about it
+*
+* NOT TAB(. Established on the machine: SPC(3) after "AB" leaves the cursor at
+* 5, SPC(0) prints nothing, and SPC(5) at the start of a line gives five
+* spaces. It counts spaces out where TAB( moves to a column, so there is no
+* comparison with the cursor and nothing to do when the cursor is already
+* past -- there is no "past".
+*
+* THE OFFSETS ARE COUNTED FROM THIS LAYOUT, not estimated. The last routine
+* that laid a loop out by eye had all three of its branches wrong.
+*
+*    0  BEQ done      2  loop: PHA
+*                     3  LDA #" "
+*                     5  JSR COUT
+*                     8  PLA
+*                     9  SEC
+*                    10  SBC #1
+*                    12  BNE loop
+*                    14  done
+*--------------------------------------
+EMSPCGO      jsr   NEXTB            ; the SPC( token, bracket included
+             jsr   EMCOORD          ; the count, a byte in A -- and the LDA it
+             bcs   :bad             ; ends with sets Z for the BEQ below
+             jsr   PEEK
+             bcs   :bad
+             cmp   #')'
+             bne   :bad
+             jsr   NEXTB
+
+             lda   #$f0             ; BEQ done -- none wanted
+             jsr   EMIT
+             lda   #$0c             ; 14 - 2
+             jsr   EMIT
+             lda   #$48             ; loop: PHA
+             jsr   EMIT
+             lda   #$a9             ; LDA #" "
+             jsr   EMIT
+             lda   #$a0
+             jsr   EMIT
+             lda   #$20             ; JSR COUT
+             jsr   EMIT
+             lda   #<COUTA
+             jsr   EMIT
+             lda   #>COUTA
+             jsr   EMIT
+             lda   #$68             ; PLA
+             jsr   EMIT
+             lda   #$38             ; SEC
+             jsr   EMIT
+             lda   #$e9             ; SBC #1
+             jsr   EMIT
+             lda   #$01
+             jsr   EMIT
+             lda   #$d0             ; BNE loop
+             jsr   EMIT
+             lda   #$f4             ; 2 - 14
+             jsr   EMIT
+             clc
+             rts
+:bad         sec
+             rts
+
+*--------------------------------------
 * EMTABGO -- TAB( n ), SPACES FORWARD TO COLUMN n, and does nothing at all if the
 *    cursor is already at or past it.
 *
@@ -8418,6 +8482,8 @@ GPRINT       lda   #$00
              beq   :semi
              cmp   #TTABK
              beq   :tabk
+             cmp   #TSPCK
+             beq   :spck
 
              lda   #$00
              sta   NONL
@@ -8448,6 +8514,12 @@ GPRINT       lda   #$00
              bcs   :bad             ; routine's own :bad out of branch reach
              lda   #$00             ; an item like any other: a newline still
              sta   NONL             ; follows unless something suppresses it
+             jmp   :item
+
+:spck        jsr   EMSPCGO
+             bcs   :bad
+             lda   #$00
+             sta   NONL
              jmp   :item
 
 *--- A comma tabs, and like a semicolon it also suppresses the newline when it
