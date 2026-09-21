@@ -8299,7 +8299,21 @@ HDADDR       ldy   HDPI
 * HDADDRA -- the same, for a code already in A
 *--------------------------------------
 HDADDRA                           ; its own line: a local on a global label's
-             bne   :not0            ; own line resolves in the previous scope
+                                    ; own line resolves in the previous scope
+*--- CMP #$00 FIRST, and it is not redundant. HDADDR reaches here by falling
+*    through a LDA, which sets Z from the code itself. HSDADDR reaches here by
+*    JMP, after a CMP #$07 that leaves Z saying whether the code was seven --
+*    so code 0 took the branch, fell past every test below it, and came out as
+*    code 6: the allocator's floor instead of the array break.
+*
+*    A string array DIMmed at run time therefore took the floor's high byte as
+*    the low half of its base. The floor starts at the end of the program, so
+*    the two bytes it came back with were the program's own high byte twice --
+*    $35C7 became $3535 -- and the DIM zeroed 146 bytes of the program before
+*    filling in its descriptors. STATS crashed the first time it called a
+*    helper that had been sitting there.
+             cmp   #$00
+             bne   :not0
              lda   ABRKA            ; 0  the array break
              sta   TMPP
              lda   ABRKA+1

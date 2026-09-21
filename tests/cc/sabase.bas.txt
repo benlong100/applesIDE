@@ -1,0 +1,10 @@
+10 N = 60
+20 DIM A$(N),V(N)
+30 FOR I = 0 TO N:V(I) = I: NEXT
+40 A$(0) = "FIRST":A$(30) = "MID":A$(60) = "LAST"
+50 B$ = "X" + "Y"
+60 IF A$(0) = "FIRST" THEN PRINT "CMPOK"
+70 PRINT A$(0);" ";A$(30);" ";A$(60);" ";B$
+80 PRINT V(0);" ";V(60)
+90 PRINT LEN (A$(60));" ";LEN (B$)
+100 PRINT "DONESABASE"

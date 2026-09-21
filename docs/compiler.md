@@ -1381,6 +1381,54 @@ Deliberately NOT shared with the numeric multi-subscript code. That path works
 and `dim2`/`dim3` prove it; factoring it to serve both would have put the
 working case at risk to save bytes that were not needed.
 
+## A flag that meant two different things
+
+The worst bug of the lot, because nothing about it is visible at the place it
+goes wrong. Two routines resolve a blob's placeholders, and one falls into the
+other:
+
+    HSDADDR   lda  HSDIMWHAT,y
+              cmp  #$07          ; sets Z from (code == 7)
+              bcs  :mine
+              jmp  HDADDRA
+
+    HDADDRA   bne  :not0         ; expects Z from a LDA of the code
+
+`HDADDR` gets here by **falling through a `LDA`**, so `Z` says *is the code
+zero*. `HSDADDR` gets here by **`JMP`, after a `CMP #$07`**, so `Z` says *is
+the code seven*. Code 0 took the branch, fell past every test below it, and
+came out as code 6 — the allocator's floor instead of the array break.
+
+So a string array dimensioned at run time took the FLOOR'S HIGH BYTE as the
+low half of its base. The floor starts at the end of the program, so the two
+bytes that came back were the program's own high byte twice: `$35C7` became
+`$3535`. The DIM zeroed 146 bytes of the program and then filled in its
+descriptors, and STATS crashed the first time it called a helper that had been
+sitting there — at a `GET`, hundreds of lines and one whole screen of output
+after the DIM that actually did the damage.
+
+**It was diagnosed from the run-time layout, not from the source.** The base
+slot held `$3535` and the break had finished at `$36C7`, its high byte moved
+and its low byte untouched. Both of those are exactly what "code 0 resolves to
+the floor's high byte" predicts, and neither is what any other theory
+predicts. Reading those two words turned a guess into a diagnosis; five
+reductions before that had reproduced nothing.
+
+The fix is `cmp #$00` at `HDADDRA`'s entry — two bytes, and the comment beside
+it says why it is not redundant.
+
+**What the tests missed and why.** `sdynpage` dimensions a dynamic string
+array and passed throughout. It only ever assigns literals, so it never forces
+the allocator, and a base pointing into the program's tail did no visible harm.
+`sabase` is the test that catches it: a dynamic string array AND a dynamic
+numeric one, a real allocation, and then calls into the compare and join
+helpers — which live in the tail that gets zeroed. Confirmed by putting the
+bug back and watching it crash.
+
+The general lesson, and it is not about this routine: **an entry point reached
+two ways must not depend on flags the caller happened to leave.** One caller
+fell in, the other jumped, and the two disagreed about what `Z` meant.
+
 ## One FOR, several NEXTs
 
 Applesoft matches `FOR` and `NEXT` on a stack it keeps **while the program

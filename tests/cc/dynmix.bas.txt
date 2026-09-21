@@ -1,0 +1,11 @@
+10 MX = 100
+20 DIM D$(MX),V(MX),Z(MX)
+30 Z(0) = 0
+40 FOR I = 0 TO MX:V(I) = I:Z(I) = MX - I: NEXT
+50 D$(0) = "FIRST":D$(50) = "MID":D$(100) = "LAST"
+60 PRINT V(0);" ";V(100);" ";Z(0);" ";Z(100)
+70 PRINT D$(0);" ";D$(50);" ";D$(100)
+80 T = 0
+90 FOR I = 0 TO MX:T = T + V(I): NEXT
+100 PRINT T
+110 PRINT "DONEDYNMIX"
