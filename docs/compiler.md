@@ -1381,6 +1381,66 @@ Deliberately NOT shared with the numeric multi-subscript code. That path works
 and `dim2`/`dim3` prove it; factoring it to serve both would have put the
 working case at risk to save bytes that were not needed.
 
+## Straight from the editor: OA-B
+
+The editor hands the document to the compiler and gets you back, which is the
+"integrated" part of the name and the one axis on which TASC -- a batch
+compiler you leave the editor to run -- is not in the comparison at all.
+
+`OA-B` saves the document, leaves the note Ctrl-R has always left, writes the
+filename at **$0380**, and launches the compiler. The compiler finds the name
+there instead of asking, clears the mark so a later compile by hand asks for
+its own, and on the way out goes back where it came from -- but **only if the
+program was refused**. After a compile that worked, what is wanted is the `]`
+prompt to `BRUN` from, which is where it has always gone.
+
+`$0380` survives because it is below the load, above the relaunch stub both
+programs copy to `$0300`, and clear of ProDOS's vectors at `$03D0`. Neither
+program keeps data there. **Nothing is handed back** on the return trip: the
+editor's note is already on the disk, and `RSLOAD` reads and deletes it on the
+way up, so the document reopens by the mechanism that already existed.
+
+The compiler side costs 95 bytes; the rest is in the editor, which has room.
+
+### Both our SYS files were missing their JMP
+
+The whole thing failed at first, and the cause was neither end of the new
+code. The relaunch stub checks `$2000` for the `JMP` "every SYS file starts
+with" as its guard against a short read -- a guard written while BASIC.SYSTEM
+was the only thing it ever launched. BASIC.SYSTEM does start with `JMP`.
+**ASIDE.SYSTEM and ASIDECC.SYSTEM both began with `LDA`**, and were refused by
+it. They open with `jmp START` now, which is the convention anyway; the guard
+would have rejected the return trip too, since the compiler's stub makes the
+same test.
+
+And `HOME` clears the current **text window**, not the screen. The editor
+leaves a window of its own, so the compiler wrote into a box inside the
+editor's leftovers and looked like it had not run at all. `SETTXT` first.
+BASIC.SYSTEM did that for itself, which is why it had never shown.
+
+### How not to find this
+
+Three of the false trails were self-inflicted, and all three would have been
+caught by one control -- *does Ctrl-R still work with this instrumentation in
+place?*
+
+- A **stale disk image**: the emulator still had it mounted and flushed its own
+  copy back over the new one. `tests/run.sh` has a guard for exactly this and
+  refuses to report results about the wrong binary; `cccompile.sh` ejects
+  first. Do the same by hand.
+- Markers written through **`$C005`, which is write-AUX**, not `$C004`. Every
+  one of them landed in auxiliary memory, invisible -- which made "the stub is
+  never entered" look true when it was not.
+- A marker poked into **`$0800`, which is the editor's ProDOS buffer**,
+  corrupting the very read being observed.
+
+Those produced two confident and wrong bisections. What settled it in one look
+was `tools/vii.sh dump`, which reads the emulated machine's memory **from the
+host**: the handoff held `CC 09 "HELLO.BAS"`, the READ block showed a transfer
+count of `$6FAF` -- the whole file -- and `$2000` held `A9 00 8D ...`, the
+compiler's own first instruction. Read the machine; do not ask it to tell you
+about itself.
+
 ## A skip that did not stop at the comma
 
 SIMEQN "compiled" and wrote no file. `SKIPEXPR` walks past a subscript whose

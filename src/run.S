@@ -16,7 +16,89 @@
 * on the disk where it was saved. Returning automatically would mean staying
 * resident under BASIC, which is a much larger thing than this.
 *--------------------------------------
-KRUN         lda   FNAME            ; never named? ask, exactly as OA-A does
+KRUN         jsr   RUNPREP          ; name it, check it, save it
+             bcs   :done
+
+*--- Take the name away with us. RUNGO writes "BASIC.SYSTEM" over FNAME to
+*    open the interpreter, so the document's own name has to be somewhere
+*    else by then.
+             ldx   FNAME
+:keep        lda   FNAME,x
+             sta   RUNNAME,x
+             dex
+             bpl   :keep
+             jsr   RSMARK           ; a note to come back by
+             jmp   RUNGO
+:done        rts
+
+*--------------------------------------
+* KCOMPILE -- OA-B: save, leave, and compile
+*
+* The same shape as Ctrl-R and for the same reason: the compiler reads the
+* document off the disk, so it has to be on the disk first, and named. What
+* differs is where we go and what we say on the way -- the compiler is handed
+* the name at $0380 rather than being asked for it, and nothing is named to
+* BASIC.SYSTEM because we are not going there.
+*
+* THE NOTE IS LEFT AS USUAL. If the program is refused the compiler comes back
+* here, and RSLOAD finds the note and reopens the document at the top -- so
+* the line the complaint named is a GOTO away rather than an OPEN away.
+*--------------------------------------
+KCOMPILE     jsr   RUNPREP
+             bcs   :cdone
+
+             lda   #HANDMAGIC
+             sta   HANDOFF
+             ldx   FNAME
+             stx   HANDOFF+1
+:hc          lda   FNAME,x
+             sta   HANDOFF+1,x
+             dex
+             bne   :hc
+
+*--- THE NOTE IS WRITTEN FROM RUNNAME, so the document's name has to be in it
+*    when RSMARK runs. Zeroing it first -- which is what the launcher wants --
+*    wrote a note naming nothing, and coming back would have opened nothing.
+             ldx   FNAME
+:keep        lda   FNAME,x
+             sta   RUNNAME,x
+             dex
+             bpl   :keep
+             jsr   RSMARK
+
+             lda   #$00             ; and NOW nothing for the launcher to name:
+             sta   RUNNAME          ; the compiler is not BASIC.SYSTEM
+             jmp   CCGO
+:cdone       rts
+
+*--------------------------------------
+* CCGO -- load the compiler over us and enter it
+*
+* RUNGO's own body, given a different name to open. The stub it copies to
+* $0300 reads RUNNAME and writes it into $2006 only when it has a length, and
+* KCOMPILE leaves that at zero -- $2006 is BASIC.SYSTEM's start-up field and
+* means nothing to the compiler, which would be a poor place to write.
+*--------------------------------------
+CCGO         ldx   #CCNEND-CCNAME-1
+:name        lda   CCNAME,x
+             sta   FNAME,x
+             dex
+             bpl   :name
+             jmp   RUNGO2
+
+CCNAME       dfb   14
+             asc   'ASIDECC.SYSTEM' ; single quotes: ProDOS wants LOW ascii
+CCNEND
+
+*--------------------------------------
+* RUNPREP -- name the document, check the name is usable, and save it
+*
+* Carry set means do not go: cancelled at the prompt, unusable name, or a save
+* that did not happen. Factored out of KRUN when OA-B wanted the same three
+* steps -- a launch that proceeds on an unsaved document runs whatever was on
+* the disk before, which is the one outcome worth ruling out twice.
+*--------------------------------------
+RUNPREP      lda   FNAME            ; never named? ask, exactly as OA-A does
              bne   :named
              lda   #<MSGSAVE
              sta   STRPTR
@@ -40,21 +122,13 @@ KRUN         lda   FNAME            ; never named? ask, exactly as OA-A does
              dex
              bne   :slash
 
-             jsr   RUNSAVE
-             bcs   :done
+             jmp   RUNSAVE          ; its carry is ours
 
-*--- Take the name away with us. RUNGO writes "BASIC.SYSTEM" over FNAME to
-*    open the interpreter, so the document's own name has to be somewhere
-*    else by then.
-             ldx   FNAME
-:keep        lda   FNAME,x
-             sta   RUNNAME,x
-             dex
-             bpl   :keep
-             jsr   RSMARK           ; a note to come back by
-             jmp   RUNGO
-
-*--- saved, but not runnable from here
+*--- saved, but not runnable from here. CARRY SET ON THE WAY OUT: this is a
+*    "do not go" answer, and it used to end in a JMP whose carry was whatever
+*    the message printer happened to leave. That was harmless while KRUN was
+*    the only caller and fell straight to an RTS; it is not harmless now that
+*    the answer is read.
 :toolong     lda   #$00             ; saved, but nothing is to be run
              sta   RUNNAME
              jsr   RUNSAVE
@@ -63,8 +137,9 @@ KRUN         lda   FNAME            ; never named? ask, exactly as OA-A does
              sta   STRPTR
              lda   #>MSGRUNNAME
              sta   STRPTR+1
-             jmp   SHOWMSG
-:done        rts
+             jsr   SHOWMSG
+:done        sec
+             rts
 
 *--------------------------------------
 * RUNSAVE -- write the document out. Carry set if it did not go.

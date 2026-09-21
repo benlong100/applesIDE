@@ -20,6 +20,14 @@
              typ   $ff              ; SYS
              dsk   ASIDECC.SYSTEM
 
+*--- A JMP AT $2000, which is the SYS convention and was not being kept.
+*    ProDOS enters a SYS file at $2000 either way, so nothing noticed -- until
+*    a launcher checked for it. The editor's relaunch stub tests $2000 for a
+*    JMP before entering, as a guard against a short read, and that guard was
+*    written while BASIC.SYSTEM was the only thing it ever launched. Our own
+*    two SYS files began with LDA and were refused by it.
+             jmp   START
+
 MLI          equ   $BF00
 
 *--- Indirect indexed addressing needs the pointer in the direct page, and a
@@ -37,6 +45,8 @@ STRPTR       equ   $08              ; 2 bytes, a message being printed
 TMPP         equ   $1a              ; 2 bytes, a table entry being reached
 DBUFP        equ   $1c              ; 2 more, for reaching into the DATA buffer
 COUT         equ   $FDED
+HANDOFF      equ   $0380            ; where the editor leaves a name for us
+HANDMAGIC    equ   $cc              ; and how we know it meant to
 HOME         equ   $FC58
 
 *--- the tokenised format, established by reading files Applesoft wrote:
@@ -58,8 +68,33 @@ START        lda   #$00
 
              lda   #$00
              sta   ISINT
-             jsr   ASKNAME
-             jsr   OPENSRC
+             sta   FROMED
+
+*--- DID THE EDITOR HAND US THE JOB? It leaves a marked name at $0380 and
+*    launches this program; anything else and we ask for one as before.
+*
+*    $0380 because it has to survive the editor being overwritten by this
+*    file: page three is below the load, above the relaunch stub both programs
+*    copy to $0300, and clear of ProDOS's vectors at $03D0.
+*
+*    TAKEN ONCE. The mark is cleared before it is used, so a compile started
+*    by hand afterwards asks for its own name rather than repeating the last.
+             lda   HANDOFF
+             cmp   #HANDMAGIC
+             bne   :ask
+             lda   #$00
+             sta   HANDOFF
+             ldx   HANDOFF+1
+             beq   :ask             ; a marked name of no length is no name
+             stx   SRCNAME
+:hcopy       lda   HANDOFF+1,x
+             sta   SRCNAME,x
+             dex
+             bne   :hcopy
+             inc   FROMED
+             bne   :named           ; always
+:ask         jsr   ASKNAME
+:named       jsr   OPENSRC
              bcc   :ok
 
 *--- ONE MESSAGE, NOT TWO. An Integer BASIC file was reported as itself and
@@ -196,7 +231,29 @@ FINISH       lda   #<MSGKEY
 :key         lda   $c000
              bpl   :key
              sta   $c010
+
+*--- BACK WHERE IT CAME FROM, if the editor sent us and the program was
+*    refused: that is when the next thing wanted is the line the complaint
+*    named. After a compile that worked, what is wanted is the ] prompt to
+*    BRUN it from, which is where this has always gone.
+*
+*    ASIDE.SYSTEM and BASIC.SYSTEM are both twelve characters, so redirecting
+*    is twelve bytes over the name TOBASIC opens and none of the launching
+*    machinery has to know. Nothing is handed back: the editor left a note on
+*    the disk before it launched us, and reads it on the way up.
+             lda   FROMED
+             beq   :basic
+             lda   BADFLG
+             bne   :back
+:basic       jmp   TOBASIC
+:back        ldx   #$0b
+:nm          lda   EDNAME,x
+             sta   BASNAME+1,x
+             dex
+             bpl   :nm
              jmp   TOBASIC
+
+EDNAME       asc   'ASIDE.SYSTEM'   ; single quotes: ProDOS wants LOW ascii
 
              put   pass1
              put   gen
@@ -1039,6 +1096,7 @@ LEADING      ds    1
 YSAVE        ds    1                ; Y across COUT, which does not keep it
 MLIERR       ds    1
 ISINT        ds    1                ; the source was an Integer BASIC file
+FROMED       ds    1                ; the editor handed us the name, so go back
 TMPA         ds    1
 LOWN         ds    1
 OUTNAME      ds    17

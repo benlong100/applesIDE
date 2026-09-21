@@ -23,6 +23,14 @@
              typ   $ff
              dsk   ASIDE.SYSTEM
 
+*--- A JMP AT $2000, which is the SYS convention and was not being kept.
+*    ProDOS enters a SYS file at $2000 either way, so nothing noticed -- until
+*    a launcher checked for it. The editor's relaunch stub tests $2000 for a
+*    JMP before entering, as a guard against a short read, and that guard was
+*    written while BASIC.SYSTEM was the only thing it ever launched. Our own
+*    two SYS files began with LDA and were refused by it.
+             jmp   START
+
              put   equates
              put   main             ; START first: ProDOS enters at $2000
              put   screen80         ; the machine-specific half of the display

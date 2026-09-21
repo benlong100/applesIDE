@@ -83,6 +83,8 @@ KEYTBL
              da    KWORDRSEL        ; OA-right
              dfb   $c8,$80
              da    HELPSHOW         ; OA-H, alias for OA-?
+             dfb   $c2,$80
+             da    KCOMPILE         ; OA-B -- save, leave, and compile
              dfb   $c3,$80
              da    KCOPY            ; OA-C
              dfb   $d8,$80

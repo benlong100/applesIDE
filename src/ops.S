@@ -90,7 +90,7 @@ RUNGO        ldx   #BASNEND-BASNAME-1
              dex
              bpl   :name
 
-             jsr   OPENF
+RUNGO2       jsr   OPENF
              bcs   PLAINQUIT        ; no BASIC.SYSTEM here
              lda   OPENPARM+5
              sta   READPARM+1
@@ -117,6 +117,13 @@ RUNGO        ldx   #BASNEND-BASNAME-1
              sta   MAINWR
              sta   TXTSET
              sta   MIXCLR
+
+*--- AND THE TEXT WINDOW WITH IT. HOME clears the current window, not the
+*    screen, and the editor leaves a window of its own -- so the program we
+*    launch writes into a box in the middle of our leftovers. SETTXT puts the
+*    window back to the full forty columns first. BASIC.SYSTEM did this for
+*    itself, which is why it never showed until something else was launched.
+             jsr   $fb39            ; SETTXT
              jsr   $fc58            ; HOME, in the monitor
 
 *--- CLOSE EVERY FILE, not just this one. A ref_num of zero means all of them,

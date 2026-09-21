@@ -1,5 +1,7 @@
 *--------------------------------------
 * EQUATES.S -- hardware and zero page map
+HANDOFF      equ   $0380
+HANDMAGIC    equ   $cc
 *
 * Emits no code; included first so everything below can reference it.
 *--------------------------------------
