@@ -131,6 +131,7 @@ TPOPK        equ   $a1
 TPOW         equ   $cc              ; ^
 TLOMEM       equ   $a4
 TFREK        equ   $d6
+TPOSK        equ   $d9
 FPWRT        equ   $ee97            ; FAC <- ARG ^ FAC. Read off the ROM: it
                                     ; opens by testing ARGEXP, which is what
                                     ; CONUPK leaves in A
@@ -2939,6 +2940,10 @@ GENPASS      lda   #$00
              sta   USES2
              sta   USES3
              sta   FSTKTOP
+             sta   FSTKMAX          ; NOT LEFT OVER: the closed-loop scan reads
+                                    ; FSTKV up to here, and an uninitialised
+                                    ; one sends it through entries no FOR ever
+                                    ; wrote
              sta   PENDOK
              sta   OUTLEN
 *--- Somewhere plausible for PASS 2, which emits calls to the helpers before
@@ -4215,7 +4220,15 @@ GFOR         jsr   NEXTB
              lda   PC+1
              sta   FSTKAH,x
              inc   FSTKTOP
-             inc   FORN
+
+*--- HOW DEEP IT HAS EVER BEEN. A NEXT is allowed to name a loop that another
+*    NEXT has already closed -- see GNEXT -- and the entry is still sitting
+*    there above FSTKTOP when it does.
+             lda   FSTKTOP
+             cmp   FSTKMAX
+             bcc   :nomax
+             sta   FSTKMAX
+:nomax       inc   FORN
              clc
              rts
 
@@ -4263,15 +4276,34 @@ GNEXT        lda   #$ff             ; no name given: the innermost loop
              bcs   NEXTBAD
              jsr   PUTBACK
 
+*--- ONE FOR MAY HAVE SEVERAL NEXTS. Applesoft matches them on a stack it
+*    keeps while the program runs, so a loop with an exit on either side of an
+*    IF can be closed by whichever NEXT is reached:
+*
+*        930 FOR N = 1 TO W
+*        945 IF ... THEN ... : NEXT N: RETURN
+*        960 ...             : NEXT N: RETURN
+*
+*    This compiler matches them where it reads them, and the second NEXT found
+*    the loop already closed and called it a NEXT WITHOUT FOR. KALEIDO is
+*    built that way throughout.
+*
+*    So: close it as before, and if there is nothing open -- or the name does
+*    not match what is -- look through the entries that HAVE been closed.
+*    Popping only moves FSTKTOP down, so they are still there, and the code a
+*    second NEXT wants is the same code the first one emitted.
 :pop         lda   FSTKTOP
-             beq   NEXTNONE
-             dec   FSTKTOP
+             bne   :open
+             jmp   :closed          ; the scan is at the end of the routine
+:open        dec   FSTKTOP
              ldx   FSTKTOP
              lda   VARI
              cmp   #$ff
              beq   :ok
              cmp   FSTKV,x
-             bne   NEXTWRONG
+             beq   :ok
+             inc   FSTKTOP          ; not this one: leave it open
+             jmp   :closed
 :ok          lda   FSTKV,x
              sta   FVAR
              lda   FSTKN,x
@@ -4373,6 +4405,22 @@ GNEXT        lda   #$ff             ; no name given: the innermost loop
 * bytes, which means honouring the quotes the same way -- a colon inside one
 * does not end the statement.
 *--------------------------------------
+*--- A LOOP THAT IS ALREADY CLOSED. Search from the deepest it has ever been
+*    down to the top of the open ones, most recent first. An unnamed NEXT
+*    takes the innermost, which is the one it would have taken when open.
+:closed      ldx   FSTKMAX
+:cloop       cpx   FSTKTOP
+             bne   :cstep
+             jmp   NEXTNONE         ; nothing open and nothing closed matches
+:cstep       dex
+             lda   VARI
+             cmp   #$ff
+             beq   :okj
+             cmp   FSTKV,x
+             beq   :okj
+             jmp   :cloop
+:okj         jmp   :ok              ; the shared tail is back at the top
+
 GDATA        lda   #$00
              sta   DQUOTE
 :loop        jsr   NEXTB
@@ -6596,8 +6644,17 @@ GREAD        lda   #$10             ; before the loop deliberately: the flag
              jsr   EMSTP
              jmp   :more
 
-*--- a string: three bytes from the item's descriptor into the variable
-:str         jsr   SVFIND
+*--- a string. A BRACKET AFTER THE $ MAKES IT AN ARRAY, the same test
+*    GLETSTR makes: READ D$(J) used to come here, look for a plain variable
+*    called D$, not find one, and say UNKNOWN VARIABLE about a name the
+*    program had dimensioned.
+:str         jsr   NEXTB
+             bcs   :badj
+             sta   CH               ; PUTBACK hands back CH, not A
+             cmp   #'('
+             beq   :sarrj
+             jsr   PUTBACK
+             jsr   SVFIND
              bcs   :badj
              jsr   SVADDR
              lda   TMPP
@@ -6617,12 +6674,26 @@ GREAD        lda   #$10             ; before the loop deliberately: the flag
              jsr   EMSDESC
              jmp   :more
 
+*--- AN ELEMENT OF AN ARRAY OF STRINGS. Its address is worked out and put
+*    away first for the same reason as everywhere else: fetching the item
+*    runs the parser, and the zero page the address was held in does not
+*    survive that. EMSAPUT copies the item's descriptor into the element.
+:sarrj       jsr   SAFIND
+             bcs   :sabadj
+             jsr   EMSSUBS
+             bcs   :sabadj
+             jsr   EMSASAVE
+             jsr   EMNEXTD
+             jsr   EMSAPUT
+             jmp   :more
+:sabadj      jmp   :bad             ; the shared exit is back at the top now
+
 *--- an element: its address is worked out first and kept, because reading
 *    the item runs the parser over the accumulator
 :elem        jsr   GETARR
-             bcs   :badj
+             bcs   :sabadj
              jsr   EMSUBS
-             bcs   :badj
+             bcs   :sabadj
              lda   #$85             ; STA ZPELEM
              jsr   EMIT
              lda   #ZPELEM
@@ -7473,6 +7544,27 @@ GLOMEM       jsr   NEXPR            ; the address it wanted, evaluated and lost
              jsr   PRSTR
 :done        clc
              rts
+:bad         sec
+             rts
+
+*--------------------------------------
+* FPOS -- POS(x), where the cursor is across the line
+*
+* ASKED ON THE MACHINE: after HTAB 10, POS(0) is 9 and PEEK(36) is 11 -- the
+* eleven being where the cursor had got to by the time the second item was
+* evaluated. POS is CH at $24, counted from zero, which is the same byte
+* PEEK(36) reads and not the one-based column HTAB takes.
+*
+* The argument is evaluated and dropped, as Applesoft drops it: GROAN writes
+* Q = POS(0) after a prompt to find out where to put the answer.
+*--------------------------------------
+FPOS         jsr   FARGOPEN         ; and its value is not wanted
+             bcs   :bad
+             lda   #$a5             ; LDA $24
+             jsr   EMIT
+             lda   #$24
+             jsr   EMIT
+             jmp   EMBYTEFAC        ; and that byte as a float
 :bad         sec
              rts
 
@@ -9472,6 +9564,8 @@ EPRIM        lda   #$00
              beq   :frej
              cmp   #TSCRN
              beq   :scrnj
+             cmp   #TPOSK
+             beq   :posj
              cmp   #$80
              bcs   :fn
              cmp   #'"'
@@ -9506,6 +9600,7 @@ EPRIM        lda   #$00
 :pdlj        jmp   FPDL
 :frej        jmp   FFRE
 :scrnj       jmp   FSCRN
+:posj        jmp   FPOS
 
 :paren       jsr   EXPR
              bcs   :bad2
@@ -11420,6 +11515,7 @@ BLOBN        ds    1                ; how long the blob EMBLOB is copying is
 FVAR         ds    1
 FORN         ds    1                ; which FOR is being compiled
 FSTKTOP      ds    1
+FSTKMAX      ds    1                ; the deepest it has been, for a reused NEXT
 FSTKV        ds    FDEPTH           ; its variable
 FSTKN        ds    FDEPTH           ; its pair of slots
 FSTKAL       ds    FDEPTH           ; and where its loop begins

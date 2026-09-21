@@ -1381,6 +1381,53 @@ Deliberately NOT shared with the numeric multi-subscript code. That path works
 and `dim2`/`dim3` prove it; factoring it to serve both would have put the
 working case at risk to save bytes that were not needed.
 
+## One FOR, several NEXTs
+
+Applesoft matches `FOR` and `NEXT` on a stack it keeps **while the program
+runs**. So a loop with an exit either side of an `IF` can be closed by
+whichever `NEXT` is reached, and KALEIDO is built that way throughout:
+
+    930 FOR N = 1 TO W
+    945 IF ... THEN ... : NEXT N: RETURN
+    960 ...             : NEXT N: RETURN
+
+This compiler matches them **where it reads them**, which is what lets a `FOR`
+become four slots laid out at compile time instead of a stack frame. The
+second `NEXT` found the loop already closed and said NEXT WITHOUT FOR about a
+program Applesoft runs.
+
+The fix is small, because popping only moves `FSTKTOP` down: the entry is
+still sitting there, and the code a second `NEXT` wants is exactly the code
+the first one emitted. `GNEXT` closes a loop as before, and if there is
+nothing open — or the name does not match what is — it scans the entries that
+have already been closed, most recent first.
+
+`FSTKMAX` is how far up that scan may look, and **it has to be initialised
+with everything else**. It was not, the first time, and the nested case
+walked through `FSTKV` entries no `FOR` had ever written and compiled a crash.
+That is the third time in this file that a new table or counter has gone in
+without being cleared at start-up — `SATAB`'s row stride and `ADYNF` were the
+others. The habit worth having: when a new variable is added to the generator,
+find the routine that zeroes the rest and put it there in the same edit.
+
+## READ into an array of strings
+
+`READ D$(J)` came to the string-variable path, looked for a plain variable
+called `D$`, did not find one, and said UNKNOWN VARIABLE about a name the
+program had dimensioned. `GLETSTR` has always made the right test — a bracket
+after the `$` makes it an array — and `GREAD` simply did not. It does now, and
+the element is filled the same way `INPUT` fills one: the address is worked
+out and put away first, because fetching the item runs the parser over the
+accumulator.
+
+## POS
+
+`POS(x)` is `CH` at `$24`, counted from zero. Asked on the machine, because
+the obvious guess is the column `HTAB` takes and it is not: after `HTAB 10`,
+`POS(0)` is 9 while `PEEK(36)` is 11 — the eleven being where the cursor had
+got to by the time the second item of the same `PRINT` was evaluated. The
+argument is evaluated and dropped, as Applesoft drops it.
+
 ## CLEAR, and the three ways it went wrong
 
 `CLEAR` forgets every variable, every array, the string heap, the DATA pointer
