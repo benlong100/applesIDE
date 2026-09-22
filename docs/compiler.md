@@ -2523,3 +2523,69 @@ That is the fourth message this session where the code knew something true and
 printed something else -- with `1 copied, and that came to 0 files` when
 nothing was copied, `ONE DIMENSION ONLY` about an array with one dimension,
 and a fault reported in a line that does not exist.
+
+## RUN, and a carry that meant nothing until pass 3
+
+`RUN` is `CLEAR` and then a jump, so `GRUN` calls `GCLEAR` and emits either a
+`JMP CODESTA` for a bare `RUN` or hands the line number to `GGOTO` for
+`RUN 500`. Both halves worked. The statement still broke every program that
+used it, and broke it in a way that looked like anything but `RUN`.
+
+D.L off the card compiled and dropped into the monitor at `$188A` before
+printing a character. Nothing in its listing was ordinary -- `NEXT Y,X`,
+`DEF FN SOUND(S) = PEEK ( - 16336)`, `PRINT TAB( 20);"Attempt # "M" "` with a
+string, a variable and a string run together -- and each of those was written
+out as its own test and each one agreed with the interpreter. What settled it
+was not a test but a one-byte patch: `RUN` is `$AC` and `END` is `$80`, so
+line 400 was overwritten in the tokenised file and the program compiled and
+ran perfectly. The fault was in the statement, not in the program.
+
+### `jmp EMIT` is not a tail call
+
+    :top         lda   #$4c
+                 jsr   EMIT
+                 lda   CODESTA
+                 jsr   EMIT
+                 lda   CODESTA+1
+                 jmp   EMIT             ; <-- this
+
+A statement handler returns carry clear for success. `EMIT` has no failure to
+report and never sets carry deliberately, but it ends on the flags left by
+
+    lda   PASSNO
+    cmp   #$03
+
+which is **clear in passes 1 and 2 and set in pass 3**. Ending a handler with
+`jmp EMIT` therefore hands the dispatcher a success in the passes that only
+count bytes and a failure in the pass that writes the file.
+
+So the compile ran to the end of pass 2, printed the lines and the variables
+and the constants and every one of the sizes, then stopped at the `RUN` in
+pass 3 -- after `OPENOUT`. `CLOSEOUT` is bracketed in `php`/`plp` and ran
+anyway, which left a half-written `CDL` on the disk with a sensible load
+address and a plausible size. And because the handler set carry without
+recording a complaint, `BADSAY` had nothing to say.
+
+**The signature is the missing line, not an error.** A compile that prints its
+whole report, prints `PRESS A KEY`, never prints `WROTE`, and leaves a file on
+the disk anyway. It reads as a compile that worked.
+
+`EMIT` now carries a note saying its carry is an accident of that `cmp` and
+nobody should read it. The other thirty-seven `jmp EMIT`s in the generator are
+inside emitters whose carry is discarded before it reaches a dispatcher.
+
+### One statement, two paths, one test
+
+`runf` covered `RUN 500`. That goes to `GGOTO`, which emits the jump itself
+and returns `GGOTO`'s carry, not `EMIT`'s -- the only path through the
+statement that was not broken. The bare `RUN` that every program on the card
+actually uses was the untested half.
+
+Testing it needs something that survives a `CLEAR`, because a bare `RUN` with
+no external state is an infinite loop by construction. `runbare` keeps a
+counter in page 3 above the relaunch stub, with a second byte as a
+first-time marker so the program initialises it rather than inheriting
+whatever the last run left -- the first version of the test read uninitialised
+memory and disagreed with the interpreter for a reason that had nothing to do
+with the compiler. It also prints `A`, `B$` and `Q(1)` before assigning them,
+so the run after a `RUN` proves the clear as well as the jump.

@@ -562,7 +562,12 @@ MSGTAB       da    BADSUF           ; 1
              da    BADTGT           ; 7
              da    BADTHEN          ; 8
              da    BADCOMMA         ; 9
-             da    BADQUOTE         ; 10
+*--- 10 HAS NO RAISE SITE. It was STRING NOT CLOSED, and nothing has said it
+*    since the end of a line started closing a literal -- which is what
+*    Applesoft does. The numbering either side is worth more than the text, so
+*    the slot stays and points at a message that exists; the eighteen bytes it
+*    was holding went to RUN.
+             da    BADSTMT          ; 10 -- dead, see above
              da    BADLONG          ; 11
              da    BADTERM          ; 12
              da    BADNAME          ; 13
@@ -614,8 +619,6 @@ BADTGT       asc   "NO SUCH LINE"
 BADTHEN      asc   "IF WITHOUT THEN"
              dfb   $00
 BADCOMMA     asc   "NO COMMA IN PRINT YET"
-             dfb   $00
-BADQUOTE     asc   "STRING NOT CLOSED"
              dfb   $00
 BADLONG      asc   "STRING TOO LONG"
              dfb   $00

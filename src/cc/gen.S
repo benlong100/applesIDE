@@ -167,6 +167,7 @@ HGRROM       equ   $f3e2            ; page one, mixed, cleared
 HGR2ROM      equ   $f3d8            ; page TWO, full screen, cleared
 TGR2K        equ   $90
 TCLEARK      equ   $bd
+TRUNK        equ   $ac
 TPDL         equ   $d8
 TSCRN        equ   $d7
 TGETK        equ   $be
@@ -5864,6 +5865,37 @@ GFLASH       lda   #$7f
              jmp   EMINVF
 
 *--------------------------------------
+* GRUN -- RUN, from the top or from a line
+*
+* Applesoft's RUN forgets everything and starts again, which is CLEAR followed
+* by a GOTO -- so this is those two, and costs almost nothing beyond them.
+* GCLEAR already restores the stack, resets the heap and moves the array break
+* back; all that is left is where to jump.
+*
+* A bare RUN goes to CODESTA, the first thing compiled. RUN 500 hands the line
+* number to GGOTO, which reads and resolves it exactly as a GOTO would -- so a
+* line that does not exist is named here rather than found at run time.
+*--------------------------------------
+GRUN         jsr   GCLEAR
+             bcs   :bad
+             jsr   PEEK
+             bcs   :top             ; nothing follows: from the beginning
+             sta   CH
+             jsr   ISDIGIT
+             bcs   :top
+             jmp   GGOTO            ; RUN 500 -- it emits the jump itself
+:top         lda   #$4c             ; JMP the first line
+             jsr   EMIT
+             lda   CODESTA
+             jsr   EMIT
+             lda   CODESTA+1
+             jsr   EMIT
+             clc                    ; NOT `jmp EMIT`: EMIT returns carry
+             rts                    ; SET in pass 3 -- see the note there
+:bad         sec
+             rts
+
+*--------------------------------------
 * GSTMT3 -- the statements that did not fit in the second list either
 *
 * The same reason the second list exists. GSTMT2's tests reach their jump
@@ -5879,6 +5911,8 @@ GSTMT3       lda   CH
              beq   :hgr2j
              cmp   #TCLEARK
              beq   :clrj
+             cmp   #TRUNK
+             beq   :runj
              lda   #$05             ; STATEMENT NOT YET
              jsr   SETBAD
              sec
@@ -5886,6 +5920,7 @@ GSTMT3       lda   CH
 :speedj      jmp   GSPEED
 :hgr2j       jmp   GHGR2
 :clrj        jmp   GCLEAR
+:runj        jmp   GRUN
 
 *--------------------------------------
 * GCLEAR -- CLEAR: put the program back the way it started
@@ -9295,13 +9330,27 @@ RDCMPOP      jsr   NEXTB
              beq   :ne
              jmp   :bad
 :gt          cmp   #TGT
-             bne   :bad
+             bne   :eqf
              lda   CMPB
              cmp   #TEQ
              beq   :ge
              cmp   #TLT
              beq   :ne
              jmp   :bad
+
+*--- AND THE OTHER WAY ROUND. Applesoft takes => for >= and =< for <=, and
+*    stores them as the two tokens in the order they were typed -- so the
+*    equals can come first and this used to fall through to the > branch and
+*    call it a BAD COMPARISON. AMAZING says IF X = > 36 and means what
+*    everyone else writes as >=.
+:eqf         cmp   #TEQ
+             bne   :badj
+             lda   CMPB
+             cmp   #TGT
+             beq   :ge
+             cmp   #TLT
+             beq   :le
+:badj        jmp   :bad
 
 *--- A < B is "the accumulator, holding B, is the greater" -- FCOMP answers 1
 :one         lda   CMPA
@@ -10752,6 +10801,13 @@ POPTMP       dec   TEMPTOP
 *    every window after the first believing it started one byte early -- which
 *    only shows up as a string literal's JMP patched into the wrong place,
 *    a long way from here.
+* CARRY OUT IS NOT A RESULT. It falls out of `cmp #$03` below: CLEAR in
+* passes 1 and 2, SET in pass 3. Nothing here can fail, so no caller should
+* read it -- but a statement handler that ends `jmp EMIT` hands that carry to
+* the dispatcher as its own success flag, and then compiles clean right up to
+* the pass that writes the file. GRUN did exactly that: the listing printed,
+* pass 3 stopped at the RUN, and the output was closed half-written with no
+* complaint to say why. Tail-call EMIT only where the carry is discarded.
 EMIT         pha
              inc   PC
              bne   :on

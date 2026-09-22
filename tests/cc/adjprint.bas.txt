@@ -1,0 +1,5 @@
+10 M = 7
+20 PRINT TAB( 5);"Attempt # "M" "
+30 PRINT "A"M"B"
+40 PRINT M"X"
+50 PRINT "DONEADJ"

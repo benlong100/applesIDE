@@ -20,3 +20,9 @@ src/lang_*.S
 src/helpdata.S
 src/tokens.S
 build/bench/
+
+# Tokenised Applesoft under tests/cc. The .bas.txt beside each one is the
+# source of truth -- tests/cc.sh tokenises into build/bench and never reads
+# these. The rest are real programs off a distribution disk, kept locally as
+# compile fixtures and not ours to redistribute.
+tests/cc/*.bas
