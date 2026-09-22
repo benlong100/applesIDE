@@ -76,7 +76,7 @@ the project and the one component deliberately deferred.
 
 ## The compiler
 
-`ASIDECC.SYSTEM`, about 5.3K, running on the //e. It reads a tokenised
+`ASIDECC.SYSTEM`, 28K, running on the //e. It reads a tokenised
 Applesoft file and writes a binary you can `BRUN`.
 
 ```
@@ -108,32 +108,58 @@ Both sides are timed the same way, with the program already in memory. Timing
 the compiled side as a `BRUN` charged it for loading its own file and made it
 look several seconds slower than it is; `docs/compiler.md` has the correction.
 
-It compiles `LET`, `DIM` and one-dimensional arrays, `GOTO`, `GOSUB`,
-`RETURN`, `IF/THEN`, `FOR`/`NEXT` with `STEP`, `ON ... GOTO` and
-`ON ... GOSUB`, `PEEK`, `POKE`, `CALL`, `PRINT` with `;` and `,`, `REM`,
-`END`, and expressions over `+ - * /`, unary minus,
-brackets, the six comparisons, `AND`/`OR`/`NOT`, and the eleven numeric
-functions (`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN`).
+It compiles the language real programs are written in: `LET` named and
+implied, `GOTO`, `GOSUB`, `RETURN`, `POP`, `IF ... THEN` and `IF ... GOTO`,
+`FOR`/`NEXT` with `STEP` and with several variables on one `NEXT`,
+`ON ... GOTO` and `ON ... GOSUB`, `DATA`/`READ`/`RESTORE`, `INPUT`, `GET`,
+`DEF FN`, `POKE`, `CALL`, `PRINT` with `;`, `,`, `TAB(` and `SPC(`, `REM`,
+`END`, `STOP`, `CLEAR` and `RUN`.
 
-**String variables** too, as far as they go without a heap: `A$ = B$`,
-`A$ = "text"`, `PRINT A$`, all six comparisons, joining with `+`, and `LEN`,
-`LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$`, `STR$` and `VAL`. A string value is a
-descriptor — a length and a pointer — so assignment copies three bytes rather
-than the text, exactly as Applesoft does, and a literal's characters live in
-the compiled program. Nothing is allocated.
+**The screen and the ports:** `HOME`, `HTAB`, `VTAB`, `TEXT`, `INVERSE`,
+`NORMAL`, `FLASH`, `SPEED=`, `PR#` and `LOMEM:`.
 
-Joining, `CHR$`, `STR$` and the substring functions allocate from a heap
-running down from the top of free memory, with **a compacting garbage
-collector** when it fills — so a program that builds strings in a loop runs
-as far as the interpreter would.
+**Graphics:** `GR`, `COLOR=`, `PLOT`, `HLIN` and `VLIN`, and `HGR`, `HGR2`,
+`HCOLOR=` and `HPLOT`, including `HPLOT TO` carrying on from the last point.
 
-`DATA`/`READ`, `INPUT` and arrays of strings are refused by name and line
-number rather than compiled wrongly:
+**Variables and arrays:** real and integer (`I%`) variables, arrays of one,
+two or three dimensions, string arrays including two-dimensional ones, and
+`DIM` with a size worked out while the program runs.
+
+**Expressions** over `+ - * /` and `^`, unary minus, brackets, the six
+comparisons — in either spelling, since Applesoft takes `=>` for `>=` —
+`AND`/`OR`/`NOT`, `PEEK`, the eleven numeric functions
+(`SGN INT ABS SQR RND LOG EXP COS SIN TAN ATN`), and `FRE`, `POS`, `PDL`
+and `SCRN(`.
+
+**Strings**, with a heap: assignment, all six comparisons, joining with `+`,
+and `LEN`, `LEFT$`, `RIGHT$`, `MID$`, `ASC`, `CHR$`, `STR$` and `VAL`. A
+string value is a descriptor — a length and a pointer — so assignment copies
+three bytes rather than the text, exactly as Applesoft does, and a literal's
+characters live in the compiled program. What is built while the program runs
+comes off a heap descending from the top of free memory, with **a compacting
+garbage collector** when it fills, so a program that builds strings in a loop
+runs as far as the interpreter would.
+
+**What it cannot compile it refuses by name and line number** rather than
+compiling something that runs and gives a wrong answer:
 
 ```
-STOPPED IN 30: NO STRING JOIN YET
+STOPPED IN 30: STATEMENT NOT YET
 STOPPED IN 20: STRING AGAINST NUMBER
+STOPPED IN 70: NO SUCH LINE
 ```
+
+The absences worth knowing about are `ONERR GOTO` and `RESUME`, integer
+arrays (`A%(n)`), the shape-table statements (`DRAW`, `XDRAW`, `ROT=`,
+`SCALE=`, `SHLOAD`), `HIMEM:`, `IN#`, `WAIT`, `TRACE`, `USR` and `&`, and
+`GET` of a number rather than a character. `SAVE` is recognised and refused:
+a bare `SAVE` writes the BASIC program to tape, and a compiled program has
+none to write.
+
+Every one of these is checked against the interpreter rather than against a
+table of what Applesoft is supposed to do. `tests/cc.sh` runs 69 programs
+twice on the machine — once interpreted, once compiled — and compares what
+came out; `make cctest` is the whole suite.
 
 A compiled program carries only the runtime it uses: one that never touches a
 string is 128 bytes where it used to be 1,104.
