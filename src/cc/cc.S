@@ -1039,7 +1039,9 @@ SRCNAME      dfb   6
              asc   'BENCH1'
              ds    9                ; ASKNAME writes up to fifteen here
 
-MSGOPEN      asc   "APPLESOFT COMPILER"
+*--- CENTRED BY COUNTING, not by eye: the screen is forty columns and the
+*    name is twenty-four, so eight spaces put it in the middle.
+MSGOPEN      asc   "        ApplesIDE BASIC Compiler"
              dfb   $8d,$8d,$00
 MSGNOFILE    asc   "CANNOT OPEN THE SOURCE"
              dfb   $8d,$00

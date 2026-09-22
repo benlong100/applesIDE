@@ -134,6 +134,8 @@ P1L = [header(T("MOVING"), "L"),
        entry("?", T("types PRINT"),           "L"),
        entry("Return", T("new line, numbered"), "L")]
 P1R = [header(T("PROGRAM"), "R"),
+       entry("Ctrl-R", T("save, leave and run"), "R"),
+       entry("@-B", T("save and compile"),    "R"),
        entry("@-R", T("renumber by ten"),     "R"),
        entry("@-K", T("check GOTO targets"),  "R"),
        entry("@-/", T("hint row off/on/inv"), "R"),
