@@ -26,3 +26,6 @@ build/bench/
 # these. The rest are real programs off a distribution disk, kept locally as
 # compile fixtures and not ours to redistribute.
 tests/cc/*.bas
+
+# mkbas.py imports detok from here, which leaves bytecode behind.
+tools/__pycache__/

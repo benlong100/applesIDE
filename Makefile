@@ -110,10 +110,18 @@ $(IMAGE): $(BIN)
 disk/README.TXT: disk/README.src
 	@python3 $(TOOLS)/mktxt.py disk/README.src disk/README.TXT
 
-dist: $(BIN) $(CCBIN) disk/README.TXT
+# MANDELBROT rides along as a sample: a real Applesoft program, tokenised, so
+# it opens in the editor and RUNs from the ] prompt without any explaining.
+# It is also the shortest honest demonstration of why the compiler is here --
+# 1,600 points and fifteen iterations each is a long wait interpreted.
+disk/MANDELBROT.bas: disk/MANDELBROT.src
+	@python3 $(TOOLS)/mkbas.py disk/MANDELBROT.src disk/MANDELBROT.bas
+
+dist: $(BIN) $(CCBIN) disk/README.TXT disk/MANDELBROT.bas
 	@RELEASE=1 VOL=APPLESIDE SYS=$(NAME) $(TOOLS)/mkdisk.sh $(DISTIMG) $(BIN) >/dev/null
 	@$(AC) -p $(DISTIMG) README.TXT TXT < disk/README.TXT
 	@$(AC) -p $(DISTIMG) ASIDECC.SYSTEM SYS 0x2000 < $(CCBIN)
+	@$(AC) -p $(DISTIMG) MANDELBROT BAS 0x0801 < disk/MANDELBROT.bas
 	@echo "distribution image: $(DISTIMG)"
 	@$(AC) -l $(DISTIMG)
 
