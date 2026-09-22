@@ -459,10 +459,56 @@ TKONE        lda   #$00
              jmp   :body
 
 *--- literal: the buffer is high ASCII and a token file is not
+*--- ^X INSIDE A STRING IS A CONTROL CHARACTER. PRINT "^DCATALOG" is how an
+*    Applesoft program issues a DOS command, and the buffer cannot hold the
+*    $04 itself -- every byte under $A0 is a line break here. So it is written
+*    as two characters and converted on the way to disk.
+*
+*    ^^ IS A LITERAL ^, and that is not decoration: without it a program that
+*    already said PRINT "A^B" would load as A^B and save as A<ctrl-B>, and the
+*    editor would have broken a working program while fixing a different bug.
+*    The reader doubles every ^ it finds inside a string, so the two halves
+*    agree and a file survives the round trip unchanged.
+*
+*    ^A TO ^Z ARE $01 TO $1A, and ^[ is ESC at $1B -- the notation everybody
+*    already writes, and the arithmetic falls out of it: 'A' minus $40 is 1,
+*    and '[' is one past 'Z' so it lands on $1B without a special case. That
+*    covers the ones that matter -- ^D for DOS, ^G bell, ^H ^J ^K ^L ^M for
+*    the screen, ^U, and ESC to open a printer sequence.
+*
+*    The fold to a capital means ^d works as well as ^D. It also means ^{
+*    reaches ESC, since '{' folds onto '[' -- harmless, and not worth a test
+*    to forbid.
+*
+*    Only between quotes. A REM or a DATA keeps its ^ as it stands.
 :lit         ldx   TKI2
              lda   LNBUF,x
+             ldy   TKSTR
+             beq   :lit2            ; outside a string, nothing to read
+             cmp   #$de             ; '^'
+             bne   :lit2
+             inx
+             cpx   TKLL
+             bcs   :lit2            ; nothing after it: leave it alone
+             lda   LNBUF,x
+             cmp   #$de             ; ^^ -- one literal caret
+             beq   :caret
+             and   #$df             ; fold to a capital
+             cmp   #$c1             ; A
+             bcc   :nctl
+             cmp   #$dc             ; past '[', which is one beyond Z
+             bcs   :nctl
+             sec
+             sbc   #$c0             ; A -> 1, and '[' -> $1B
+             inc   TKI2             ; the letter is consumed too
+             jmp   :lit3
+:caret       lda   #$de
+             inc   TKI2
+             jmp   :lit2
+:nctl        ldx   TKI2             ; not ^ plus a letter: emit the ^ as it is
+             lda   LNBUF,x
 :lit2        and   #$7f
-             jsr   TKEMIT
+:lit3        jsr   TKEMIT
              inc   TKI2
              jmp   :body
 
@@ -552,7 +598,12 @@ TOKLOAD      lda   #$00
 *    into: put in the path above, it closed the file before a byte was read
 *    and every program loaded as nothing at all.
 :endj        jmp   :done
-:line        jsr   TKRB             ; the next-line address
+*--- A STRING CANNOT SPAN LINES, so the reader's flag starts clear on each of
+*    them; an unclosed quote is closed by the line's end, which is what
+*    Applesoft does too.
+:line        lda   #$00
+             sta   TKLSTR
+             jsr   TKRB             ; the next-line address
              bcs   :endj
              sta   TKT1
              jsr   TKRB
@@ -620,14 +671,28 @@ TOKLOAD      lda   #$00
              jmp   :have
 
 :byte        jsr   TKRB
-             bcs   :done
+             bcc   :have
+             jmp   :done            ; the block below put :done out of reach
 :have        cmp   #$00
              beq   :eol
              cmp   #$80
              bcs   :token
-             cmp   #$20
+             cmp   #$22             ; a quote turns the string state over
+             bne   :nq
+             lda   TKLSTR
+             eor   #$01
+             sta   TKLSTR
+             lda   #$22
+:nq          cmp   #$20
              bcc   :ctrl            ; see below
-             ora   #$80             ; a literal, back to the editor's high ASCII
+             cmp   #$5e             ; '^' -- doubled inside a string so that
+             bne   :plain           ; the writer can tell it from an escape
+             ldy   TKLSTR
+             beq   :plain
+             lda   #$de
+             jsr   TKPUT
+             lda   #$5e
+:plain       ora   #$80             ; a literal, back to the editor's high ASCII
              jsr   TKPUT
              jmp   :byte
 
@@ -645,7 +710,24 @@ TOKLOAD      lda   #$00
 *    on disk. Keeping them would need an escape in the buffer and a column
 *    count that lies; silently rewriting the program without saying so is
 *    worse than either.
-:ctrl        inc   TKDROP
+*--- INSIDE A STRING THEY ARE KEPT, as ^ and a letter -- see the writer. Only
+*    $01 to $1A have a letter to be named by; the rest, and anything outside a
+*    string, is dropped and counted as before.
+:ctrl        ldy   TKLSTR
+             beq   :drop
+             cmp   #$01
+             bcc   :drop
+             cmp   #$1c             ; $01-$1B: the letters, and ESC as ^[
+             bcs   :drop
+             pha
+             lda   #$de             ; '^'
+             jsr   TKPUT
+             pla
+             clc
+             adc   #$c0             ; $01 becomes 'A'
+             jsr   TKPUT
+             jmp   :byte
+:drop        inc   TKDROP
              bne   :byte
              dec   TKDROP           ; saturate rather than wrap to none
              jmp   :byte
@@ -866,6 +948,7 @@ TKRI         ds    1                ; and how many have been handed out
 TKPREV       ds    1                ; the last character written out
 TKQUIET      ds    1                ; the failure has already been reported
 TKDROP       ds    1                ; control characters the buffer cannot hold
+TKLSTR       ds    1                ; the READER's "inside a string"; TKSTR is the writer's
 TKIST        ds    1                ; TKREAD: 0 number, 1 indent, 2 body
 TKRC         ds    1                ; the character it is deciding about
 TKDEPTH      ds    1                ; FOR nesting, for the indent on load

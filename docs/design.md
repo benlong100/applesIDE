@@ -1192,3 +1192,47 @@ deleted. Two entries in it are not "not yet" but "no":
 
 `main.S` also lost 47 lines of deferred-reflow logic, which existed purely to
 keep hard wrap cheap during a burst of typing.
+
+## Control characters in strings: ^D
+
+`PRINT "^DCATALOG"` is how an Applesoft program issues a DOS command -- a real
+`$04` sitting inside the string. **The editor cannot hold one.** `TEXTLO` is
+`$A0` and every byte below it *is* a line break; that is the whole of how lines
+are stored. A `$04` read out of a program would split the line in two.
+
+So they were dropped on load, and counted, and the loader said so. But the
+program was still broken the moment it was saved back, and the message is easy
+to miss under the status row. Measured on a three-line program:
+
+    before:  BA 22 04 43 41 54 41 4C 4F 47 22    PRINT "^DCATALOG"
+    after:   BA 22    43 41 54 41 4C 4F 47 22    PRINT "CATALOG"
+
+It printed the word instead of doing the thing.
+
+They travel as two characters now, converted at both boundaries:
+
+| in the file | in the buffer |
+|---|---|
+| `$01`-`$1A` | `^A` to `^Z` |
+| `$1B` (ESC) | `^[` |
+| `^` | `^^` |
+
+`'A' - $40` is 1, and `'['` is one past `'Z'`, so ESC lands on `$1B` without a
+special case. The fold that lets `^d` work as well as `^D` also means `^{`
+reaches ESC, since `{` folds onto `[` -- harmless, and not worth a test to
+forbid.
+
+**`^^` IS NOT DECORATION.** Without it, a program that already said
+`PRINT "A^B"` would load as `A^B` and save as `A` followed by Ctrl-B: the
+editor would have broken a working program while fixing a different bug. The
+reader doubles every `^` it finds inside a string so the two halves agree, and
+a file survives the round trip unchanged -- checked byte for byte over
+`$04 $07 $08 $0A $0B $0C $0D $15 $1B` and a literal caret.
+
+**Only between quotes.** A REM or a DATA keeps its `^` as it stands, and a
+control character outside a string is still dropped and counted, as before.
+The writer already tracked "inside a string"; the reader did not, and now does.
+
+The compiler needed nothing: it reads the tokenised file directly, so the
+`$04` was always reaching the compiled output intact.
+

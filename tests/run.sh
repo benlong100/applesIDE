@@ -1023,12 +1023,21 @@ reboot
 oa "?"
 snapshot
 assert_row "the help screen names the program"       1 "APPLESIDE"
-assert_row "and lists renumbering"                   5 "renumber by ten"
+
+#--- The PROGRAM column gained Ctrl-R and OA-B at its head, which pushed the
+#    two below them down a row each. These assertions name a ROW, so they had
+#    to move too -- and they are the reason this is worth asserting at all: the
+#    help is generated, and a row that quietly slides is exactly what nobody
+#    notices until the screen is wrong.
+assert_row "and lists running"                       5 "save, leave and run"
+assert_row "and compiling"                           6 "save and compile"
+assert_row "and lists renumbering"                   7 "renumber by ten"
 assert_row "and the word and paging keys"            6 "word / page"
-assert_row "and the reference check"                 6 "check GOTO targets"
+assert_row "and the reference check"                 8 "check GOTO targets"
 "$VII" text " " >/dev/null; "$VII" settle 3 >/dev/null
 snapshot
 assert_row "page two lists the file keys"            5 "open"
+assert_row "and the string escapes"                 12 "control character"
 assert_row "page two lists the clipboard"            5 "copy the line"
 assert_row "and going to a line"                     8 "go to line number"
 assert_row "and the search keys"                    11 "find"

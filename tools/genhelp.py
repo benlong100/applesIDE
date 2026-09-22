@@ -150,7 +150,12 @@ P2L = [header(T("FILES"), "L"),
        entry("@-S", T("save"),                "L"),
        entry("@-A", T("save as"),             "L"),
        entry("@-N", T("new"),                 "L"),
-       entry("@-Q", T("quit"),                "L")]
+       entry("@-Q", T("quit"),                "L"),
+       None,
+       header(T("IN STRINGS"), "L"),
+       entry("^D", T("control character"),  "L"),
+       entry("^[", T("ESC"),                  "L"),
+       entry("^^", T("one literal caret"),    "L")]
 P2R = [header(T("EDITING"), "R"),
        entry("@-C", T("copy the line"),       "R"),
        entry("@-X", T("cut the line"),        "R"),
