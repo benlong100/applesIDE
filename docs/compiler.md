@@ -2668,3 +2668,71 @@ with a `jsr NEXTB` to consume a token `GENSTMT` had already consumed -- and
 the rule written down then was **check the convention against a caller that
 already works**. The caller that already works was eighty lines up in the same
 routine.
+
+## ONERR GOTO, measured and left out
+
+The Beagle Compiler supports `ONERR GOTO n`. It also supports shape tables,
+which were dropped here without much regret, so following it exactly was never
+the plan -- but "how much does anyone actually use this" deserved an answer
+better than a guess.
+
+**135 programs off four collection disks**, counted with `tools/detok.py`,
+which counts token bytes and skips the text of a `REM`. That distinction is
+the whole reason the tool exists: grepping listings for keyword spellings once
+reported `ONERR`, `STOP` and `DRAW` as things two programs needed, and all
+three were words inside comments.
+
+| keyword | programs | share | uses |
+|---|---|---|---|
+| `ONERR` | 5 | 3.7% | 12 |
+| `RESUME` | 0 | — | 0 |
+| `DRAW`/`XDRAW` | 4 | 3.0% | 18 |
+| `ROT=`/`SCALE=` | 3 | 2.2% | 15 |
+| `GET` | 26 | 19.3% | 36 |
+
+**`ONERR` is about as common as the shape tables already declined**, and
+`RESUME` does not appear at all. `GET` -- the thing a day was just spent on --
+is five times more common, which is the comparison that settles the priority.
+
+### What the twelve uses actually want
+
+Not the same thing, and the difference matters more than the count.
+
+TEXT.FILE.EDITOR is five of the twelve on its own, and every one is
+`ONERR GOTO n: REM ON ANY ERRORS ...` whose handler closes a file or
+decrements a counter. **It never reads an error code.** CONFIGURE and ME read
+`PEEK(222)`, the code -- CONFIGURE to tell the user the disk is
+write-protected, which is a real thing a real program should do.
+
+**One program in 135** wants `PEEK(218)/PEEK(219)`, the line the error
+happened in. That is the only part a compiled program genuinely cannot
+answer, and it is wanted by 0.7% of the sample.
+
+### ALPHA, which is why the decision was easy
+
+ALPHA is the program off the card that wanted this:
+
+    150 REM
+    160 ERR = PEEK (22)
+    170 IF ERR = 53 GOTO 50
+    180 IF ERR = 91 GOTO 50
+    190 END
+
+`PEEK(22)` is `$16`. **The error code lives at 222.** ALPHA reads an address
+that holds no error code, so `ERR` is whatever is in zero page, the two tests
+that would send it back to the input prompt essentially never match, and it
+falls through to `END`. It does not need a faithful `ONERR`; it needs one to
+exist. Under any implementation, that program stops. (Its `PI` is 3.14195.)
+
+### What would have been involved
+
+Not nothing. A compiled program already handles ROM-raised errors properly --
+`1/0` prints `?DIVISION BY ZERO ERROR` and returns cleanly to the prompt --
+but Applesoft's `ONERR` resumes by pointing `TXTPTR` at the handler's position
+**in the program source**, and a compiled program has not got any. Whether the
+ROM's handler can be redirected at a compiled address is a measurement nobody
+has made here, and it was not worth making for 3.7%.
+
+So `ONERR` stays refused by name and line, as `STATEMENT NOT YET`, which is
+the truth. If somebody complains, the survey above says what a useful version
+would need: the jump, and `PEEK(222)`. Not the line number.
