@@ -2589,3 +2589,82 @@ whatever the last run left -- the first version of the test read uninitialised
 memory and disagreed with the interpreter for a reason that had nothing to do
 with the compiler. It also prints `A`, `B$` and `Q(1)` before assigning them,
 so the run after a `RUN` proves the clear as well as the jump.
+
+## EMHGC, written as data at last
+
+The collector's emitter was the last one still written as `lda #x : jsr EMIT`
+pairs -- five bytes of compiler for every byte of program, 186 times. As a
+blob it is one byte each, and the image went from 28,661 to 27,867: **794
+bytes**, which is what paid for numeric `GET` and leaves room for what comes
+after.
+
+**The blob was generated, not transcribed.** A script reads the emitter's own
+source, walks it into a token stream -- byte, SCRA offset, variable, SETRUN,
+PC capture -- and writes the `dfb` runs and their WHAT tables from that. Its
+count came out at 251 emitted bytes plus two thirteen-byte `SETRUN`s, and the
+note at the top of `EMBLOB` says this routine emits "about 277". 251 + 26 is
+277. Two independent counts agreeing is worth more than reading the listing
+twice.
+
+**Five runs, because three things cannot be a byte in a blob.** The two
+`SETRUN`s emit thirteen bytes apiece. The two `PC` captures record where the
+byte *about to be written* will land -- the allocator's floor, high half and
+low -- and a copier that has already written it cannot say where it went.
+Everything between those four points is data.
+
+`HRUNA`, `HGC` and `FINPC` are named through `BVARS` now rather than loaded.
+`HGC` is the one carrying an offset, `$0a` into the collector, which is the
+marker kind that eats the following table byte -- the kind that exists exactly
+so one helper can branch into the middle of another.
+
+### The proof is not a test
+
+Three string-heavy programs were compiled before the change and kept. After
+it, `CGC`, `CSGC` and `CSTRINGS` came back **byte for byte identical**. A
+converted emitter either writes the same program or it does not; if it does,
+there is nothing left for a runtime test to discover. The suite ran anyway --
+71 of 71 -- but the comparison is what settles it.
+
+## A numeric GET
+
+`GET A` was refused because nobody had established what it does. A //e says:
+`7` gives `A=7` and echoes nothing, and `X`, a space or `RETURN` stops the
+program on `?SYNTAX ERROR` -- **with no `IN` line**, which is why the compiled
+message carries none either. That last detail would not have been guessed.
+
+The key comes back, loses its high bit, has `'0'` taken off it, and one
+unsigned compare against `$0A` covers both ends: a key below `'0'` wraps past
+ten exactly as one above `'9'` passes it.
+
+    JSR RDKEY / AND #$7F / SEC / SBC #'0' / CMP #$0A / BCC +7
+    LDA #<MSYN / LDY #>MSYN / JMP HERR          <- the seven
+    ...the digit as a float, and the store
+
+**The branch is a fixed seven bytes** -- two loads and a jump -- so it does not
+depend on what the store below compiles to. Writing it the other way round,
+with the error last, would have made the offset depend on `EMSTP`.
+
+`?SYNTAX ERROR` is planted like the other runtime messages and only when a
+numeric `GET` asked for it, on a bit of `USES3`; it reports through `HERR`, so
+`HERR` is now wanted by a program that neither builds strings nor `READ`s.
+`GET A%` is still refused -- the integer store is a different one -- and its
+message says `NO INTEGER GET YET` rather than the `GET WANTS A STRING` that
+numbers had just made false.
+
+### And the convention, broken again
+
+The first version compiled `GET A` into `STATEMENT NOT YET`, reported against
+a line whose statement was perfectly good.
+
+`GETNAME` stops on the first byte that is not part of a name **and keeps it**.
+For `A$` that byte is the `$`, so the line's terminator is still unread and
+the statement loop finds it -- which is why the string path returns without a
+`PUTBACK` and always has. For a bare `A` the byte it kept *is* the terminator,
+and returning without handing it back sent the loop reading into the next
+line's link bytes, which it dutifully tried to compile.
+
+This is the same fault, in the same file, as the four handlers that opened
+with a `jsr NEXTB` to consume a token `GENSTMT` had already consumed -- and
+the rule written down then was **check the convention against a caller that
+already works**. The caller that already works was eighty lines up in the same
+routine.

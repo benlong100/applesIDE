@@ -152,7 +152,7 @@ STOPPED IN 70: NO SUCH LINE
 The absences worth knowing about are `ONERR GOTO` and `RESUME`, integer
 arrays (`A%(n)`), the shape-table statements (`DRAW`, `XDRAW`, `ROT=`,
 `SCALE=`, `SHLOAD`), `HIMEM:`, `IN#`, `WAIT`, `TRACE`, `USR` and `&`, and
-`GET` of a number rather than a character. `SAVE` is recognised and refused:
+`GET` into an integer variable. `SAVE` is recognised and refused:
 a bare `SAVE` writes the BASIC program to tape, and a compiled program has
 none to write.
 

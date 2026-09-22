@@ -672,7 +672,7 @@ BADDEFB      asc   "DEF FN BODY"
              dfb   $00
 BADSDESC     asc   "TOO MANY STRINGS AT ONCE"
              dfb   $00
-BADGET       asc   "GET WANTS A STRING"
+BADGET       asc   "NO INTEGER GET YET"
              dfb   $00
 BADPRIM      asc   "CANNOT READ THAT"
              dfb   $00

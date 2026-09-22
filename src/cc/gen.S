@@ -838,6 +838,13 @@ MSGDATA2     asc   "?OUT OF DATA ERROR"
 MSGLONG      asc   "?STRING TOO LONG ERROR"
              dfb   $00
 
+*--- WHAT A NUMERIC GET SAYS when the key is not a digit. Established on a
+*    //e: `GET A` with 7 gives A=7 and echoes nothing, and with X or with
+*    RETURN it stops on ?SYNTAX ERROR -- with no IN line, which is why this
+*    carries none.
+MSGSYN       asc   "?SYNTAX ERROR"
+             dfb   $00
+
 *--- Both carry their own return: what follows them is a fresh prompt.
 MSGREENT     asc   "?REENTER"
              dfb   $8d
@@ -1576,479 +1583,106 @@ EMHSTR       lda   #$20
 * The copy runs high to low: the destination is at or above the source, and a
 * block moved upward over itself has to be copied from its end.
 *--------------------------------------
-EMHGC        lda   #$a5
-             jsr   EMIT
-             lda   #$73
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$06
-             jsr   EMSCOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #$74
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$07
-             jsr   EMSCOFS
-             lda   #$a9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$0a
-             jsr   EMSCOFS
-             lda   #$8d
-             jsr   EMIT
-             lda   #$0b
-             jsr   EMSCOFS
-*--- WHERE THE ROOTS BEGIN, and how many: SETRUN now says, because there is
-*    more than one run of them. THIRTEEN BYTES EXACTLY, the same as the three
-*    immediate loads this replaces, so every branch offset below is untouched.
+EMHGC        lda   #HGCB1E-HGCB1
+             sta   BLOBN
+             lda   #<HGCB1
+             ldy   #>HGCB1
+             jsr   EMBLOB
              jsr   EMSETRUN
-             lda   #$a0
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$f0
-             jsr   EMIT
-             lda   #$4e
-             jsr   EMIT
-             lda   #$c8
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$c8
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$c9
-             jsr   EMIT
-
-*--- WHERE THIS BYTE LANDS, recorded as it is written rather than worked out
-*    from a count. It is the high half of the allocator's floor -- the address
-*    the string heap must not grow below -- and a runtime DIM moves that floor
-*    up as it takes memory for an array. Two hand-counted attempts at modelling
-*    this routine's layout both came out wrong; asking PC at the moment of
-*    emission cannot.
+             lda   #HGCB2E-HGCB2
+             sta   BLOBN
+             lda   #<HGCB2
+             ldy   #>HGCB2
+             jsr   EMBLOB
              lda   PC
              sta   HBNDHI
              lda   PC+1
              sta   HBNDHI+1
-             lda   FINPC+1
-             jsr   EMIT
-             lda   #$90
-             jsr   EMIT
-             lda   #$3e
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$06
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$c9
-             jsr   EMIT
-             lda   PC               ; and the low half, the same way
+             lda   #HGCB3E-HGCB3
+             sta   BLOBN
+             lda   #<HGCB3
+             ldy   #>HGCB3
+             jsr   EMBLOB
+             lda   PC
              sta   HBNDLO
              lda   PC+1
              sta   HBNDLO+1
-             lda   FINPC
-             jsr   EMIT
-             lda   #$90
-             jsr   EMIT
-             lda   #$36
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$07
-             jsr   EMSCOFS
-             lda   #$90
-             jsr   EMIT
-             lda   #$09
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$2d
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$06
-             jsr   EMSCOFS
-             lda   #$b0
-             jsr   EMIT
-             lda   #$26
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$0b
-             jsr   EMSCOFS
-             lda   #$90
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$09
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$0a
-             jsr   EMSCOFS
-             lda   #$90
-             jsr   EMIT
-             lda   #$16
-             jsr   EMIT
-             lda   #$f0
-             jsr   EMIT
-             lda   #$14
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$0a
-             jsr   EMSCOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$0b
-             jsr   EMSCOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$08
-             jsr   EMSCOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$09
-             jsr   EMSCOFS
-             lda   #$18
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$69
-             jsr   EMIT
-             lda   #$03
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$90
-             jsr   EMIT
-             lda   #$02
-             jsr   EMIT
-             lda   #$e6
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-*--- one descriptor fewer, and on to the next run when this one is spent.
-*    A JSR is three bytes, exactly as the DEC it replaces was, so the BNE
-*    that follows still reaches back to the top of the walk.
-             lda   #$20             ; JSR MORE
-             jsr   EMIT
-             lda   HRUNA
-             jsr   EMIT
-             lda   HRUNA+1
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$9c
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$0a
-             jsr   EMSCOFS
-             lda   #$0d
-             jsr   EMIT
-             lda   #$0b
-             jsr   EMSCOFS
-             lda   #$f0
-             jsr   EMIT
-             lda   #$7d
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$08
-             jsr   EMSCOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$09
-             jsr   EMSCOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-             lda   #$a0
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$0c
-             jsr   EMSCOFS
-             lda   #$ad
-             jsr   EMIT
-             lda   #$06
-             jsr   EMSCOFS
-             lda   #$38
-             jsr   EMIT
-             lda   #$ed
-             jsr   EMIT
-             lda   #$0c
-             jsr   EMSCOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$07
-             jsr   EMSCOFS
-             lda   #$e9
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$0a
-             jsr   EMSCOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1c
-             jsr   EMIT
-             lda   #$ad
-             jsr   EMIT
-             lda   #$0b
-             jsr   EMSCOFS
-             lda   #$85
-             jsr   EMIT
-             lda   #$1d
-             jsr   EMIT
-             lda   #$ac
-             jsr   EMIT
-             lda   #$0c
-             jsr   EMSCOFS
-             lda   #$88
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1c
-             jsr   EMIT
-             lda   #$91
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$c0
-             jsr   EMIT
-             lda   #$00
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$f7
-             jsr   EMIT
-*--- WHERE THE ROOTS BEGIN, and how many: SETRUN now says, because there is
-*    more than one run of them. THIRTEEN BYTES EXACTLY, the same as the three
-*    immediate loads this replaces, so every branch offset below is untouched.
+             lda   #HGCB4E-HGCB4
+             sta   BLOBN
+             lda   #<HGCB4
+             ldy   #>HGCB4
+             jsr   EMBLOB
              jsr   EMSETRUN
-             lda   #$a0
-             jsr   EMIT
-             lda   #$01
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$0a
-             jsr   EMSCOFS
-             lda   #$d0
-             jsr   EMIT
-             lda   #$13
-             jsr   EMIT
-             lda   #$c8
-             jsr   EMIT
-             lda   #$b1
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$cd
-             jsr   EMIT
-             lda   #$0b
-             jsr   EMSCOFS
-             lda   #$d0
-             jsr   EMIT
-             lda   #$0b
-             jsr   EMIT
-             lda   #$a0
-             jsr   EMIT
-             lda   #$01
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$91
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$c8
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$91
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$18
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$69
-             jsr   EMIT
-             lda   #$03
-             jsr   EMIT
-             lda   #$85
-             jsr   EMIT
-             lda   #$1a
-             jsr   EMIT
-             lda   #$90
-             jsr   EMIT
-             lda   #$02
-             jsr   EMIT
-             lda   #$e6
-             jsr   EMIT
-             lda   #$1b
-             jsr   EMIT
-*--- one descriptor fewer, and on to the next run when this one is spent.
-*    A JSR is three bytes, exactly as the DEC it replaces was, so the BNE
-*    that follows still reaches back to the top of the walk.
-             lda   #$20             ; JSR MORE
-             jsr   EMIT
-             lda   HRUNA
-             jsr   EMIT
-             lda   HRUNA+1
-             jsr   EMIT
-             lda   #$d0
-             jsr   EMIT
-             lda   #$d4
-             jsr   EMIT
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1e
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$06
-             jsr   EMSCOFS
-             lda   #$a5
-             jsr   EMIT
-             lda   #$1f
-             jsr   EMIT
-             lda   #$8d
-             jsr   EMIT
-             lda   #$07
-             jsr   EMSCOFS
-             lda   #$4c
-             jsr   EMIT
-             lda   HGC
-             clc
-             adc   #$0a
-             sta   TMPP
-             lda   HGC+1
-             adc   #$00
-             sta   TMPP+1
-             jsr   EMADDR
-             lda   #$ad
-             jsr   EMIT
-             lda   #$06
-             jsr   EMSCOFS
-             lda   #$8d
-             jsr   EMIT
-             lda   #$01
-             jsr   EMSCOFS
-             lda   #$ad
-             jsr   EMIT
-             lda   #$07
-             jsr   EMSCOFS
-             lda   #$8d
-             jsr   EMIT
-             lda   #$02
-             jsr   EMSCOFS
-             lda   #$60
-             jmp   EMIT
+             lda   #HGCB5E-HGCB5
+             sta   BLOBN
+             lda   #<HGCB5
+             ldy   #>HGCB5
+             jmp   EMBLOB
+
+*--- WRITTEN AS DATA AND COPIED, not as 186 `lda #x : jsr EMIT` pairs. That
+*    cost five bytes of compiler for each byte of program and made this the
+*    largest thing in the image by a wide margin. FIVE RUNS, because three
+*    things interrupt the copy and none of them can be a byte in a blob: the
+*    two SETRUNs, which emit thirteen bytes apiece, and the two points where
+*    PC is captured to say where the byte about to be written will land.
+*
+*    HRUNA, HGC and FINPC are named through BVARS now rather than loaded
+*    here. HGC is the one that carries an offset -- $0a into the collector,
+*    the entry a full heap jumps back to -- which is the marker kind that
+*    eats the following table byte.
+
+HGCB1
+             dfb   $a5,$73,$8d,$ff,$a5,$74,$8d,$ff
+             dfb   $a9,$00,$8d,$ff,$8d,$ff
+HGCB1E
+             dfb   $46,$47,$4a,$4b
+
+HGCB2
+             dfb   $a0,$00,$b1,$1a,$f0,$4e,$c8,$b1
+             dfb   $1a,$85,$1e,$c8,$b1,$1a,$85,$1f
+             dfb   $a5,$1f,$c9
+HGCB2E
+
+HGCB3
+             dfb   $ff,$90,$3e,$d0,$06,$a5,$1e,$c9
+HGCB3E
+             dfb   $e5
+
+HGCB4
+             dfb   $ff,$90,$36,$a5,$1f,$cd,$ff,$90
+             dfb   $09,$d0,$2d,$a5,$1e,$cd,$ff,$b0
+             dfb   $26,$a5,$1f,$cd,$ff,$90,$1f,$d0
+             dfb   $09,$a5,$1e,$cd,$ff,$90,$16,$f0
+             dfb   $14,$a5,$1e,$8d,$ff,$a5,$1f,$8d
+             dfb   $ff,$a5,$1a,$8d,$ff,$a5,$1b,$8d
+             dfb   $ff,$18,$a5,$1a,$69,$03,$85,$1a
+             dfb   $90,$02,$e6,$1b,$20,$ff,$d0,$9c
+             dfb   $ad,$ff,$0d,$ff,$f0,$7d,$ad,$ff
+             dfb   $85,$1a,$ad,$ff,$85,$1b,$a0,$00
+             dfb   $b1,$1a,$8d,$ff,$ad,$ff,$38,$ed
+             dfb   $ff,$85,$1e,$ad,$ff,$e9,$00,$85
+             dfb   $1f,$ad,$ff,$85,$1c,$ad,$ff,$85
+             dfb   $1d,$ac,$ff,$88,$b1,$1c,$91,$1e
+             dfb   $c0,$00,$d0,$f7
+HGCB4E
+             dfb   $c5,$47,$46,$4b,$4a,$4a,$4b,$48
+             dfb   $49,$86,$4a,$4b,$48,$49,$4c,$46
+             dfb   $4c,$47,$4a,$4b,$4c
+
+HGCB5
+             dfb   $a0,$01,$b1,$1a,$cd,$ff,$d0,$13
+             dfb   $c8,$b1,$1a,$cd,$ff,$d0,$0b,$a0
+             dfb   $01,$a5,$1e,$91,$1a,$c8,$a5,$1f
+             dfb   $91,$1a,$18,$a5,$1a,$69,$03,$85
+             dfb   $1a,$90,$02,$e6,$1b,$20,$ff,$d0
+             dfb   $d4,$a5,$1e,$8d,$ff,$a5,$1f,$8d
+             dfb   $ff,$4c,$ff,$ad,$ff,$8d,$ff,$ad
+             dfb   $ff,$8d,$ff,$60
+HGCB5E
+             dfb   $4a,$4b,$86,$46,$47,$a7,$0a,$46
+             dfb   $41,$47,$42
+
+
 
 *--------------------------------------
 * EMHALLOC -- take bytes off the top of the heap, collecting if it must
@@ -3473,6 +3107,17 @@ GENPASS      lda   #$00
              jsr   EMMSG
 
 :nohmsg
+             lda   USES3            ; a numeric GET has a message of its
+             and   #$04             ; own, string program or not
+             beq   :nosyn
+             lda   PC
+             sta   MSYN
+             lda   PC+1
+             sta   MSYN+1
+             lda   #<MSGSYN
+             ldy   #>MSGSYN
+             jsr   EMMSG
+:nosyn
 *--- THE ERROR EXIT IS NOT THE HEAP'S ALONE. Running out of DATA reports
 *    through it too, so it is wanted by any program that READs -- and one
 *    that READs without ever building a string left it unemitted. The JMP
@@ -3487,6 +3132,9 @@ GENPASS      lda   #$00
              and   #$40
              bne   :wanterr
              lda   FDATA
+             bne   :wanterr
+             lda   USES3            ; a numeric GET stops through HERR too
+             and   #$04
              beq   :noerr
 :wanterr     lda   PC
              sta   HERR
@@ -5485,9 +5133,9 @@ GHPLOT
 * It is written where HICOPY reads from -- the input buffer at $0200 -- so the
 * copier that INPUT already carries does the allocating.
 *
-* A numeric GET is refused. Applesoft takes the key as a digit and complains
-* if it is not one, and a compiler that quietly did something else with it
-* would be worse than one that says so.
+* A NUMERIC GET takes the key as a digit and complains if it is not one, which
+* is what Applesoft does -- see the note at :notstr. GET A% is still refused:
+* the integer store is a different one and nothing on the card wants it.
 *--------------------------------------
 GGET
              jmp   :go
@@ -5574,7 +5222,84 @@ GGET
              jsr   EMSDESC
              clc
              rts
-:notstr      lda   #$25             ; GET WANTS A STRING
+*--- A NUMBER, WHICH IS ONE DIGIT AND NOTHING ELSE. Established on a //e:
+*    `GET A` with 7 leaves A=7 and echoes nothing, and anything that is not a
+*    digit -- a letter, a space, RETURN -- stops the program on ?SYNTAX ERROR.
+*    So the key comes back, loses its high bit, and has '0' taken off it; one
+*    unsigned compare then covers both ends at once, because a key below '0'
+*    wraps past $0A just as one above '9' passes it.
+*
+*    THE BRANCH OVER THE ERROR IS A FIXED SEVEN BYTES -- two loads and a jump
+*    -- and does not depend on what the store below turns out to be.
+:notstr      lda   CH
+             cmp   #'%'
+             bne   :num             ; the complaint is past the whole emission
+             jmp   :noint
+:num         jsr   GETVAR2
+             bcc   :ok
+             jmp   :bad
+:ok          lda   VARI
+             sta   TMPA
+
+             lda   #$04             ; this program wants ?SYNTAX ERROR
+             jsr   NEED3
+
+             lda   #$20             ; JSR RDKEY
+             jsr   EMIT
+             lda   #<RDKEY
+             jsr   EMIT
+             lda   #>RDKEY
+             jsr   EMIT
+             lda   #$29             ; AND #$7F
+             jsr   EMIT
+             lda   #$7f
+             jsr   EMIT
+             lda   #$38             ; SEC
+             jsr   EMIT
+             lda   #$e9             ; SBC #'0'
+             jsr   EMIT
+             lda   #$30
+             jsr   EMIT
+             lda   #$c9             ; CMP #$0A -- 0 to 9 and nothing else
+             jsr   EMIT
+             lda   #$0a
+             jsr   EMIT
+             lda   #$90             ; BCC over the complaint
+             jsr   EMIT
+             lda   #$07
+             jsr   EMIT
+             lda   #$a9             ; LDA #<MSYN
+             jsr   EMIT
+             lda   MSYN
+             jsr   EMIT
+             lda   #$a0             ; LDY #>MSYN
+             jsr   EMIT
+             lda   MSYN+1
+             jsr   EMIT
+             lda   #$4c             ; JMP HERR
+             jsr   EMIT
+             lda   HERR
+             jsr   EMIT
+             lda   HERR+1
+             jsr   EMIT
+
+             jsr   EMBYTEFAC        ; the digit, as a float
+             bcs   :bad
+             jsr   VADDR
+             jsr   EMSTP
+
+*--- AND HAND THE TERMINATOR BACK. GETNAME stops on the first byte that is
+*    not part of a name and keeps it. For A$ that byte is the $, so the line's
+*    terminator is still unread and the statement loop finds it -- which is
+*    why the string path above returns without this. For a bare A it IS the
+*    terminator, and returning without putting it back sent the loop reading
+*    into the next line's link bytes, which it duly reported as STATEMENT NOT
+*    YET in a line whose statement was perfectly good.
+             jsr   PUTBACK
+             clc                    ; EMIT's carry is set in pass 3
+             rts
+
+:noint       lda   #$25             ; GET: NOT AN INTEGER VARIABLE
              jsr   SETBAD
 :bad         sec
              rts
@@ -10973,6 +10698,9 @@ BVARS        da    MLONG
              da    HALLOC
              da    HINPUT
              da    HNEXTI
+             da    FINPC            ; 5 -- added for EMHGC
+             da    HRUNA            ; 6
+             da    HGC              ; 7
 
 *--- LDA #lo / LDY #hi / JSR (ROMA)
 EMOPA        lda   #$a9
@@ -11775,6 +11503,7 @@ MEXTRA       ds    2
 HICOPY       ds    2
 INPPC        ds    2                ; where this INPUT began, for ?REENTER
 MOOM         ds    2                ; where the two messages landed
+MSYN         ds    2                ; and where a numeric GET's went
 MLONG        ds    2
 SLICEF       ds    1                ; which of the three is being compiled
 SCRA         ds    2                ; where the runtime's scratch begins
