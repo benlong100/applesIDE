@@ -1084,7 +1084,11 @@ MSGCODE      asc   "CODE "
              dfb   $00
 MSGSRC       asc   "COMPILE WHICH FILE? "
              dfb   $00
-MSGKEY       asc   "PRESS A KEY"
+*--- A BLANK LINE IN FRONT OF IT. This is the last thing on a screen already
+*    full of counts and addresses, and against all of that it was being read
+*    as one more line of the report rather than as the prompt it is.
+MSGKEY       dfb   $8d
+             asc   "PRESS A KEY"
              dfb   $8d,$00
 MSGLINES     asc   "LINES: "
              dfb   $00

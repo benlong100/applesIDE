@@ -1381,6 +1381,43 @@ Deliberately NOT shared with the numeric multi-subscript code. That path works
 and `dim2`/`dim3` prove it; factoring it to serve both would have put the
 working case at risk to save bytes that were not needed.
 
+## A count that was narrower than the field it went in
+
+WORDS.WORTH was refused with TOO MANY STRINGS AT ONCE, reported against
+
+    3099 END
+
+which is not where the trouble was. It is a LAYOUT limit, raised against the
+last line seen, and what caused it sits at the top of the program:
+
+    DIM W$(1000)
+
+The collector walks runs of string descriptors out of a table, and **each
+run's count in that table has always been two bytes** -- the caller emitted a
+`$00` after the count as "room for more". But the sum was worked out in ONE,
+so LAYOUT refused any program whose roots passed 255 rather than emit a count
+that had wrapped. A collector that walks 148 of 404 roots moves a string out
+from under the other 256, so the refusal was right; the arithmetic behind it
+was not.
+
+It is sixteen bits now and the refusal is gone. A dynamic `DIM A$(N)` has
+always written that field as sixteen bits -- `HSDIMB` stores both halves -- so
+the collector's walker already read it that way. The fix was making the static
+path agree with the dynamic one, and it cost nothing: the check it removed was
+bigger than the arithmetic it added.
+
+It also took out a latent bug. The old version added twice with a `CLC` in
+front of **each**, throwing away the carry out of the first -- harmless while
+the total could not exceed a byte anyway, and wrong the moment it could.
+
+**The regression test took two goes, and the first one lied.** `bigsarr`
+originally filled 401 elements and passed even with the bug deliberately put
+back: 404 roots truncating to 148 only loses strings if a collection actually
+RUNS, and with short strings it never did. The version that counts forces real
+heap pressure -- 401 strings of twenty characters, concatenated four times
+over -- and fails with the one-byte count while passing with sixteen. A test
+that does not fail against the bug is not a test of it.
+
 ## Straight from the editor: OA-B
 
 The editor hands the document to the compiler and gets you back, which is the

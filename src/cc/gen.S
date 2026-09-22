@@ -453,11 +453,41 @@ EMSCOFS      clc
 *    which is why LAYOUT refuses a program whose total passes 255 rather than
 *    emitting a count that has wrapped -- a collector that walks 3 of 259
 *    descriptors would move a string out from under the other 256.
+*--------------------------------------
+* EMNDESC -- how many roots the collector has, as TWO bytes
+*
+* SDA and SDB, every string variable, and every element of every array of
+* strings. The field in the run table has always been two bytes wide -- the
+* caller used to emit a zero after this for "room for more" -- but the sum
+* was worked out in one, and LAYOUT refused any program whose roots passed
+* 255 rather than emit a count that had wrapped.
+*
+* WORDS.WORTH says DIM W$(1000), which is 1001 of them, and was refused for
+* it. The arithmetic is sixteen bits now and the refusal is gone; a dynamic
+* DIM has always written this field as sixteen bits, so the collector's walker
+* already reads it that way.
+*
+* The old version added twice with a CLC in front of each, which threw away
+* the carry out of the first -- harmless while the total could not exceed a
+* byte anyway, and wrong the moment it could.
+*--------------------------------------
 EMNDESC      lda   NSVARS
              clc
              adc   #$02
+             sta   ABTMP
+             lda   #$00
+             adc   #$00
+             sta   ABTMP+1
+             lda   ABTMP
              clc
              adc   NSAEL
+             sta   ABTMP
+             lda   ABTMP+1
+             adc   NSAEL+1
+             sta   ABTMP+1
+             lda   ABTMP
+             jsr   EMIT
+             lda   ABTMP+1
              jmp   EMIT
 
 *--- emit an absolute address of SDESCA + A
@@ -3153,9 +3183,7 @@ GENPASS      lda   #$00
              jsr   EMIT
              lda   ABTMP+1
              jsr   EMIT
-             jsr   EMNDESC          ; how many, as a byte...
-             lda   #$00             ; ...and its high half, room for more
-             jsr   EMIT
+             jsr   EMNDESC          ; how many, both halves
              lda   NSDYN
              sta   ABI
              beq   :runz
@@ -11410,20 +11438,10 @@ LAYOUT       lda   ORG              ; past the JMP at the front
 *--- and past the roots, everything else the string runtime works in:
 *    MID$'s start, the heap pointer, the join's destination and length, and
 *    the collector's own five.
-*--- THE COLLECTOR COUNTS ITS ROOTS IN ONE BYTE. Two, plus the string
-*    variables, plus every element of every array of strings.
-             lda   NSAEL+1
-             bne   :toomany
-             lda   NSAEL
-             clc
-             adc   NSVARS
-             bcs   :toomany
-             adc   #$02
-             bcs   :toomany
-             jmp   :roomok
-:toomany     lda   #$24             ; TOO MANY STRINGS AT ONCE
-             jsr   SETBAD
-:roomok
+*--- THE COLLECTOR COUNTS ITS ROOTS IN TWO BYTES now, so there is no ceiling
+*    here to check against. The memory guard further down is what stops a
+*    program whose strings will not fit; this used to stop one whose strings
+*    merely could not be COUNTED.
              lda   TMPP
              sta   SCRA
              lda   TMPP+1
