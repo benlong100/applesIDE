@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ApplesIDE</title>
+<meta name="description" content="An Applesoft editor for the Enhanced Apple //e, and a compiler for what you write in it. Five to twelve times faster, same answers. Free, and both fit on one disk.">
+<meta property="og:title" content="ApplesIDE">
+<meta property="og:description" content="An Applesoft editor for the Enhanced Apple //e, and a compiler for what you write in it. Five to twelve times faster, same answers. Free, and both fit on one disk.">
+<meta property="og:image" content="assets/editor.jpg">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23050806'/%3E%3Crect x='6' y='9' width='20' height='5' fill='%233bffa8'/%3E%3Crect x='6' y='18' width='13' height='5' fill='%233bffa8'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap">
+<style>
+/* ApplesIDE -- the same sheet of magazine stock ZipEdit was printed on, c.
+   1986. Deliberately single-theme: the subject is a printed page, and a dark
+   mode would be a different object entirely. Every colour is painted
+   explicitly so the page holds on any host background. */
+:root {
+  --paper:      #f2efe6;   /* aged coated stock, cooler than cream */
+  --paper-deep: #e9e5d9;   /* the same sheet, in shadow */
+  --ink:        #14110d;   /* warm printing black */
+  --ink-soft:   #4a453c;   /* second-colour body, fine print */
+  --ink-faint:  #7c7466;
+  --rule:       #c9c2b2;   /* hairline */
+  --phosphor:   #3bffa8;   /* measured off the //e screenshots */
+  --crt:        #050806;
+  --a-green:  #61bb46;  --a-yellow: #fdb827;  --a-orange: #f5821f;
+  --a-red:    #e03a3e;  --a-purple: #963d97;  --a-blue:   #009ddc;
+
+  --serif: "EB Garamond", Garamond, "Hoefler Text", "Times New Roman", serif;
+  --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --measure: 1080px;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.5;
+  font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
+  text-rendering: optimizeLegibility;
+}
+
+img { max-width: 100%; height: auto; display: block; }
+
+a { color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--a-blue);
+  outline-offset: 3px;
+}
+
+.page {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 0 clamp(1.25rem, 4vw, 3rem) 4rem;
+}
+
+/* --- the six-colour rule across the top: the only page chrome ---------- */
+.spectrum {
+  display: flex;
+  height: 6px;
+}
+.spectrum span { flex: 1; }
+
+/* --- masthead ---------------------------------------------------------- */
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 1.5rem 0 0;
+  font-size: 0.76rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.masthead .issue { font-variant-numeric: tabular-nums; }
+
+/* --- hero ---------------------------------------------------------------
+   ZipEdit's hero is a photograph of the machine. This one is the screen
+   itself, because the whole point of the product is what is ON the screen --
+   so it is framed as a plate rather than knocked out on the paper. */
+.hero {
+  margin: clamp(1rem, 3vw, 2.25rem) auto 0;
+  max-width: 820px;
+}
+.hero img {
+  border: 1px solid var(--ink);
+  background: var(--crt);
+  width: 100%;
+}
+
+/* --- headline ---------------------------------------------------------- */
+.headline {
+  margin: 0.55em 0 0;
+  font-weight: 500;
+  font-size: clamp(2.35rem, 7.4vw, 5.1rem);
+  line-height: 0.98;
+  letter-spacing: -0.018em;
+  text-align: center;
+  text-wrap: balance;
+  /* Apple set its advertising in Apple Garamond, a Garamond condensed to
+     about 80%. EB Garamond has no condensed cut, so it is squeezed here.
+     The element keeps its full width, so nothing overflows. */
+  transform: scaleX(0.94);
+  transform-origin: center;
+}
+
+.deck {
+  margin: 1.1rem auto 0;
+  max-width: 48ch;
+  text-align: center;
+  font-style: italic;
+  font-size: clamp(1.05rem, 2.1vw, 1.3rem);
+  color: var(--ink-soft);
+  text-wrap: balance;
+}
+
+.rule {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: clamp(2rem, 5vw, 3.25rem) 0;
+}
+
+/* --- three columns of justified body copy ------------------------------ */
+.copy {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0 clamp(1.5rem, 3vw, 2.6rem);
+  align-items: start;
+}
+.copy p {
+  margin: 0;
+  text-align: justify;
+  hyphens: auto;
+  text-indent: 1.15em;
+}
+.copy p:first-child,
+.copy p.flush { text-indent: 0; }
+.copy .col { display: flow-root; min-width: 0; }
+
+.copy code {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  white-space: nowrap;
+}
+
+/* --- section headings -------------------------------------------------- */
+.sect-title {
+  margin: 0 0 1.4rem;
+  font-weight: 500;
+  font-size: clamp(1.6rem, 3.6vw, 2.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.012em;
+  text-align: center;
+  text-wrap: balance;
+  transform: scaleX(0.95);
+}
+.sect-deck {
+  max-width: 54ch;
+  margin: -0.6rem auto 1.8rem;
+  text-align: center;
+  font-style: italic;
+  color: var(--ink-soft);
+  text-wrap: pretty;
+}
+
+/* --- plates: the screenshots as product photography -------------------- */
+.plates {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: clamp(1.5rem, 3.5vw, 2.75rem);
+}
+.plate { margin: 0; min-width: 0; }
+.plate img {
+  border: 1px solid var(--ink);
+  background: var(--crt);
+  width: 100%;
+}
+.plate figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.92rem;
+  font-style: italic;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+.plate b {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* --- a screen, set rather than photographed ----------------------------
+   The compiler's own report, typeset in the page instead of screenshotted.
+   It is eight lines of monospace on black and it reproduces far better at
+   this size than a picture of the same eight lines would. */
+.terminal {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--crt);
+  border: 1px solid var(--ink);
+  padding: 1.5rem 1.4rem;
+  overflow-x: auto;
+}
+.terminal pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: clamp(0.72rem, 1.9vw, 0.92rem);
+  line-height: 1.55;
+  color: var(--phosphor);
+  white-space: pre;
+}
+.terminal .dim { opacity: 0.55; }
+
+.caption {
+  max-width: 760px;
+  margin: 0.7rem auto 0;
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  text-align: center;
+  text-wrap: pretty;
+}
+
+/* --- the measurements -------------------------------------------------- */
+.bench {
+  max-width: 760px;
+  margin: clamp(1.75rem, 4vw, 2.5rem) auto 0;
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.97rem;
+}
+.bench caption {
+  caption-side: top;
+  padding-bottom: 0.7rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.bench th, .bench td {
+  padding: 0.44rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+.bench thead th {
+  border-bottom: 2px solid var(--ink);
+  font-weight: 500;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.bench th { text-align: left; font-weight: 400; }
+.bench td { text-align: right; font-variant-numeric: tabular-nums; }
+.bench tbody tr:last-child th,
+.bench tbody tr:last-child td { border-bottom: 0; }
+.bench .win { font-weight: 600; }
+
+/* --- specification list with leader dots ------------------------------- */
+.specs {
+  max-width: 640px;
+  margin: 0 auto;
+  display: grid;
+  gap: 0.55rem;
+}
+.spec {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1rem;
+}
+.spec dt { color: var(--ink-soft); }
+.spec .leader {
+  border-bottom: 1px dotted var(--rule);
+  transform: translateY(-0.25em);
+}
+.spec dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- how to get it ----------------------------------------------------- */
+.steps {
+  max-width: 660px;
+  margin: 0 auto;
+  display: grid;
+  gap: 1.1rem;
+  counter-reset: step;
+}
+.step {
+  display: grid;
+  grid-template-columns: 2.1rem 1fr;
+  gap: 0.9rem;
+  align-items: start;
+}
+.step::before {
+  counter-increment: step;
+  content: counter(step) ".";
+  font-size: 1.05rem;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.step p { margin: 0; }
+.step code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--paper-deep);
+  border: 1px solid var(--rule);
+  padding: 0.08em 0.36em;
+  white-space: nowrap;
+}
+
+/* --- the download bar, which is ApplesIDE's own status line ------------- */
+.download {
+  display: block;
+  margin: clamp(1.75rem, 4vw, 2.5rem) auto 0;
+  max-width: 860px;
+  background: var(--crt);
+  border: 1px solid var(--ink);
+  text-decoration: none;
+  overflow-x: auto;
+}
+.download .screen {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  min-width: 34rem;
+  padding: 1.6rem 1.4rem 1.1rem;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  color: var(--phosphor);
+}
+.download .cta {
+  font-size: 1.15rem;
+  letter-spacing: 0.06em;
+}
+.download .meta {
+  font-size: 0.8rem;
+  opacity: 0.75;
+  text-align: right;
+}
+.download .statusline {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+  min-width: 34rem;
+  padding: 0.3rem 1.4rem;
+  margin: 0 0.6rem 0.6rem;
+  background: var(--phosphor);
+  color: var(--crt);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.cursor {
+  display: inline-block;
+  width: 0.62em;
+  height: 1.05em;
+  margin-left: 0.18em;
+  background: var(--phosphor);
+  vertical-align: -0.16em;
+  animation: blink 1.06s steps(1, end) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.download:hover .cta,
+.download:focus-visible .cta { text-decoration: underline; text-underline-offset: 0.22em; }
+
+.note {
+  max-width: 660px;
+  margin: 1.1rem auto 0;
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  text-align: center;
+  text-wrap: pretty;
+}
+.note a {
+  color: var(--ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+.note a:hover { text-decoration-thickness: 2px; }
+
+/* --- colophon ---------------------------------------------------------- */
+.colophon { text-align: center; }
+.mark {
+  display: inline-grid;
+  gap: 2px;
+  width: 52px;
+  margin: 0 auto;
+  transform: skewX(-11deg);
+}
+.mark i { display: block; height: 6px; }
+.mark i:nth-child(1) { background: var(--a-green); }
+.mark i:nth-child(2) { background: var(--a-yellow); }
+.mark i:nth-child(3) { background: var(--a-orange); }
+.mark i:nth-child(4) { background: var(--a-red); }
+.mark i:nth-child(5) { background: var(--a-purple); }
+.mark i:nth-child(6) { background: var(--a-blue); }
+
+.wordmark {
+  margin: 0.85rem 0 0;
+  font-size: 1.15rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  text-indent: 0.34em;
+  color: var(--ink);
+}
+
+.fineprint {
+  max-width: 760px;
+  margin: 1.5rem auto 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  font-style: italic;
+  color: var(--ink-faint);
+  text-align: justify;
+  hyphens: auto;
+}
+.fineprint a { text-decoration-thickness: 1px; text-underline-offset: 0.15em; }
+
+/* --- the rest of the family ------------------------------------------- */
+.siblings {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(1.25rem, 3vw, 2.4rem);
+}
+.sibling {
+  display: block;
+  min-width: 0;
+  padding-top: 0.85rem;
+  border-top: 2px solid var(--ink);
+  text-decoration: none;
+}
+.sibling h3 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 500;
+  letter-spacing: -0.008em;
+}
+.sibling .platform {
+  margin: 0.3rem 0 0.6rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.sibling .blurb {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+.sibling .more {
+  display: inline-block;
+  margin-top: 0.7rem;
+  font-size: 0.76rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 1px;
+}
+.sibling:hover .more,
+.sibling:focus-visible .more { border-bottom-color: var(--ink); }
+
+/* --- narrow screens ---------------------------------------------------- */
+@media (max-width: 860px) {
+  .copy { grid-template-columns: 1fr; gap: 0; }
+  .copy .col + .col p:first-child { text-indent: 1.15em; }
+  .plates { grid-template-columns: 1fr; }
+  .siblings { grid-template-columns: 1fr; }
+  .headline { transform: none; }
+  .sect-title { transform: none; }
+  .download .screen { flex-direction: column; align-items: flex-start; gap: 0.75rem; min-width: 0; }
+  .download .meta { text-align: left; }
+  .download .statusline { min-width: 0; font-size: 0.72rem; gap: 0.75rem; }
+}
+
+/* Phones. A spec row is a label and a value both set in full words, and on a
+   320px screen they cannot share a line however thin the leader gets -- so the
+   row becomes two lines and the dotted leader, which has nothing left to lead,
+   goes away. The benchmark table loses its middle column for the same reason:
+   the ratio is the column anybody reads. */
+@media (max-width: 480px) {
+  .spec {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px dotted var(--rule);
+  }
+  .spec .leader { display: none; }
+  .spec dt {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .spec dd { text-align: left; font-size: 1.05rem; }
+  .step { grid-template-columns: 1.6rem 1fr; gap: 0.6rem; }
+  .step code { white-space: normal; overflow-wrap: anywhere; }
+  .fineprint { text-align: left; }
+  .bench .drop { display: none; }
+  .bench { font-size: 0.9rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor { animation: none; }
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="spectrum" aria-hidden="true">
+  <span style="background:#61bb46"></span><span style="background:#fdb827"></span><span style="background:#f5821f"></span><span style="background:#e03a3e"></span><span style="background:#963d97"></span><span style="background:#009ddc"></span>
+</div>
+
+<div class="page">
+
+  <header class="masthead">
+    <div>Introducing ApplesIDE</div>
+    <div class="issue">September 2026</div>
+  </header>
+
+  <figure class="hero">
+    <img src="assets/editor.jpg" width="1400" height="968"
+         alt="ApplesIDE showing a twenty-line Applesoft program that plots the Mandelbrot set. Keywords are drawn in inverse video, the nested FOR loops are indented, and the status line reads MANDELBROT with the cursor at line 14.">
+  </figure>
+
+  <h1 class="headline">Eleven times faster. Same program.</h1>
+
+  <p class="deck">An Applesoft editor for the Enhanced Apple&nbsp;//e — and a
+     compiler for what you write in it. Free, and the two of them fit on one
+     disk.</p>
+
+  <hr class="rule">
+
+  <div class="copy">
+    <div class="col">
+      <p>Applesoft came with an editor. It was the line number. You typed
+        <code>140</code> again and the old line 140 went away, and when you
+        wanted to see what you had written you typed <code>LIST</code> and
+        watched it go past.</p>
+      <p>ApplesIDE puts the program on the screen, all of it at once, which is
+        how every other computer had been doing it for about a decade.</p>
+      <p>It knows the language it is holding. Keywords draw inverse as you
+        type — all ninety-eight of them — and not the ones inside a string or
+        after a <code>REM</code>, which are words and not instructions. Press
+        Return and the next line number is waiting. Press <code>?</code> and
+        you get <code>PRINT</code>, exactly as Applesoft itself reads it.</p>
+    </div>
+
+    <div class="col">
+      <p>The body of a <code>FOR</code> loop is indented. Applesoft throws away
+        every space outside a string, so there is nothing to indent with and
+        nothing stored: the editor works the nesting out and draws it. Open an
+        old program and it arrives laid out, whoever typed it.</p>
+      <p><code>Open-Apple-R</code> renumbers by ten and takes every
+        <code>GOTO</code>, <code>GOSUB</code>, <code>THEN</code> and
+        <code>RUN</code> with it. If a reference is already broken it says so
+        and changes nothing, because a renumber that half works is worse than
+        no renumber at all. <code>Open-Apple-K</code> checks the same targets
+        without touching a thing.</p>
+      <p>A long line scrolls sideways rather than wrapping. Breaking a line in
+        BASIC does not reformat the program, it changes it.</p>
+    </div>
+
+    <div class="col">
+      <p>And then there is the other program on the disk.</p>
+      <p>The compiler reads the tokenised file the editor saves and writes a
+        binary you <code>BRUN</code>. On a 1MHz&nbsp;//e the benchmark programs
+        come out between five and twelve times quicker, with the same answers
+        to the last digit.</p>
+      <p>The same answers is not a claim, it is the test. Seventy-one programs
+        run twice on a real machine — once through Applesoft, once compiled —
+        and the two screens compared. What the compiler cannot do it refuses by
+        name and line number, rather than compiling something that runs and
+        quietly gives you the wrong answer.</p>
+      <p>Your authorized Apple dealer will not be able to help you with any of
+        this. There is, instead, a download button.</p>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="sect-title">Everything it does, on two pages.</h2>
+  <p class="sect-deck">Because the second-best thing an editor can do is tell
+    you what the best thing was.</p>
+
+  <div class="plates">
+    <figure class="plate">
+      <img src="assets/help1.jpg" width="1400" height="968" loading="lazy"
+           alt="ApplesIDE's help screen, page one: a bordered panel listing commands under the headings Moving, Program, Editing and Selecting.">
+      <figcaption><b>Moving and editing.</b> <code>Open-Apple-?</code> puts
+        every command over the top of your program.
+        <code>Ctrl-R</code> saves it, drops into BASIC and runs it;
+        <code>Open-Apple-B</code> hands it to the compiler instead.</figcaption>
+    </figure>
+    <figure class="plate">
+      <img src="assets/help2.jpg" width="1400" height="968" loading="lazy"
+           alt="ApplesIDE's help screen, page two: Files, Editing, Search, and a section headed IN STRINGS describing the caret convention.">
+      <figcaption><b>Files, finding, and one convention.</b> A string can hold
+        a control character the keyboard will not type: <code>^D</code> inside
+        quotes is saved as a real Ctrl-D, which is how an Applesoft program
+        talks to&nbsp;DOS.</figcaption>
+    </figure>
+  </div>
+
+  <hr class="rule">
+
+  <h2 class="sect-title">And then you compile it.</h2>
+  <p class="sect-deck">The sample on the disk plots sixteen hundred points and
+    takes fifteen iterations over each one. Interpreted, you have time to make
+    tea.</p>
+
+  <div class="terminal">
+<pre>]<span class="dim">-ASIDECC.SYSTEM</span>
+
+        ApplesIDE BASIC Compiler
+
+COMPILE WHICH FILE?  MANDELBROT
+LINES: 20
+VARIABLES: 11
+STRINGS: 1
+ARRAYS: 1
+CONSTANTS: 13
+WROTE CMANDELBROT, 2232
+
+PRESS A KEY
+
+]<span class="dim">BRUN CMANDELBROT</span><span class="cursor"></span></pre>
+  </div>
+
+  <p class="caption">Twenty lines of Applesoft in, 2,232 bytes of 6502 out, and
+    it puts you back at the prompt where you started.</p>
+
+  <table class="bench">
+    <caption>Measured on the machine at 1MHz, both sides timed the same way.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Benchmark</th>
+        <th scope="col" class="drop">Applesoft</th>
+        <th scope="col" class="drop">Compiled</th>
+        <th scope="col">Quicker by</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><th scope="row">The loop alone</th><td class="drop">33.79s</td><td class="drop">6.04s</td><td class="win">5.6&times;</td></tr>
+      <tr><th scope="row">200 lines before the target</th><td class="drop">66.73s</td><td class="drop">6.03s</td><td class="win">11.1&times;</td></tr>
+      <tr><th scope="row">30 variables before its two</th><td class="drop">38.78s</td><td class="drop">6.11s</td><td class="win">6.3&times;</td></tr>
+      <tr><th scope="row">Both, as a real program has</th><td class="drop">71.48s</td><td class="drop">6.13s</td><td class="win">11.7&times;</td></tr>
+    </tbody>
+  </table>
+
+  <p class="caption">The compiled times barely move across the four. That is
+    the whole point: what differs between those programs is Applesoft hunting
+    for a line and scanning for a variable, and compiling does not reduce that
+    work — it removes it.</p>
+
+  <hr class="rule">
+
+  <h2 class="sect-title">The particulars.</h2>
+
+  <dl class="specs">
+    <div class="spec"><dt>Computer</dt><span class="leader"></span><dd>Enhanced Apple //e, 128K</dd></div>
+    <div class="spec"><dt>Or</dt><span class="leader"></span><dd>any emulator that behaves like one</dd></div>
+    <div class="spec"><dt>Operating system</dt><span class="leader"></span><dd>ProDOS 8</dd></div>
+    <div class="spec"><dt>Display</dt><span class="leader"></span><dd>80 columns</dd></div>
+    <div class="spec"><dt>The editor</dt><span class="leader"></span><dd>19,099 bytes</dd></div>
+    <div class="spec"><dt>The compiler</dt><span class="leader"></span><dd>28,058 bytes</dd></div>
+    <div class="spec"><dt>Room for your program</dt><span class="leader"></span><dd>46K</dd></div>
+    <div class="spec"><dt>Disk</dt><span class="leader"></span><dd>one 5.25-inch, 143K, holding both</dd></div>
+    <div class="spec"><dt>Price</dt><span class="leader"></span><dd>none</dd></div>
+  </dl>
+
+  <hr class="rule">
+
+  <h2 class="sect-title">How to get it running.</h2>
+
+  <div class="steps">
+    <div class="step"><p>Download the disk image below. It is a bootable
+      ProDOS&nbsp;8 volume named APPLESIDE, with the editor, the compiler,
+      BASIC.SYSTEM and a sample program on it.</p></div>
+    <div class="step"><p>In an emulator, mount <code>APPLESIDE.po</code> in
+      drive&nbsp;1 and boot it. On real hardware, write it to a 5.25-inch disk
+      or drop it on the card your Floppy&nbsp;Emu or CFFA3000 reads.</p></div>
+    <div class="step"><p>Press any key at the splash screen and start typing.
+      <code>Open-Apple-?</code> shows you everything else.</p></div>
+    <div class="step"><p>To see what the fuss is about, open
+      <code>MANDELBROT</code> with <code>Open-Apple-O</code>, run it with
+      <code>Ctrl-R</code>, and wait. Then compile it with
+      <code>Open-Apple-B</code> and <code>BRUN CMANDELBROT</code>.</p></div>
+  </div>
+
+  <a class="download" href="https://github.com/benlong100/applesIDE/releases">
+    <span class="screen">
+      <span class="cta">DOWNLOAD APPLESIDE<span class="cursor"></span></span>
+      <span class="meta">APPLESIDE.po &middot; 143K<br>editor, compiler, BASIC.SYSTEM and a sample</span>
+    </span>
+    <span class="statusline">
+      <span>MANDELBROT</span>
+      <span>L:1&nbsp;&nbsp;C:1</span>
+      <span>46K FREE</span>
+      <span>&#8984;-? HELP</span>
+    </span>
+  </a>
+
+  <p class="note">Free, and always will be, under the MIT licence. If it saves
+    you an afternoon of typing <code>LIST</code>, that is payment enough.<br>
+    The source — editor, compiler and the notes on how both were arrived at —
+    is <a href="https://github.com/benlong100/applesIDE">on GitHub</a>.</p>
+
+  <hr class="rule">
+
+  <h2 class="sect-title">Also from Tromping Marmots.</h2>
+
+  <div class="siblings">
+    <a class="sibling" href="https://trompingmarmots.com/AppSites/ZipEdit/index.html">
+      <h3>ZipEdit</h3>
+      <p class="platform">Apple //e &amp; ][+ &middot; Free</p>
+      <p class="blurb">The Markdown editor this one is built on. Eighty columns
+        of green text, a cursor, and a status line — and it writes an ordinary
+        text file with only the line breaks you actually typed.</p>
+      <span class="more">Have a look</span>
+    </a>
+    <a class="sibling" href="https://trompingmarmots.com/AppSites/TrackOTron/index.html">
+      <h3>Track-O-Tron</h3>
+      <p class="platform">iPhone &middot; Free</p>
+      <p class="blurb">The GPS track recorder that remembers where you went.
+        Distance, time, altitude and speed, with the phone in your pocket and
+        the screen locked. Nothing leaves the device.</p>
+      <span class="more">Have a look</span>
+    </a>
+    <a class="sibling" href="https://trompingmarmots.com/AppSites/TimelineOTron/index.html">
+      <h3>Timeline-O-Tron</h3>
+      <p class="platform">Mac, iPhone &amp; iPad</p>
+      <p class="blurb">History deserves better than a bullet list. Build
+        timelines worth looking at, keep them in step across your devices, and
+        export them when they are ready to be seen.</p>
+      <span class="more">Have a look</span>
+    </a>
+  </div>
+
+  <hr class="rule">
+
+  <footer class="colophon">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <p class="wordmark">ApplesIDE</p>
+    <p class="fineprint">
+      ApplesIDE, September 2026. An Applesoft editor and a native Applesoft
+      compiler, written in 6502 assembly for the Enhanced Apple&nbsp;//e and
+      released free of charge under the MIT licence. Apple, the Apple logo,
+      Apple&nbsp;//e, Applesoft and ProDOS are trademarks of Apple Inc.,
+      registered in the U.S. and other countries. ApplesIDE is an independent
+      project: it is not affiliated with, authorized by, endorsed by, or in any
+      way connected to Apple Inc. This page is an affectionate pastiche of
+      Apple's own print advertising of the middle 1980s, and no part of it
+      should be mistaken for a communication from that company. Timings were
+      measured on an emulated //e at 1MHz with the program already in memory;
+      how much quicker your own program runs depends entirely on what it spends
+      its time doing.
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>
