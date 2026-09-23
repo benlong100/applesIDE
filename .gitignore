@@ -27,5 +27,7 @@ build/bench/
 # compile fixtures and not ours to redistribute.
 tests/cc/*.bas
 
-# mkbas.py imports detok from here, which leaves bytecode behind.
-tools/__pycache__/
+# Python bytecode, wherever it lands. Two of these were committed early on and
+# went out on a public repo's first day: machine-specific artefacts of one
+# interpreter version, which is nobody's idea of source.
+__pycache__/
