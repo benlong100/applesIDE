@@ -56,6 +56,15 @@ BIN     := $(BUILD)/$(LANGUP)-$(NAME)
 IMAGE   ?= $(BUILD)/APPLESIDE-$(LANGUP).po
 endif
 
+# UP HERE ON PURPOSE. `dist` lists $(CCBIN) among its prerequisites, and a :=
+# variable is expanded at the point the line is READ -- so while this sat two
+# hundred lines further down, `dist` expanded it to nothing and depended on
+# the compiler not at all. It still built an image, using whatever
+# ASIDECC.SYSTEM a previous `make cc` had left in build/, which is how a
+# fortnight-old compiler ends up on a disk that was just made. A clean tree
+# showed it by failing outright.
+CCBIN  := $(BUILD)/ASIDECC.SYSTEM
+
 .PHONY: cctest ccbench cc bench all disk run screen clean tools eject help card test dist
 
 all: $(BIN)
@@ -143,9 +152,8 @@ screen:
 # --- the compiler -------------------------------------------------------
 # A separate program on the same disk, so the editor stays what it is for
 # somebody who only wants an editor. Built from its own source; nothing in
-# src/cc is put into the editor.
-CCBIN  := $(BUILD)/ASIDECC.SYSTEM
-
+# src/cc is put into the editor. CCBIN itself is defined up with BIN, because
+# `dist` names it and := is expanded where it is read.
 $(CCBIN): $(wildcard src/cc/*.S) | $(BUILD)
 	@python3 $(TOOLS)/dumcheck.py src/cc
 	@python3 $(TOOLS)/scopecheck.py src/cc
