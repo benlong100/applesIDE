@@ -234,6 +234,13 @@ a { color: inherit; }
   text-align: center;
   text-wrap: pretty;
 }
+/* The one that introduces the table rather than footnoting it. Nested italic
+   renders upright, which is exactly the emphasis wanted on "same". */
+.caption.lead {
+  margin-top: clamp(1.75rem, 4vw, 2.5rem);
+  font-size: 1.02rem;
+  max-width: 62ch;
+}
 
 /* --- the measurements -------------------------------------------------- */
 .bench {
@@ -546,52 +553,44 @@ a { color: inherit; }
   <h1 class="headline">Eleven times faster. Same program.</h1>
 
   <p class="deck">An Applesoft editor for the Enhanced Apple&nbsp;//e — and a
-     compiler for what you write in it. Free, and the two of them fit on one
-     disk.</p>
+     compiler for what you write in it. Fully integrated and completely free.</p>
 
   <hr class="rule">
 
   <div class="copy">
     <div class="col">
-      <p>Applesoft came with an editor. It was the line number. You typed
+      <p>Applesoft came with an editor – it was the line number. You typed
         <code>140</code> again and the old line 140 went away, and when you
-        wanted to see what you had written you typed <code>LIST</code> and
-        watched it go past.</p>
-      <p>ApplesIDE puts the program on the screen, all of it at once, which is
-        how every other computer had been doing it for about a decade.</p>
-      <p>It knows the language it is holding. Keywords draw inverse as you
-        type — all ninety-eight of them — and not the ones inside a string or
+        wanted to see what you had written, you typed <code>LIST</code> and
+        watched line 140 go past.</p>
+      <p>ApplesIDE gives you a full editor, just like any modern IDE. Jump a word at a time. Go to a specific line number. Search for any text. Everything you expect from a real editor.</p><p>Applesoft keywords  inverse as you
+        type — all ninety-eight of them — but not the ones inside a string or
         after a <code>REM</code>, which are words and not instructions. Press
-        Return and the next line number is waiting. Press <code>?</code> and
-        you get <code>PRINT</code>, exactly as Applesoft itself reads it.</p>
+        Return and the next line number appears. Press <code>?</code> and
+        you get <code>PRINT</code>, exactly as Applesoft itself reads it. During all of that, the real-time hint line tells you the exact syntax of the current keyword.</p>
     </div>
 
     <div class="col">
-      <p>The body of a <code>FOR</code> loop is indented. Applesoft throws away
-        every space outside a string, so there is nothing to indent with and
-        nothing stored: the editor works the nesting out and draws it. Open an
-        old program and it arrives laid out, whoever typed it.</p>
+      <p>Open any existing Applesoft program and you'll see it with highlighted keywords, indented <code>FOR</code> loops, and all of ApplesIDE's other features. All the special
+      formatting is calculated in real-time, not stored in the file.</p>
       <p><code>Open-Apple-R</code> renumbers by ten and takes every
         <code>GOTO</code>, <code>GOSUB</code>, <code>THEN</code> and
-        <code>RUN</code> with it. If a reference is already broken it says so
+        <code>RUN</code> with it. If a reference is already broken, ApplesIDE says so
         and changes nothing, because a renumber that half works is worse than
-        no renumber at all. <code>Open-Apple-K</code> checks the same targets
-        without touching a thing.</p>
-      <p>A long line scrolls sideways rather than wrapping. Breaking a line in
+        no renumber at all.</p>
+      <p>A long line scrolls sideways rather than wrapping. Because breaking a line in
         BASIC does not reformat the program, it changes it.</p>
+        <p>When you're ready to try it out, <code>Ctrl-R</code> saves your file, drops you
+        into BASIC and runs your code. Relaunch the editor and your code loads automatically.</p>
     </div>
 
     <div class="col">
-      <p>And then there is the other program on the disk.</p>
-      <p>The compiler reads the tokenised file the editor saves and writes a
-        binary you <code>BRUN</code>. On a 1MHz&nbsp;//e the benchmark programs
-        come out between five and twelve times quicker, with the same answers
-        to the last digit.</p>
-      <p>The same answers is not a claim, it is the test. Seventy-one programs
-        run twice on a real machine — once through Applesoft, once compiled —
-        and the two screens compared. What the compiler cannot do it refuses by
+      <p>When you're ready to try it faster, Open-Apple-B saves your code and passes it to the ApplesIDE compiler, which reads the tokenised file and writes a
+        binary you can <code>BRUN</code>.</p>
+        <p> On a 1MHz&nbsp;//e, you should see a speed-up of five to twelve times, with output that is the same to the last digit.</p>
+      <p>What the compiler cannot do, it refuses by
         name and line number, rather than compiling something that runs and
-        quietly gives you the wrong answer.</p>
+        quietly gives you the wrong answer. If the compile fails, your code is automatically re-opened in the editor. If it succeeds, you're dropped into BASIC, and ready to <code>BRUN.</code></p>
       <p>Your authorized Apple dealer will not be able to help you with any of
         this. There is, instead, a download button.</p>
     </div>
@@ -615,10 +614,7 @@ a { color: inherit; }
     <figure class="plate">
       <img src="assets/help2.jpg" width="1400" height="968" loading="lazy"
            alt="ApplesIDE's help screen, page two: Files, Editing, Search, and a section headed IN STRINGS describing the caret convention.">
-      <figcaption><b>Files, finding, and one convention.</b> A string can hold
-        a control character the keyboard will not type: <code>^D</code> inside
-        quotes is saved as a real Ctrl-D, which is how an Applesoft program
-        talks to&nbsp;DOS.</figcaption>
+      <figcaption><b>Files, finding, and strings.</b> A string can hold control characters – just put <code>^</code> in front of them. <code>^d</code> to issue DOS commands, <code>^h</code> to backspace, and so on. </figcaption>
     </figure>
   </div>
 
@@ -650,28 +646,37 @@ PRESS A KEY
   <p class="caption">Twenty lines of Applesoft in, 2,232 bytes of 6502 out, and
     it puts you back at the prompt where you started.</p>
 
+  <p class="caption lead">All four of these run the <i>same</i> three lines of
+    arithmetic, three thousand times over. Nothing about the sum changes. The
+    only difference is what surrounds the loop — and in Applesoft, what
+    surrounds a loop is what makes it slow.</p>
+
   <table class="bench">
     <caption>Measured on the machine at 1MHz, both sides timed the same way.</caption>
     <thead>
       <tr>
-        <th scope="col">Benchmark</th>
+        <th scope="col">The same loop&hellip;</th>
         <th scope="col" class="drop">Applesoft</th>
         <th scope="col" class="drop">Compiled</th>
         <th scope="col">Quicker by</th>
       </tr>
     </thead>
     <tbody>
-      <tr><th scope="row">The loop alone</th><td class="drop">33.79s</td><td class="drop">6.04s</td><td class="win">5.6&times;</td></tr>
-      <tr><th scope="row">200 lines before the target</th><td class="drop">66.73s</td><td class="drop">6.03s</td><td class="win">11.1&times;</td></tr>
-      <tr><th scope="row">30 variables before its two</th><td class="drop">38.78s</td><td class="drop">6.11s</td><td class="win">6.3&times;</td></tr>
-      <tr><th scope="row">Both, as a real program has</th><td class="drop">71.48s</td><td class="drop">6.13s</td><td class="win">11.7&times;</td></tr>
+      <tr><th scope="row">on its own, at the top of the program</th><td class="drop">33.79s</td><td class="drop">6.04s</td><td class="win">5.6&times;</td></tr>
+      <tr><th scope="row">with 200 lines sitting in front of it</th><td class="drop">66.73s</td><td class="drop">6.03s</td><td class="win">11.1&times;</td></tr>
+      <tr><th scope="row">with 30 other variables used before it</th><td class="drop">38.78s</td><td class="drop">6.11s</td><td class="win">6.3&times;</td></tr>
+      <tr><th scope="row">with both, as a real program has</th><td class="drop">71.48s</td><td class="drop">6.13s</td><td class="win">11.7&times;</td></tr>
     </tbody>
   </table>
 
-  <p class="caption">The compiled times barely move across the four. That is
-    the whole point: what differs between those programs is Applesoft hunting
-    for a line and scanning for a variable, and compiling does not reduce that
-    work — it removes it.</p>
+  <p class="caption">Applesoft finds a line by walking the program from the
+    beginning, and finds a variable by scanning its table from the beginning.
+    So the same loop takes twice as long simply for being further down a longer
+    program, having done not one sum more.</p>
+
+  <p class="caption">Look down the compiled column instead: 6.04, 6.03, 6.11,
+    6.13. It barely moves. Compiling does not make that searching quicker — it
+    does away with it, and a line number becomes an address.</p>
 
   <hr class="rule">
 
@@ -734,7 +739,7 @@ PRESS A KEY
     <a class="sibling" href="https://trompingmarmots.com/AppSites/ZipEdit/index.html">
       <h3>ZipEdit</h3>
       <p class="platform">Apple //e &amp; ][+ &middot; Free</p>
-      <p class="blurb">The Markdown editor this one is built on. Eighty columns
+      <p class="blurb">The Markdown editor ApplesIDE is built on. Eighty columns
         of green text, a cursor, and a status line — and it writes an ordinary
         text file with only the line breaks you actually typed.</p>
       <span class="more">Have a look</span>
