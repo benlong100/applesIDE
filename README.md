@@ -10,7 +10,7 @@ stays light for somebody who only wants an editor.
     make          assemble src/aside.S
     make disk     bootable ProDOS 8 image at build/APPLESIDE.po
     make run      build and boot it in Virtual ][
-    make test     run the regression suite (141 assertions)
+    make test     run the regression suite (155 assertions)
     make dist     an image to give away: adds BASIC.SYSTEM, the compiler
                   and a README
     make card VOL=NAME   copy the image to an SD card
