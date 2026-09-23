@@ -2798,12 +2798,17 @@ after those two labels. A label with nothing after it reads as a compiler that
 gave up in the middle of the line rather than one that found none of that
 thing. `PANEL` seeds every row with a zero now.
 
-### What could not be established
+### The one thing the emulator could not show
 
-**Whether the counts visibly tick.** They must -- the hooks are at the five
-`inc` sites -- but no screenshot proves it: the emulator compiles 162 lines in
-under two seconds and this build of Virtual ][ rejects `speed 1` and
-`speed normal` both, so there is no way from the command line to slow it to
-the 1MHz where it would be watchable. Everything else here was checked on the
-machine. That one is reasoned from where the code sits, and wants an eye on
-real hardware.
+**Whether the counts visibly tick.** They had to -- the hooks are at the five
+`inc` sites -- but nothing here could photograph it. The emulator compiles 162
+lines in under two seconds, and this build of Virtual ][ rejects `speed 1` and
+`speed normal` both, so there was no way from the command line to slow it to
+the 1MHz where it would be watchable.
+
+**Confirmed on a real //e: they tick.** Which is the whole argument for owning
+the hardware. Every timing in this document was measured at 1MHz for the same
+reason -- `vii.sh` runs the emulator at `maximum` and every performance
+problem in this project has therefore been invisible to it. A machine that is
+too fast cannot tell you what a program feels like, and feel was the entire
+point of this change.
