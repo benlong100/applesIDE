@@ -571,9 +571,10 @@ a { color: inherit; }
         watched line 140 go past.</p>
       <p>ApplesIDE gives you a full editor, just like any modern IDE. Jump a word at a time. Go to a specific line number. Search for any text. Everything you expect from a real editor.</p><p>Applesoft keywords  inverse as you
         type — all ninety-eight of them — but not the ones inside a string or
-        after a <code>REM</code>, which are words and not instructions. Press
+        after a <code>REM</code>. Press
         Return and the next line number appears. Press <code>?</code> and
-        you get <code>PRINT</code>, exactly as Applesoft itself reads it. During all of that, the real-time hint line tells you the exact syntax of the current keyword.</p>
+        you get <code>PRINT</code>, just as you do in Applesoft. During all of that, the real-time hint line tells you the exact syntax of the current keyword.</p>
+        <p>ApplesIDE is 100% pure assembly language, so it's fast and responsive.</p>
     </div>
 
     <div class="col">
@@ -632,30 +633,30 @@ a { color: inherit; }
     tea.</p>
 
   <div class="terminal">
-<pre>]<span class="dim">-ASIDECC.SYSTEM</span>
-
-        ApplesIDE BASIC Compiler
-
+<pre>        ApplesIDE BASIC Compiler
 COMPILE WHICH FILE?  MANDELBROT
-LINES: 20
-VARIABLES: 11
-STRINGS: 1
-ARRAYS: 1
-CONSTANTS: 13
+
+LINES:      20
+VARIABLES:  11
+STRINGS:    1
+ARRAYS:     1
+CONSTANTS:  13
+
 WROTE CMANDELBROT, 2232
 
-PRESS A KEY
-
-]<span class="dim">BRUN CMANDELBROT</span><span class="cursor"></span></pre>
+PRESS A KEY  --  L LISTS WHAT IT FOUND<span class="cursor"></span></pre>
   </div>
 
-  <p class="caption">Twenty lines of Applesoft in, 2,232 bytes of 6502 out, and
-    it puts you back at the prompt where you started.</p>
+  <p class="caption">The counts go up where they stand as it reads your
+    program, so what you watch is the thing being read rather than a listing
+    scrolling past. Twenty lines of Applesoft in, 2,232 bytes of 6502 out —
+    and <b>L</b> shows every variable, its address, and every constant it
+    found, if you ever want to see the working.</p>
 
-  <p class="caption lead">All four of these run the <i>same</i> three lines of
-    arithmetic, three thousand times over. Nothing about the sum changes. The
+  <p class="caption lead">The chart below shows the result of running the same three lines of
+    arithmetic three thousand times, in four different ways. Nothing about the sum changes. The
     only difference is what surrounds the loop — and in Applesoft, what
-    surrounds a loop is what makes it slow.</p>
+    surrounds determines how fast it will be.</p>
 
   <table class="bench">
     <caption>Measured on the machine at 1MHz, both sides timed the same way.</caption>
@@ -671,18 +672,18 @@ PRESS A KEY
       <tr><th scope="row">on its own, at the top of the program</th><td class="drop">33.79s</td><td class="drop">6.04s</td><td class="win">5.6&times;</td></tr>
       <tr><th scope="row">with 200 lines sitting in front of it</th><td class="drop">66.73s</td><td class="drop">6.03s</td><td class="win">11.1&times;</td></tr>
       <tr><th scope="row">with 30 other variables used before it</th><td class="drop">38.78s</td><td class="drop">6.11s</td><td class="win">6.3&times;</td></tr>
-      <tr><th scope="row">with both, as a real program has</th><td class="drop">71.48s</td><td class="drop">6.13s</td><td class="win">11.7&times;</td></tr>
+      <tr><th scope="row">with both</th><td class="drop">71.48s</td><td class="drop">6.13s</td><td class="win">11.7&times;</td></tr>
     </tbody>
   </table>
 
   <p class="caption">Applesoft finds a line by walking the program from the
     beginning, and finds a variable by scanning its table from the beginning.
     So the same loop takes twice as long simply for being further down a longer
-    program, having done not one sum more.</p>
+    program.</p>
 
-  <p class="caption">Look down the compiled column instead: 6.04, 6.03, 6.11,
-    6.13. It barely moves. Compiling does not make that searching quicker — it
-    does away with it, and a line number becomes an address.</p>
+  <p class="caption">Look down the compiled column: 6.04, 6.03, 6.11,
+    6.13. It barely moves. Compiling does not make that walking and scanning quicker, it
+    does away with it. With less to do, your code executes faster.</p>
 
   <hr class="rule">
 
@@ -711,7 +712,7 @@ PRESS A KEY
     <div class="step"><p>In an emulator, mount <code>APPLESIDE.po</code> in
       drive&nbsp;1 and boot it. On real hardware, write it to a 5.25-inch disk
       or drop it on the card your Floppy&nbsp;Emu or CFFA3000 reads.</p></div>
-    <div class="step"><p>Press any key at the splash screen and start typing.
+    <div class="step"><p>Press any key at the splash screen, type your first line number, then start coding.
       <code>Open-Apple-?</code> shows you everything else.</p></div>
     <div class="step"><p>To see what the fuss is about, open
       <code>MANDELBROT</code> with <code>Open-Apple-O</code>, run it with
