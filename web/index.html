@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ApplesIDE</title>
-<meta name="description" content="An Applesoft editor for the Enhanced Apple //e, and a compiler for what you write in it. Five to twelve times faster, same answers. Free, and both fit on one disk.">
+<meta name="description" content="An Applesoft editor for the Enhanced Apple //e — and a compiler for what you write in it. Fully integrated and completely free.">
 <meta property="og:title" content="ApplesIDE">
-<meta property="og:description" content="An Applesoft editor for the Enhanced Apple //e, and a compiler for what you write in it. Five to twelve times faster, same answers. Free, and both fit on one disk.">
+<meta property="og:description" content="An Applesoft editor for the Enhanced Apple //e — and a compiler for what you write in it. Fully integrated and completely free.">
 <meta property="og:image" content="assets/editor.jpg">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
@@ -119,6 +119,11 @@ a { color: inherit; }
   transform-origin: center;
 }
 
+/* The deck breaks where the sentence does, with authored <br>s, which is how
+   the ads this is imitating set theirs. `balance` was tried first and cannot
+   do it: it optimises for even line lengths, so it put "in it" on the third
+   line rather than ending the second with it. The breaks fall at clause
+   boundaries, so a narrow screen wrapping further still reads correctly. */
 .deck {
   margin: 1.1rem auto 0;
   max-width: 48ch;
@@ -126,7 +131,7 @@ a { color: inherit; }
   font-style: italic;
   font-size: clamp(1.05rem, 2.1vw, 1.3rem);
   color: var(--ink-soft);
-  text-wrap: balance;
+  text-wrap: pretty;
 }
 
 .rule {
@@ -552,8 +557,9 @@ a { color: inherit; }
 
   <h1 class="headline">Two things Applesoft never gave you.</h1>
 
-  <p class="deck">An Applesoft editor for the Enhanced Apple&nbsp;//e — and a
-     compiler for what you write in it. Fully integrated and completely free.</p>
+  <p class="deck">An Applesoft editor for the Enhanced Apple&nbsp;//e<br>
+     — and a compiler for what you write in it.<br>
+     Fully integrated and completely free.</p>
 
   <hr class="rule">
 
