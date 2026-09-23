@@ -45,6 +45,13 @@ STRPTR       equ   $08              ; 2 bytes, a message being printed
 TMPP         equ   $1a              ; 2 bytes, a table entry being reached
 DBUFP        equ   $1c              ; 2 more, for reaching into the DATA buffer
 COUT         equ   $FDED
+*--- THE CURSOR, so the panel can be written where it already is rather than
+*    printed again. CH and CV are the 40-column firmware's, which is the mode
+*    this program has always assumed -- its banner is centred for forty.
+*    NOT named CH here: pass 1 has a variable of that name already.
+SCRCH        equ   $24              ; cursor column
+SCRCV        equ   $25              ; cursor row
+TABV         equ   $fb5b            ; recompute the line base from SCRCV
 HANDOFF      equ   $0380            ; where the editor leaves a name for us
 HANDMAGIC    equ   $cc              ; and how we know it meant to
 HOME         equ   $FC58
@@ -116,20 +123,15 @@ START        lda   #$00
              jmp   FINISH
 :ok
 
+*--- THE PANEL GOES UP BEFORE PASS 1 RUNS, not after it. The counts are put
+*    where they stand as pass 1 finds things, so what you watch is the
+*    program being read rather than a listing going past.
+             jsr   PRCR             ; one row of air under the prompt
+             jsr   PANEL
              jsr   PASS1
              jsr   PICKORG          ; after pass 1 has seen every token, and
              jsr   LAYOUT           ; before LAYOUT fixes a single address
-
-             lda   #<MSGLINES
-             ldy   #>MSGLINES
-             jsr   PRSTR
-             lda   NLINES
-             sta   WORD
-             lda   NLINES+1
-             sta   WORD+1
-             jsr   PRWORD
-             jsr   PRCR
-             jsr   REPORT
+             jsr   PANEND           ; and everything after it prints below
 
 *--- Nothing is generated from a program pass 1 already objected to. A
 *    compiler that carried on would write a file that ran and gave a wrong
@@ -232,6 +234,19 @@ FINISH       lda   #<MSGKEY
              bpl   :key
              sta   $c010
 
+*--- L LISTS WHAT IT FOUND. The panel says how many of each; this is the one
+*    of each, by name and address, and every constant. Pass 1's tables are
+*    still standing -- passes 2 and 3 read them to resolve addresses and
+*    nothing takes them down -- so the detail is still there to print, and
+*    costs nothing to anybody who does not ask for it.
+             and   #$df             ; fold case: l and L both fold to $CC
+             cmp   #'L'+$80         ; the keyboard's byte has bit 7 set
+             bne   :out
+             jsr   PRCR
+             jsr   REPORT
+             jmp   FINISH           ; and offer the key again
+:out
+
 *--- BACK WHERE IT CAME FROM, if the editor sent us and the program was
 *    refused: that is when the next thing wanted is the line the complaint
 *    named. After a compile that worked, what is wanted is the ] prompt to
@@ -331,6 +346,166 @@ RDWORD       jsr   RDBYTE
              rts
 :no          sec
              rts
+
+*--------------------------------------
+* PANEL -- the five counts, written where they stand
+*
+* WHAT THIS REPLACES. The report used to print every variable with its
+* address and every constant on a line of its own, so a program of any size
+* scrolled its own listing off the top and what you actually watched was a
+* column of numbers going past. The counts are the part anybody reads; the
+* listing is the part you want twice a year, and it is on L at the end.
+*
+* THE LABELS ARE PRINTED ONCE and the numbers are put at column twelve of the
+* rows they are already on, so a count going up rewrites four characters
+* rather than scrolling a screen. PANROW remembers where the first of them
+* landed, because the prompt above it is a different length every time.
+*
+* NO PADDING, AND NONE NEEDED: a count only ever goes up, so a number can
+* never be shorter than the one it overwrites.
+*--------------------------------------
+PANEL        lda   SCRCV
+             sta   PANROW
+             ldx   #$00
+:loop        txa
+             pha
+             lda   PANTAB,x
+             ldy   PANTAB+1,x
+             jsr   PRSTR
+             jsr   PRCR
+             pla
+             tax
+             inx
+             inx
+             cpx   #PANTABE-PANTAB
+             bcc   :loop
+
+*--- AND A ZERO IN EVERY ONE OF THEM. A count that never moves is never
+*    written by the hooks, so STRINGS and ARRAYS sat blank on a program that
+*    had neither -- which reads as a compiler that gave up on the line rather
+*    than one that found none.
+             ldx   #$00
+:zero        lda   #$00
+             sta   WORD
+             sta   WORD+1
+             txa
+             pha
+             jsr   STATAT
+             pla
+             tax
+             inx
+             cpx   #PANROWS
+             bcc   :zero
+             rts
+
+PANTAB       da    MSGLINES
+             da    MSGVARS
+             da    MSGSTRS
+             da    MSGARRS
+             da    MSGCONST
+PANTABE
+
+*--------------------------------------
+* STATAT -- put WORD at column twelve of panel row A
+*
+* Registers are NOT free here. These are called from the middle of pass 1,
+* two of them from a path that carries on afterwards rather than returning,
+* so everything is put back. The wrappers below save; this and STATOUT are
+* the shared halves.
+*--------------------------------------
+STATAT       clc
+             adc   PANROW
+             sta   SCRCV
+             jsr   TABV
+             lda   #$0c
+             sta   SCRCH
+             jmp   PRWORD
+
+STATOUT      pla
+             tay
+             pla
+             tax
+             pla
+             rts
+
+*--- one per count, each saving what it uses. The row is its place in PANTAB.
+STLINES      pha
+             txa
+             pha
+             tya
+             pha
+             lda   NLINES
+             sta   WORD
+             lda   NLINES+1
+             sta   WORD+1
+             lda   #$00
+             jsr   STATAT
+             jmp   STATOUT
+
+STVARS       pha
+             txa
+             pha
+             tya
+             pha
+             lda   NVARS
+             sta   WORD
+             lda   #$00
+             sta   WORD+1
+             lda   #$01
+             jsr   STATAT
+             jmp   STATOUT
+
+STSTRS       pha
+             txa
+             pha
+             tya
+             pha
+             lda   NSVARS
+             sta   WORD
+             lda   #$00
+             sta   WORD+1
+             lda   #$02
+             jsr   STATAT
+             jmp   STATOUT
+
+STARRS       pha
+             txa
+             pha
+             tya
+             pha
+             lda   NARR
+             sta   WORD
+             lda   #$00
+             sta   WORD+1
+             lda   #$03
+             jsr   STATAT
+             jmp   STATOUT
+
+STCONS       pha
+             txa
+             pha
+             tya
+             pha
+             lda   NCONST
+             sta   WORD
+             lda   #$00
+             sta   WORD+1
+             lda   #$04
+             jsr   STATAT
+             jmp   STATOUT
+
+*--- BELOW THE PANEL, for everything that prints in the ordinary way after it
+*    -- the result, a complaint, the peeks warning. One row of air.
+PANEND       lda   PANROW
+             clc
+             adc   #PANROWS+1
+             sta   SCRCV
+             jsr   TABV
+             lda   #$00
+             sta   SCRCH
+             rts
+
+PANROWS      equ   5
 
 *--------------------------------------
 * Output. Decimal, because a compiler that reports line numbers in hex is
@@ -1091,7 +1266,7 @@ MSGSRC       asc   "COMPILE WHICH FILE? "
 *    full of counts and addresses, and against all of that it was being read
 *    as one more line of the report rather than as the prompt it is.
 MSGKEY       dfb   $8d
-             asc   "PRESS A KEY"
+             asc   "PRESS A KEY  --  L LISTS WHAT IT FOUND"
              dfb   $8d,$00
 MSGLINES     asc   "LINES: "
              dfb   $00
@@ -1108,6 +1283,7 @@ ISINT        ds    1                ; the source was an Integer BASIC file
 FROMED       ds    1                ; the editor handed us the name, so go back
 TMPA         ds    1
 LOWN         ds    1
+PANROW       ds    1                ; the screen row the panel's first line is on
 OUTNAME      ds    17
              dend
 

@@ -2736,3 +2736,74 @@ has made here, and it was not worth making for 3.7%.
 So `ONERR` stays refused by name and line, as `STATEMENT NOT YET`, which is
 the truth. If somebody complains, the survey above says what a useful version
 would need: the jump, and `PEEK(222)`. Not the line number.
+
+## The report stopped scrolling
+
+The compiler used to print, as it went, every variable with its address and
+every constant on a line of its own. On anything but a toy program that meant
+the report scrolled its own beginning off the top, and what you actually
+watched was a column of numbers going past. It looked busy. It told you
+nothing you could read.
+
+**The counts are the part anybody reads.** So they go up in fixed places now,
+rewritten where they stand as pass 1 finds things:
+
+    COMPILE WHICH FILE?  MANDELBROT
+
+    LINES:      20
+    VARIABLES:  11
+    STRINGS:    1
+    ARRAYS:     1
+    CONSTANTS:  13
+
+    WROTE CMANDELBROT, 2232
+
+    PRESS A KEY  --  L LISTS WHAT IT FOUND
+
+`PANEL` prints the labels once and remembers the row the first of them landed
+on, because the prompt above it is a different length every time. Five hooks,
+one at each `inc` in pass 1, put their count at column twelve of their own row
+through `TABV` and `CH`. **No padding, and none needed**: a count only ever
+goes up, so a number can never be shorter than the one it overwrites.
+
+**The registers are not free at those hooks.** They are called from the middle
+of pass 1, and two of them -- arrays and string arrays -- sit on a path that
+carries on with `jmp :size` rather than returning. Each wrapper saves A, X and
+Y and puts them back. This project has twice been bitten by a routine that
+clobbered X on a path nobody checked, and the cost of not repeating it is six
+bytes a wrapper.
+
+### L, because the listing was worth keeping
+
+The detail is not gone, it is on request: `L` at the finish prompt prints the
+whole of it and offers the key again. That works because **pass 1's tables are
+still standing** -- passes 2 and 3 read them to resolve addresses and nothing
+takes them down before `FINISH` -- so the detail is still there to print and
+costs nothing at all to anybody who does not ask.
+
+It earned the 400-odd bytes it takes up. The constants listing is what showed
+that a constant of 1 was being reported as 1.00526344, which was a fault in
+the report rather than in the compiled program, and would not have been found
+any other way.
+
+### Two faults, one caught before the machine and one after
+
+`cmp #'L'` compares against `$4C`, and `lda $c000` hands back high ASCII. **The
+key would never have matched.** Caught reading the diff rather than by testing,
+which is the only reason it did not cost a round trip.
+
+**STRINGS and ARRAYS rendered blank** on a program that had neither. Their
+counters never increment, so the hooks never fire, so nothing is ever written
+after those two labels. A label with nothing after it reads as a compiler that
+gave up in the middle of the line rather than one that found none of that
+thing. `PANEL` seeds every row with a zero now.
+
+### What could not be established
+
+**Whether the counts visibly tick.** They must -- the hooks are at the five
+`inc` sites -- but no screenshot proves it: the emulator compiles 162 lines in
+under two seconds and this build of Virtual ][ rejects `speed 1` and
+`speed normal` both, so there is no way from the command line to slow it to
+the 1MHz where it would be watchable. Everything else here was checked on the
+machine. That one is reasoned from where the code sits, and wants an eye on
+real hardware.

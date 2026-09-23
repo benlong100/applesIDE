@@ -1359,6 +1359,7 @@ SVARADD      lda   #$00
              lda   VN1
              sta   SVTAB+1,x
              inc   NSVARS
+             jsr   STSTRS
 :done        rts
 
 *--------------------------------------
@@ -1477,6 +1478,7 @@ ARRADD       lda   #$00
              lda   VN1
              sta   (TMPP),y
              inc   NARR
+             jsr   STARRS
              jmp   :size
 
 *--- Already known. A DIM says how big it is and replaces whatever was there;
@@ -1937,7 +1939,8 @@ LTADD        lda   NLINES+1
              inc   NLINES
              bne   :ok
              inc   NLINES+1
-:ok          rts
+:ok          jsr   STLINES
+             rts
 
 *--- TMPP <- LTAB + 4 * NLINES
 LTSLOT       lda   NLINES
@@ -1989,6 +1992,7 @@ VARADD       lda   #$00
              lda   VN1
              sta   VTAB+1,x
              inc   NVARS
+             jsr   STVARS
 :done        rts
 
 *--------------------------------------
@@ -2027,6 +2031,7 @@ CONSTADD     lda   #$00
              dey
              bpl   :put
              inc   NCONST
+             jsr   STCONS
              rts
 
 *--------------------------------------

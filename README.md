@@ -80,14 +80,25 @@ the project and the one component deliberately deferred.
 Applesoft file and writes a binary you can `BRUN`.
 
 ```
-]-ASIDECC.SYSTEM
-COMPILE WHICH FILE? MYPROG
-...
-WROTE CMYPROG, 289
+        ApplesIDE BASIC Compiler
+COMPILE WHICH FILE?  MANDELBROT
+
+LINES:      20
+VARIABLES:  11
+STRINGS:    1
+ARRAYS:     1
+CONSTANTS:  13
+
+WROTE CMANDELBROT, 2232
+
+PRESS A KEY  --  L LISTS WHAT IT FOUND
 ```
 
-and then puts you back at the `]` prompt, because that is where you want to be
-after compiling something.
+The counts go up where they stand as pass 1 reads the program, so what you
+watch is the thing being read. `L` prints the detail behind them — every
+variable with its address, every constant — for the twice-a-year when you want
+it. Any other key puts you back at the `]` prompt, because that is where you
+want to be after compiling something.
 
 Measured on the machine at 1MHz, the same five programs `make bench` uses:
 
