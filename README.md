@@ -157,7 +157,7 @@ a bare `SAVE` writes the BASIC program to tape, and a compiled program has
 none to write.
 
 Every one of these is checked against the interpreter rather than against a
-table of what Applesoft is supposed to do. `tests/cc.sh` runs 69 programs
+table of what Applesoft is supposed to do. `tests/cc.sh` runs 71 programs
 twice on the machine — once interpreted, once compiled — and compares what
 came out; `make cctest` is the whole suite.
 
@@ -166,6 +166,70 @@ string is 128 bytes where it used to be 1,104.
 
 `docs/compiler.md` has the design, what was established on the machine rather
 than recalled, and the measurements.
+
+## Short lines, now that there is a compiler
+
+Open almost any Applesoft program written in the 1980s and you will find
+statements packed onto one line with colons:
+
+```
+100 CR = FN S(X) - 0.6:ZR = 0:ZI = 0:N = 0
+```
+
+That was not laziness. It bought two things that mattered on the machine:
+
+- **Speed.** Applesoft finds a line by walking the program from the beginning.
+  Every `GOTO`, `GOSUB` and `THEN` pays for every line in front of its target,
+  on every pass. Fewer lines, less walking.
+- **Memory.** A numbered line costs five bytes of overhead before it holds
+  anything — two for the link, two for the number, one terminator.
+
+**The compiler removes the first of those completely.** Not reduces —
+removes. From `make ccbench`, the same loop run three thousand times, with the
+program around it changed and nothing else:
+
+| the same loop… | Applesoft | compiled |
+|---|---|---|
+| on its own, at the top | 33.79s | 6.04s |
+| with 200 lines in front of it | 66.73s | 6.03s |
+| with 30 other variables first | 38.78s | 6.11s |
+| with both | 71.48s | 6.13s |
+
+The interpreted column doubles for a program doing not one sum more. **The
+compiled column does not move**: 6.04, 6.03, 6.11, 6.13. A line number becomes
+an address while it compiles, and the line table is gone by the time the
+program runs. Searching is not made quicker; it stops happening.
+
+The second cost is five bytes a line against 46K of program space — real, and
+not worth a thought until you are near the end of the disk.
+
+**So write one statement per line.** The editor is already built for it:
+Return supplies the next number, inserting between two lines takes the
+midpoint, and `OA-R` renumbers by ten and drags every `GOTO`, `GOSUB`, `THEN`
+and `RUN` along with it. Nothing about the old habit is worth keeping for
+code you are writing today.
+
+Two limits worth knowing before you go too far the other way:
+
+- **512 lines** is the compiler's table (`LTMAX`). The real programs used to
+  test it run 27 to 80 lines, so unpacking one three or four times over is
+  nowhere near it — but the ceiling is there.
+- **`Ctrl-R` runs interpreted.** The penalty does not vanish, it moves to the
+  edit-and-try loop, which is the part you repeat most. `OA-B` compiles
+  instead when that starts to matter.
+
+### The sample on the disk breaks this rule
+
+`MANDELBROT` packs its statements with colons, and it is meant to. It was
+written to fit twenty lines on one screen, so that the whole program could be
+read at once and photographed in one piece. Unpacked it runs to about
+twenty-six lines and overflows the screen it was built for.
+
+Which is the actual rule, stated properly: **know what you are packing for.**
+Old programs packed for speed and memory, and the compiler has answered the
+first and made the second trivial. The sample packs to fit a screen, which no
+compiler can help with — and is a perfectly good reason, as long as it is the
+reason you actually have.
 
 ## Running what you have written
 
