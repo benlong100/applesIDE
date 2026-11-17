@@ -115,6 +115,7 @@ MAINLOOP     jsr   SCROLLFIX
              sta   FASTDRAW
              sta   PARTIAL
              sta   SCRLOST
+             sta   EDITED
              lda   CURLNO
              sta   OLDLINE
              lda   CURLNO+1
@@ -199,6 +200,15 @@ MAINLOOP     jsr   SCROLLFIX
              lda   SCRLOST          ; something painted over the text area
              bne   :notmove
 
+*--- The gap's size alone cannot prove the text unchanged: an edit that swaps
+*    bytes one for one leaves it exactly as it was. ZipEdit's reflow did, and
+*    OA-R walked the cursor to the paragraph's end with the old text left on
+*    screen. Nothing here does that today -- renumbering 10 to 20 keeps the
+*    length too, but always ends on a message -- so this guards the next
+*    command rather than fixing a present one. EDITED is set wherever the
+*    buffer is written.
+             lda   EDITED           ; anything written to the buffer?
+             bne   :notmove
              lda   GAPEND           ; the buffer itself unchanged?
              sec
              sbc   GAPBEG
@@ -407,6 +417,10 @@ RINNUM       ds    1                ; RENDER: still inside that digit run
 *    again quietly.
              dum   $1450
 OLDGAP       ds    2                ; gap size before the keystroke
+             dend
+
+             dum   $14e1            ; $14bf-$14e0 is keyboard.S's ring
+EDITED       ds    1                ; this keystroke wrote to the buffer
              dend
 
 *--------------------------------------

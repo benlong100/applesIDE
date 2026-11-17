@@ -1120,6 +1120,45 @@ fi
 fi
 
 #--------------------------------------
+# Selection. Both ends are inclusive: the cursor is a block sitting ON a
+# character, so a selection painted up to it takes that character too --
+# except a line break, which cutting would use to join two lines. Ported from
+# ZipEdit, where it came from a contributor (#3). The first check is the one
+# that caught RENDER reading the buffer through a half-set AUXPTR: latching
+# selection mode must leave the text drawn, not a row of E.
+#--------------------------------------
+if section "selection"; then
+reboot
+t '100 PRINT 12345'
+"$VII" ctrl A >/dev/null; "$VII" settle 2 >/dev/null
+for i in 1 2 3 4; do "$VII" key "right arrow" >/dev/null; done; "$VII" settle 2 >/dev/null
+"$VII" oa " " >/dev/null; "$VII" settle 3 >/dev/null
+snapshot
+assert_row "latching selection leaves the text drawn"  0 "100 PRINT 12345"
+for i in 1 2 3 4; do "$VII" key "right arrow" >/dev/null; done; "$VII" settle 2 >/dev/null
+oa "X"
+snapshot
+assert_row "a cut takes the character under the cursor" 0 "100  12345"
+
+reboot
+t '100 HOME'
+numbered 4 '200 END'
+"$VII" key "up arrow" >/dev/null; "$VII" settle 2 >/dev/null
+"$VII" ctrl A >/dev/null; "$VII" settle 2 >/dev/null
+for i in 1 2 3 4; do "$VII" key "right arrow" >/dev/null; done; "$VII" settle 2 >/dev/null
+"$VII" oa " " >/dev/null; "$VII" settle 2 >/dev/null
+for i in 1 2 3 4; do "$VII" key "right arrow" >/dev/null; done; "$VII" settle 2 >/dev/null
+oa "X"
+snapshot
+assert_row "but not the line break it sits on"         1 "200 END"
+if [ -n "$(row 0 | grep END)" ]; then
+    bad "so the two lines stay apart" "row 0: $(row 0)"
+else
+    ok "so the two lines stay apart"
+fi
+fi
+
+#--------------------------------------
 if section "go to line"; then
 reboot
 t '100 HOME'

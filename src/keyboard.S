@@ -7,8 +7,8 @@
 * afterwards, or a fast typist outruns them.
 *
 * The Tab / Ctrl-I collision: the //e keyboard encoder maps both to $89 and
-* software cannot tell them apart. So $89 is dispatched positionally -- indent
-* when the cursor sits in a line's leading whitespace, italic anywhere else.
+* software cannot tell them apart. Applesoft has no italic, so $89 only ever
+* indents, and only in a line's leading whitespace -- see KTAB.
 *--------------------------------------
 
 *--------------------------------------
@@ -521,12 +521,13 @@ INLEAD       lda   GAPBEG
              rts
 
 *--------------------------------------
-* KTABITAL -- $89 is both Tab and Ctrl-I. Indent in leading whitespace,
-*             italic anywhere else.
+* KTAB -- $89, Tab or Ctrl-I: indent two spaces in a line's leading
+*         whitespace, and nothing anywhere else. ZipEdit made it italic away
+*         from the indent, and Applesoft has no italic.
 *--------------------------------------
-KTABITAL     jsr   INLEAD
+KTAB         jsr   INLEAD
              bcs   :indent
-             jmp   KITALIC          ; too far for a relative branch
+             rts
 *--- indent two spaces
 :indent      lda   #$a0
              jsr   INSCHR
@@ -551,14 +552,6 @@ KBACKTICK    jsr   DELSEL           ; typing replaces the selection
              jsr   INSCHR
              jsr   FASTOK           ; one row, like any other typed character
              jmp   WRAPCHECK
-
-*--------------------------------------
-* KBOLD / KITALIC -- wrap the cursor in emphasis markers and sit between them
-*
-* Word-aware wrapping comes with the editing-operations work; for now this
-* inserts the markers and leaves the cursor in the middle, which is what you
-* want when reaching for emphasis before typing the word.
-*--------------------------------------
 
 *--- $14b6-$14be is wrap.S's RTFAST scratch
              dum   $14bf

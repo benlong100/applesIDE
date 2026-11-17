@@ -23,11 +23,6 @@
 *                   goto.S and clip.S define them. Nor are KDELEOL and
 *                   KDELWORD -- ops.S and keyboard.S do those.)
 *
-*   from ZipEdit's edit_ops.S -- Markdown, and NOT wanted
-* KBOLD KITALIC     emphasis. There is no such thing in Applesoft. These
-*                   stubs exist only because the shared keymaps still name
-*                   them, and they go when the keymaps are rewritten.
-*
 *   from ZipEdit's wrap.S -- deliberately absent
 * WRAPCHECK         hard wrap on entry, which is the one thing a BASIC editor
 *                   must never do: breaking a line changes the program. Kept
@@ -38,12 +33,6 @@
 *--- These are bound to keys, so pressing one and getting silence is
 *    indistinguishable from a bug -- which the header above predicted and
 *    real hardware confirmed. They say so now.
-*--- Markdown emphasis, which Applesoft has no notion of. Silent on purpose:
-*    these are not "not yet", they are "never", and they go when the keymaps
-*    are rewritten for this machine rather than inherited from ZipEdit.
-KBOLD
-KITALIC      rts
-
 *--- not a stub so much as a decision: see above. Called on every keystroke,
 *    so it must stay silent.
 WRAPCHECK    rts

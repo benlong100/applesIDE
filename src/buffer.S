@@ -89,6 +89,7 @@ INSCHR       pha
              jsr   PUTAUX
              ldx   #$01             ; mark dirty via X: A still holds the byte
              stx   MODFLAG
+             stx   EDITED           ; and this keystroke as an edit
              cmp   #TEXTLO          ; inserting any break moves us down a line
              bcs   :samel
              inc   CURLNO
@@ -134,6 +135,7 @@ DELBACK      jsr   ATSTART
              rts                    ; carry still set: nothing to delete
 :ok          lda   #$01
              sta   MODFLAG
+             sta   EDITED
              jsr   PEEKBACK         ; what are we about to remove?
              cmp   #TEXTLO
              bcs   :samel
@@ -167,6 +169,7 @@ DELFWD       jsr   ATEND
              rts
 :ok          lda   #$01
              sta   MODFLAG
+             sta   EDITED
              inc   GAPEND
              bne   :done
              inc   GAPEND+1
@@ -284,7 +287,6 @@ GAPLQ        jsr   ATSTART
 * at line 1. See the note in main.S.
 *--------------------------------------
 RENDER       lda   #$00
-             sta   AUXPTR
              sta   CURROW
              sta   CURCOL
              sta   CURSROW
@@ -302,7 +304,11 @@ RENDER       lda   #$00
              lda   SELACT
              beq   :nosel
              jsr   SELBOUNDS
-:nosel
+*--- AUXPTR only after SELBOUNDS, whose SELEND reads the buffer through it.
+*    Zeroed before the call, the low byte came back as GAPEND's and the walk
+*    drew the gap's $E5 poison as a line of E. Found in ZipEdit (#3).
+:nosel       lda   #$00
+             sta   AUXPTR
              lda   #BUFLO
              sta   AUXPTR+1
 
