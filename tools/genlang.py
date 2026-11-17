@@ -169,7 +169,11 @@ def main(argv):
             else:
                 out.append(f"{label} dfb   ${val:02x}")
             label = " " * 12
-        out.append(f"{' ' * 12} dfb   $00")
+        # An empty string is only this line, so it has to carry the label --
+        # left blank, the name was never defined and the build failed on the
+        # first reference. Found in ZipEdit, whose Slovenian word count has
+        # empty tails; no English string here is empty yet.
+        out.append(f"{label} dfb   $00")
         if key == "UNTITLED":
             # display.S draws the placeholder from a length rather than from
             # the terminator, so the length is a property of the string and
