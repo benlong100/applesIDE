@@ -107,7 +107,7 @@ MSGUNSV40 = " Save first?  S save  D discard  Esc"
 # ------------------------------------------------------------------ the splash
 # The program's name is not translated.
 SPLNAME = "ApplesIDE"
-SPLVER = "Version 0.1"
+SPLVER = "Version 1.0.1"
 SPLDATE = "an Applesoft editor"
 SPLGO = "press any key to begin"
 

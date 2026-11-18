@@ -10,7 +10,7 @@
 # and probe targets are not here because there is nothing to release yet, and a
 # target that has never been run is worse than no target at all.
 
-VERSION := 0.1
+VERSION := 1.0.1
 
 # Which language it speaks. Same machinery as ZipEdit: every word lives in
 # lang/<code>.txt and tools/genlang.py turns it into src/lang.S on every build.
